@@ -1,0 +1,973 @@
+package main
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// sized returns a model laid out for the given terminal dimensions.
+func sized(w, h int) model {
+	m, _ := newModel().Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return m.(model)
+}
+
+// withProcs builds a model from repos and one process per given directory.
+func withProcs(w, h int, projects []Project, dirs []string) model {
+	procs := make([]Proc, len(dirs))
+	for i, d := range dirs {
+		procs[i] = Proc{PID: 100 + i, PPID: 1, Command: "proc", Dir: d}
+	}
+	return withProcList(w, h, projects, procs)
+}
+
+// withProcList builds a model showing every repository. The narrowed view is
+// the default in the app, so tests that want it call narrowed().
+func withProcList(w, h int, projects []Project, procs []Proc) model {
+	m := sized(w, h)
+	m.showAll = true
+	m.projects, m.procs = projects, procs
+	m.rebuild()
+	return m
+}
+
+// narrowed flips the model to the running-only view, as Update does.
+func narrowed(m model) model {
+	m.showAll = false
+	m.rebuild()
+	return m
+}
+
+// press sends a key and returns the resulting model.
+func press(m model, key string) model {
+	var msg tea.KeyMsg
+	switch key {
+	case "up":
+		msg = tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		msg = tea.KeyMsg{Type: tea.KeyDown}
+	default:
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+	}
+	next, _ := m.Update(msg)
+	return next.(model)
+}
+
+// splitRow cuts a body row into its navigator and detail halves at the pane
+// divider, which sits at a fixed column. It cannot search for "│": the process
+// tree draws the same rune as a continuation rule.
+func splitRow(row string) (nav, detail string) {
+	r := []rune(row)
+	if len(r) <= navWidth {
+		return row, ""
+	}
+	return string(r[:navWidth]), string(r[navWidth+1:])
+}
+
+// bodyRows returns the rows between the header and the footer.
+func bodyRows(m model) []string {
+	all := strings.Split(m.View(), "\n")
+	if len(all) < 3 {
+		return nil
+	}
+	out := make([]string, 0, len(all)-2)
+	for _, ln := range all[1 : len(all)-1] {
+		out = append(out, stripANSI(ln))
+	}
+	return out
+}
+
+// navColumn returns the non-blank navigator rows alone.
+func navColumn(m model) []string {
+	var out []string
+	for _, row := range bodyRows(m) {
+		nav, _ := splitRow(row)
+		if nav = strings.TrimRight(nav, " "); strings.TrimSpace(nav) != "" {
+			out = append(out, nav)
+		}
+	}
+	return out
+}
+
+// detailColumn returns the non-blank detail rows alone.
+func detailColumn(m model) []string {
+	var out []string
+	for _, row := range bodyRows(m) {
+		_, detail := splitRow(row)
+		if detail = strings.TrimRight(detail, " "); strings.TrimSpace(detail) != "" {
+			out = append(out, detail)
+		}
+	}
+	return out
+}
+
+func wantRows(t *testing.T, got, want []string) {
+	t.Helper()
+	for i, w := range want {
+		if i >= len(got) || !strings.HasPrefix(got[i], w) {
+			t.Fatalf("row %d = %q, want prefix %q\nfull:\n%s", i, lineAt(got, i), w, strings.Join(got, "\n"))
+		}
+	}
+}
+
+func lineAt(ls []string, i int) string {
+	if i < len(ls) {
+		return ls[i]
+	}
+	return "<missing>"
+}
+
+// --- layout ---------------------------------------------------------------
+
+func TestViewPutsScrnInTopLeft(t *testing.T) {
+	lines := strings.Split(sized(80, 24).View(), "\n")
+	if got := len(lines); got != 24 {
+		t.Fatalf("view height = %d lines, want 24", got)
+	}
+	if !strings.HasPrefix(stripANSI(lines[0]), "scrn") {
+		t.Errorf("first line = %q, want it to start with %q", lines[0], "scrn")
+	}
+}
+
+func TestNavPaneOccupiesItsColumn(t *testing.T) {
+	lines := strings.Split(sized(80, 24).View(), "\n")
+	for i := 1; i < len(lines)-1; i++ {
+		row := stripANSI(lines[i])
+		if got := strings.Index(row, "│"); got != navWidth {
+			t.Fatalf("row %d: divider at column %d, want %d (row %q)", i, got, navWidth, row)
+		}
+	}
+}
+
+func TestDetailPaneDroppedWhenTooNarrow(t *testing.T) {
+	view := stripANSI(sized(navMin-1, 24).View())
+	if strings.Contains(view, "│") {
+		t.Errorf("detail pane drawn below %d columns:\n%s", navMin, view)
+	}
+}
+
+func TestViewFitsShortTerminals(t *testing.T) {
+	for _, h := range []int{0, 1, 2, 3} {
+		got := len(strings.Split(sized(80, h).View(), "\n"))
+		if got > 3 && got > h {
+			t.Errorf("height %d: view = %d lines, overflows", h, got)
+		}
+	}
+}
+
+// --- navigator contents ---------------------------------------------------
+
+func TestNavListsRepoNames(t *testing.T) {
+	m := withProcList(80, 8, []Project{{Name: "alpha"}, {Name: "beta"}}, nil)
+	wantRows(t, navColumn(m), []string{"▸alpha", " beta"})
+}
+
+func TestNavTruncatesLongNames(t *testing.T) {
+	m := withProcList(80, 8, []Project{{Name: strings.Repeat("x", 100)}}, nil)
+	if got := len([]rune(navColumn(m)[0])); got > navWidth {
+		t.Errorf("row is %d columns wide, want at most %d", got, navWidth)
+	}
+}
+
+func TestQualifiedNamesKeepTheirRepoName(t *testing.T) {
+	m := withProcList(80, 8,
+		[]Project{{Name: "w0zro/archive/checklists.org/checklists-api"}}, nil)
+
+	row := navColumn(m)[0]
+	if !strings.Contains(row, "checklists-api") {
+		t.Errorf("row = %q, want the repo name to survive truncation", row)
+	}
+	if got := len([]rune(row)); got > navWidth {
+		t.Errorf("row is %d columns, want at most %d: %q", got, navWidth, row)
+	}
+}
+
+func TestNavShowsScanError(t *testing.T) {
+	m := sized(80, 6)
+	m.err = errors.New("boom")
+	if !strings.Contains(strings.Join(navColumn(m), " "), "boom") {
+		t.Errorf("scan errors should be visible:\n%s", strings.Join(navColumn(m), "\n"))
+	}
+}
+
+func TestNavShowsEmptyProjectsDir(t *testing.T) {
+	m := withProcList(80, 6, []Project{}, nil)
+	if !strings.Contains(strings.Join(navColumn(m), " "), "no repositories") {
+		t.Error("an empty projects dir should say so")
+	}
+}
+
+// --- process trees --------------------------------------------------------
+
+func TestNavNestsProcessesUnderTheirRepo(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
+			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
+		},
+	)
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   └─ claude 20", "     └─ go 30"})
+}
+
+func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
+		},
+	)
+	wantRows(t, navColumn(m), []string{
+		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ └─ fmt 40", "   └─ go 30",
+	})
+}
+
+func TestProcessesGoUnderTheInnermostRepo(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "outer", Path: "/p/outer"}, {Name: "inner", Path: "/p/outer/inner"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/outer/inner/src"}},
+	)
+	if n := len(m.byRepo["/p/outer"]); n != 0 {
+		t.Errorf("outer repo got %d processes, want 0; the nested repo owns it", n)
+	}
+	if n := len(m.byRepo["/p/outer/inner"]); n != 1 {
+		t.Errorf("inner repo got %d processes, want 1", n)
+	}
+}
+
+// --- the "a" toggle -------------------------------------------------------
+
+func TestNavStartsNarrowedToRunningRepos(t *testing.T) {
+	if newModel().showAll {
+		t.Error("scrn should open on the repositories with something running")
+	}
+
+	m := sized(80, 10)
+	m.projects = []Project{{Name: "busy", Path: "/p/busy"}, {Name: "idle", Path: "/p/idle"}}
+	m.procs = []Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/busy"}}
+	m.rebuild()
+
+	col := strings.Join(navColumn(m), "\n")
+	if !strings.Contains(col, "busy") {
+		t.Errorf("a repo with a process should be listed at startup:\n%s", col)
+	}
+	if strings.Contains(col, "idle") {
+		t.Errorf("an idle repo should not be listed at startup:\n%s", col)
+	}
+}
+
+func TestNarrowedShowsOnlyReposWithProcesses(t *testing.T) {
+	m := narrowed(withProcs(80, 10,
+		[]Project{
+			{Name: "busy", Path: "/p/busy"},
+			{Name: "idle", Path: "/p/idle"},
+			{Name: "nested", Path: "/p/nested"},
+		},
+		[]string{"/p/busy", "/p/nested/cmd/x", "/elsewhere"},
+	))
+
+	col := strings.Join(navColumn(m), "\n")
+	if !strings.Contains(col, "busy") || !strings.Contains(col, "nested") {
+		t.Errorf("repos with processes should be listed:\n%s", col)
+	}
+	if strings.Contains(col, "idle") {
+		t.Errorf("a repo with nothing running should be hidden:\n%s", col)
+	}
+}
+
+func TestShowAllIncludesIdleRepos(t *testing.T) {
+	m := withProcs(80, 8,
+		[]Project{{Name: "busy", Path: "/p/busy"}, {Name: "idle", Path: "/p/idle"}},
+		[]string{"/p/busy"},
+	)
+	if !strings.Contains(strings.Join(navColumn(m), "\n"), "idle") {
+		t.Error("showing all should include idle repos")
+	}
+}
+
+func TestNarrowedWithNothingRunningExplainsItself(t *testing.T) {
+	m := narrowed(withProcs(80, 8, []Project{{Name: "idle", Path: "/p/idle"}}, nil))
+
+	col := strings.Join(navColumn(m), "\n")
+	if !strings.Contains(col, "nothing running") {
+		t.Errorf("an empty narrowed list should say why:\n%s", col)
+	}
+	if !strings.Contains(col, "show all") {
+		t.Errorf("an empty narrowed list should say how to get back:\n%s", col)
+	}
+}
+
+func TestAToggleRoundTrips(t *testing.T) {
+	// Starts narrowed, as the app does.
+	m := narrowed(withProcs(80, 8,
+		[]Project{{Name: "busy", Path: "/p/busy"}, {Name: "idle", Path: "/p/idle"}},
+		[]string{"/p/busy"},
+	))
+
+	m = press(m, "a")
+	if !strings.Contains(strings.Join(navColumn(m), "\n"), "idle") {
+		t.Error("a should bring every repo into the list")
+	}
+	m = press(m, "a")
+	if strings.Contains(strings.Join(navColumn(m), "\n"), "idle") {
+		t.Error("a should narrow back to running repos")
+	}
+}
+
+func TestNarrowingRescansProcesses(t *testing.T) {
+	wide := sized(80, 8)
+	wide.showAll = true
+
+	_, cmd := wide.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if cmd == nil {
+		t.Error("narrowing should rescan processes so the list is current")
+	}
+}
+
+func TestFooterAdvertisesTheToggle(t *testing.T) {
+	m := sized(80, 8)
+	if !strings.Contains(stripANSI(m.View()), "a all") {
+		t.Error("footer should offer to show all while narrowed, which is the default")
+	}
+	if !strings.Contains(stripANSI(press(m, "a").View()), "a running") {
+		t.Error("footer should offer the running-only view once showing all")
+	}
+}
+
+func TestProcScanFailureKeepsRepoList(t *testing.T) {
+	m := withProcs(80, 8, []Project{{Name: "alpha", Path: "/p/alpha"}}, []string{"/p/alpha"})
+	next, _ := m.Update(procsMsg{err: errors.New("lsof exploded")})
+	if !strings.Contains(strings.Join(navColumn(next.(model)), "\n"), "alpha") {
+		t.Error("a failed process scan should not blank the repo list")
+	}
+}
+
+// --- cursor ---------------------------------------------------------------
+
+func threeRepos(h int) model {
+	return withProcList(80, h, []Project{
+		{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}, {Name: "c", Path: "/p/c"},
+	}, nil)
+}
+
+func TestCursorStartsOnTheFirstRow(t *testing.T) {
+	if c := threeRepos(10).cursor; c != 0 {
+		t.Errorf("cursor = %d, want 0", c)
+	}
+}
+
+func TestCursorMovesWithArrowsAndJK(t *testing.T) {
+	for _, key := range []string{"down", "j", "tab"} {
+		if c := press(threeRepos(10), key).cursor; c != 1 {
+			t.Errorf("%q moved cursor to %d, want 1", key, c)
+		}
+	}
+	for _, key := range []string{"up", "k"} {
+		m := press(press(threeRepos(10), "down"), key)
+		if m.cursor != 0 {
+			t.Errorf("%q moved cursor to %d, want 0", key, m.cursor)
+		}
+	}
+}
+
+func TestCursorCyclesAtBothEnds(t *testing.T) {
+	m := threeRepos(10)
+	if c := press(m, "up").cursor; c != 2 {
+		t.Errorf("up from the top went to %d, want 2 (wraps to the end)", c)
+	}
+
+	m = press(press(press(m, "down"), "down"), "down")
+	if m.cursor != 0 {
+		t.Errorf("down past the end went to %d, want 0 (wraps to the top)", m.cursor)
+	}
+}
+
+func TestCursorWalksProcessesToo(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}},
+	)
+	m = press(m, "down")
+
+	r, ok := m.selected()
+	if !ok || r.kind != rowProc || r.node.PID != 10 {
+		t.Errorf("selected = %+v, want the process row", r)
+	}
+	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10"})
+}
+
+func TestCursorOnEmptyListDoesNotPanic(t *testing.T) {
+	m := withProcList(80, 8, nil, nil)
+	press(press(m, "down"), "up") // must not panic
+}
+
+// --- scrolling ------------------------------------------------------------
+
+func manyRepos(n, h int) model {
+	ps := make([]Project, n)
+	for i := range ps {
+		ps[i] = Project{Name: string(rune('a' + i)), Path: "/p/" + string(rune('a'+i))}
+	}
+	return withProcList(80, h, ps, nil)
+}
+
+func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
+	m := manyRepos(10, 5) // 3 body rows
+	for i := 0; i < 3; i++ {
+		m = press(m, "down")
+	}
+
+	if m.offset != 1 {
+		t.Errorf("offset = %d, want 1; the window should follow the cursor by one row", m.offset)
+	}
+	wantRows(t, navColumn(m), []string{" b", " c", "▸d"})
+}
+
+func TestScrollKeepsCursorVisibleAfterWrap(t *testing.T) {
+	m := press(manyRepos(10, 5), "up") // wraps to the last row
+
+	col := navColumn(m)
+	if !strings.HasPrefix(col[len(col)-1], "▸j") {
+		t.Errorf("after wrapping to the end the cursor should be on screen:\n%s", strings.Join(col, "\n"))
+	}
+}
+
+func TestScrollStopsAtTheLastRow(t *testing.T) {
+	m := manyRepos(10, 5)
+	for i := 0; i < 9; i++ {
+		m = press(m, "down")
+	}
+	if want := len(m.rows) - m.bodyHeight(); m.offset != want {
+		t.Errorf("offset = %d, want %d; the window should not scroll past the end", m.offset, want)
+	}
+}
+
+// --- detail pane ----------------------------------------------------------
+
+func TestDetailPaneDescribesTheSelectedRepo(t *testing.T) {
+	m := withProcList(80, 12, []Project{{Name: "alpha", Path: "/p/alpha"}}, nil)
+	m.details[detailKey(m.rows[0])] = []field{{"name", "alpha"}, {"path", "/p/alpha"}}
+
+	col := strings.Join(detailColumn(m), "\n")
+	if !strings.Contains(col, "alpha") || !strings.Contains(col, "/p/alpha") {
+		t.Errorf("detail pane should describe the selection:\n%s", col)
+	}
+}
+
+func TestDetailPaneFollowsTheCursor(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}},
+	)
+	m.details[detailKey(m.rows[0])] = []field{{"name", "scrn"}}
+	m.details[detailKey(m.rows[1])] = []field{{"command", "zsh"}}
+
+	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "scrn") {
+		t.Error("detail should describe the repo while the repo is selected")
+	}
+	m = press(m, "down")
+	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "zsh") {
+		t.Error("detail should describe the process once the cursor moves onto it")
+	}
+}
+
+func TestDetailPaneSaysWhenItIsStillLoading(t *testing.T) {
+	m := withProcList(80, 12, []Project{{Name: "alpha", Path: "/p/alpha"}}, nil)
+	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "loading") {
+		t.Error("an uninspected row should say it is loading rather than look empty")
+	}
+}
+
+func TestMovingRequestsDetailForTheNewRow(t *testing.T) {
+	m := threeRepos(10)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd == nil {
+		t.Error("moving the cursor should request details for the newly selected row")
+	}
+}
+
+func TestDetailIsNotRefetchedWhenCached(t *testing.T) {
+	m := threeRepos(10)
+	m.details[detailKey(m.rows[1])] = []field{{"name", "b"}}
+
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown}); cmd != nil {
+		t.Error("a row already inspected should not be inspected again")
+	}
+}
+
+func TestStaleDetailKeysAreIgnored(t *testing.T) {
+	m := threeRepos(10)
+	next, _ := m.Update(detailMsg{key: "repo:/p/gone", fields: []field{{"name", "gone"}}})
+
+	if strings.Contains(strings.Join(detailColumn(next.(model)), "\n"), "gone") {
+		t.Error("a detail result for another row should not be shown for this one")
+	}
+}
+
+func TestCursorKeepsItsSubjectAcrossRescans(t *testing.T) {
+	m := threeRepos(10)
+	m = press(press(m, "down"), "down") // on "c"
+
+	// A rescan that reorders the list should keep the cursor on "c".
+	next, _ := m.Update(projectsMsg{projects: []Project{
+		{Name: "new", Path: "/p/new"},
+		{Name: "a", Path: "/p/a"},
+		{Name: "b", Path: "/p/b"},
+		{Name: "c", Path: "/p/c"},
+	}})
+
+	r, _ := next.(model).selected()
+	if r.project.Path != "/p/c" {
+		t.Errorf("cursor landed on %q after a rescan, want /p/c", r.project.Path)
+	}
+}
+
+// --- helpers --------------------------------------------------------------
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && !isANSITerm(s[i]) {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isANSITerm(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// --- collapsing -----------------------------------------------------------
+
+// nestedTree is one repo with zsh → (vim → fmt, go).
+func nestedTree(h int) model {
+	return withProcList(80, h,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
+		},
+	)
+}
+
+func TestSpaceCollapsesAProcessNode(t *testing.T) {
+	m := nestedTree(12)
+	wantRows(t, navColumn(m), []string{
+		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ └─ fmt 40", "   └─ go 30",
+	})
+
+	// Move onto vim and fold it.
+	m = press(press(press(m, "down"), "down"), " ")
+	wantRows(t, navColumn(m), []string{
+		" scrn", " └─ zsh 10", "▸  ├─ vim 20 +1", "   └─ go 30",
+	})
+}
+
+func TestSpaceCollapsesARepo(t *testing.T) {
+	m := press(nestedTree(12), " ")
+
+	col := navColumn(m)
+	wantRows(t, col, []string{"▸scrn +4"})
+	if len(col) != 1 {
+		t.Errorf("a collapsed repo should hide its whole tree, got:\n%s", strings.Join(col, "\n"))
+	}
+}
+
+func TestSpaceUnfoldsAgain(t *testing.T) {
+	m := nestedTree(12)
+	folded := press(m, " ")
+	unfolded := press(folded, " ")
+
+	if len(navColumn(unfolded)) != len(navColumn(m)) {
+		t.Errorf("space should restore the tree:\n%s", strings.Join(navColumn(unfolded), "\n"))
+	}
+}
+
+func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
+	// zsh hides vim, go and fmt.
+	m := press(press(nestedTree(12), "down"), " ")
+	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10 +3"})
+}
+
+func TestSpaceOnALeafDoesNothing(t *testing.T) {
+	m := nestedTree(12)
+	for i := 0; i < 4; i++ {
+		m = press(m, "down") // onto "go 30", a leaf
+	}
+	before := navColumn(m)
+
+	m = press(m, " ")
+	if got := navColumn(m); len(got) != len(before) {
+		t.Errorf("space on a leaf changed the tree:\n%s", strings.Join(got, "\n"))
+	}
+	if strings.Contains(strings.Join(navColumn(m), ""), "+0") {
+		t.Error("a leaf should not be marked as hiding anything")
+	}
+}
+
+func TestSpaceOnARepoWithNoProcessesDoesNothing(t *testing.T) {
+	m := withProcList(80, 8, []Project{{Name: "idle", Path: "/p/idle"}}, nil)
+	m = press(m, " ")
+	wantRows(t, navColumn(m), []string{"▸idle"})
+	if strings.Contains(navColumn(m)[0], "+") {
+		t.Error("an idle repo should not be marked as hiding anything")
+	}
+}
+
+func TestCursorSkipsFoldedChildren(t *testing.T) {
+	// Fold zsh, then step down: the next row is the next repo, not a child.
+	m := withProcList(80, 12,
+		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/a"},
+			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/a"},
+		},
+	)
+	m = press(press(m, "down"), " ") // on zsh, folded
+	m = press(m, "down")
+
+	r, _ := m.selected()
+	if r.kind != rowProject || r.project.Name != "b" {
+		t.Errorf("cursor landed on %+v, want the next repo", r)
+	}
+}
+
+func TestCollapseSurvivesARescan(t *testing.T) {
+	m := press(nestedTree(12), " ") // repo folded
+	next, _ := m.Update(procsMsg{procs: m.procs})
+
+	if got := navColumn(next.(model)); len(got) != 1 {
+		t.Errorf("a rescan should not unfold the tree:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestFooterAdvertisesCollapse(t *testing.T) {
+	if !strings.Contains(stripANSI(sized(80, 8).View()), "space collapse") {
+		t.Error("footer should mention the collapse key")
+	}
+}
+
+func TestCollapsedRowStaysInItsColumn(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: strings.Repeat("x", 60), Path: "/p/x"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/x"}},
+	)
+	m = press(m, " ")
+
+	if got := len([]rune(navColumn(m)[0])); got > navWidth {
+		t.Errorf("collapsed row is %d columns, want at most %d: %q", got, navWidth, navColumn(m)[0])
+	}
+}
+
+// --- killing --------------------------------------------------------------
+
+func footer(m model) string {
+	all := strings.Split(m.View(), "\n")
+	return stripANSI(all[len(all)-1])
+}
+
+func TestXAsksBeforeKilling(t *testing.T) {
+	m := press(nestedTree(12), "down") // onto zsh 10
+	m = press(m, "x")
+
+	if m.pendingKill == nil || m.pendingKill.PID != 10 {
+		t.Fatalf("pendingKill = %v, want the selected process", m.pendingKill)
+	}
+	if f := footer(m); !strings.Contains(f, "kill zsh 10?") {
+		t.Errorf("footer = %q, want it to ask before killing", f)
+	}
+}
+
+func TestXDoesNotKillOnItsOwn(t *testing.T) {
+	m := press(nestedTree(12), "down")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if cmd != nil {
+		t.Error("the first x should only arm the confirmation, not signal anything")
+	}
+}
+
+func TestConfirmingRunsTheKill(t *testing.T) {
+	m := press(press(nestedTree(12), "down"), "x")
+
+	for _, key := range []string{"x", "y", "enter"} {
+		var msg tea.KeyMsg
+		if key == "enter" {
+			msg = tea.KeyMsg{Type: tea.KeyEnter}
+		} else {
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		}
+		next, cmd := m.Update(msg)
+		if cmd == nil {
+			t.Errorf("%q should confirm the kill", key)
+		}
+		if next.(model).pendingKill != nil {
+			t.Errorf("%q should clear the pending kill", key)
+		}
+	}
+}
+
+func TestAnyOtherKeyCancelsTheKill(t *testing.T) {
+	armed := press(press(nestedTree(12), "down"), "x")
+
+	for _, key := range []string{"n", "esc", "j", "a", " "} {
+		var msg tea.KeyMsg
+		switch key {
+		case "esc":
+			msg = tea.KeyMsg{Type: tea.KeyEsc}
+		default:
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		}
+		next, cmd := armed.Update(msg)
+		m := next.(model)
+
+		if m.pendingKill != nil {
+			t.Errorf("%q left the kill armed", key)
+		}
+		if cmd != nil {
+			t.Errorf("%q signalled something instead of cancelling", key)
+		}
+		if !strings.Contains(footer(m), "cancelled") {
+			t.Errorf("%q should say the kill was cancelled, footer = %q", key, footer(m))
+		}
+	}
+}
+
+func TestCancellingKeysDoNotAlsoActOnTheList(t *testing.T) {
+	armed := press(press(nestedTree(12), "down"), "x")
+	cursorWas := armed.cursor
+
+	next, _ := armed.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if next.(model).cursor != cursorWas {
+		t.Error("the key that cancels a kill should not also move the cursor")
+	}
+}
+
+func TestQuitStillWorksWhileArmed(t *testing.T) {
+	// Cancelling is the priority, but the user must not be trapped: the next
+	// key after cancelling quits as usual.
+	armed := press(press(nestedTree(12), "down"), "x")
+	cancelled := press(armed, "q")
+	if _, cmd := cancelled.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}); cmd == nil {
+		t.Error("q should quit once the confirmation is cleared")
+	}
+}
+
+func TestXOnARepoSaysItIsNotKillable(t *testing.T) {
+	m := press(nestedTree(12), "x") // cursor is on the repo row
+
+	if m.pendingKill != nil {
+		t.Error("a repository should not arm a kill")
+	}
+	if f := footer(m); !strings.Contains(f, "select a process") {
+		t.Errorf("footer = %q, want it to explain why nothing happened", f)
+	}
+}
+
+func TestKillFailureIsReported(t *testing.T) {
+	m := nestedTree(12)
+	next, cmd := m.Update(killedMsg{command: "zsh", pid: 10, err: errors.New("not permitted")})
+
+	if f := footer(next.(model)); !strings.Contains(f, "not permitted") {
+		t.Errorf("footer = %q, want the failure reported", f)
+	}
+	if cmd != nil {
+		t.Error("a failed kill should not schedule a rescan")
+	}
+}
+
+func TestKillSuccessRescans(t *testing.T) {
+	m := nestedTree(12)
+	next, cmd := m.Update(killedMsg{command: "zsh", pid: 10})
+
+	if f := footer(next.(model)); !strings.Contains(f, "SIGTERM") {
+		t.Errorf("footer = %q, want it to report the signal", f)
+	}
+	if cmd == nil {
+		t.Error("a successful kill should refresh the process list")
+	}
+}
+
+func TestStatusClearsOnTheNextKey(t *testing.T) {
+	m := press(nestedTree(12), "x") // leaves the "select a process" status
+	if !strings.Contains(footer(m), "select a process") {
+		t.Fatal("expected a status to clear")
+	}
+
+	m = press(m, "down")
+	if strings.Contains(footer(m), "select a process") {
+		t.Errorf("status should clear once the cursor moves, footer = %q", footer(m))
+	}
+}
+
+func TestFooterAdvertisesKill(t *testing.T) {
+	if !strings.Contains(footer(sized(80, 8)), "x kill") {
+		t.Error("footer should mention the kill key")
+	}
+}
+
+// --- automatic refresh ----------------------------------------------------
+
+func TestTickRefreshesAndReschedulesItself(t *testing.T) {
+	m := nestedTree(12)
+	next, cmd := m.Update(tickMsg{})
+
+	if cmd == nil {
+		t.Fatal("a tick should rescan and schedule the next tick")
+	}
+	if next.(model).ticks != 1 {
+		t.Errorf("ticks = %d, want 1", next.(model).ticks)
+	}
+}
+
+func TestTickKeepsTicking(t *testing.T) {
+	var m tea.Model = nestedTree(12)
+	for i := 0; i < 3; i++ {
+		var cmd tea.Cmd
+		m, cmd = m.Update(tickMsg{})
+		if cmd == nil {
+			t.Fatalf("tick %d did not schedule a successor", i)
+		}
+	}
+	if got := m.(model).ticks; got != 3 {
+		t.Errorf("ticks = %d, want 3", got)
+	}
+}
+
+func TestProjectsAreRescannedLessOftenThanProcesses(t *testing.T) {
+	m := nestedTree(12)
+	m.ticks = projectEvery - 1
+
+	next, _ := m.Update(tickMsg{})
+	if next.(model).ticks%projectEvery != 0 {
+		t.Fatalf("expected this tick to be a project-scanning one, ticks = %d", next.(model).ticks)
+	}
+}
+
+func TestKilledProcessDisappearsOnTheNextScan(t *testing.T) {
+	m := nestedTree(12)
+	if len(m.rows) != 5 {
+		t.Fatalf("rows = %d, want 5 to start", len(m.rows))
+	}
+
+	// The same scan without pid 40, as if it had exited.
+	next, _ := m.Update(procsMsg{procs: []Proc{
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+	}})
+
+	col := strings.Join(navColumn(next.(model)), "\n")
+	if strings.Contains(col, "fmt 40") {
+		t.Errorf("an exited process should leave the tree:\n%s", col)
+	}
+}
+
+func TestCursorHoldsItsPlaceWhenTheSelectionExits(t *testing.T) {
+	m := nestedTree(12)
+	m = press(press(press(m, "down"), "down"), "down") // onto fmt 40, index 3
+
+	if r, _ := m.selected(); r.node == nil || r.node.PID != 40 {
+		t.Fatalf("setup: selected %+v, want pid 40", r)
+	}
+
+	next, _ := m.Update(procsMsg{procs: []Proc{
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+	}})
+
+	if c := next.(model).cursor; c == 0 {
+		t.Error("the cursor jumped to the top when its process exited; it should hold its place")
+	}
+}
+
+func TestCursorClampsWhenTheListShrinksPastIt(t *testing.T) {
+	m := nestedTree(12)
+	for i := 0; i < 4; i++ {
+		m = press(m, "down") // last row
+	}
+
+	next, _ := m.Update(procsMsg{procs: nil}) // every process gone
+	got := next.(model)
+
+	if got.cursor >= len(got.rows) {
+		t.Errorf("cursor %d is past the end of %d rows", got.cursor, len(got.rows))
+	}
+}
+
+func TestRefreshKeepsTheVisibleDetailCurrent(t *testing.T) {
+	m := nestedTree(12)
+	m.details[detailKey(m.rows[0])] = []field{{"name", "stale"}}
+
+	if cmd := m.refreshDetailCmd(); cmd == nil {
+		t.Error("the selected row should be re-inspected even when cached")
+	}
+}
+
+func TestRefreshDoesNotBlankTheDetailPane(t *testing.T) {
+	m := nestedTree(12)
+	m.details[detailKey(m.rows[0])] = []field{{"name", "scrn"}}
+
+	next, _ := m.Update(tickMsg{})
+	if strings.Contains(strings.Join(detailColumn(next.(model)), "\n"), "loading") {
+		t.Error("a refresh should keep showing the old value until the new one lands")
+	}
+}
+
+func TestStaleDetailsArePruned(t *testing.T) {
+	m := nestedTree(12)
+	m.details["proc:99999"] = []field{{"command", "long gone"}}
+	m.rebuild()
+
+	if _, ok := m.details["proc:99999"]; ok {
+		t.Error("details for rows no longer listed should be dropped")
+	}
+	if _, ok := m.details[detailKey(m.rows[0])]; !ok && len(m.details) > 0 {
+		t.Error("pruning should keep details for rows still listed")
+	}
+}
+
+func TestRefreshPreservesCollapsedNodes(t *testing.T) {
+	m := press(nestedTree(12), " ") // repo folded
+	next, _ := m.Update(tickMsg{})
+	next, _ = next.Update(procsMsg{procs: m.procs})
+
+	if got := navColumn(next.(model)); len(got) != 1 {
+		t.Errorf("an automatic refresh should not unfold the tree:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func TestRefreshDoesNotClearAStatusMessage(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killedMsg{command: "zsh", pid: 10})
+	next, _ = next.Update(tickMsg{})
+
+	if !strings.Contains(footer(next.(model)), "SIGTERM") {
+		t.Errorf("a background refresh should not wipe the last report, footer = %q", footer(next.(model)))
+	}
+}
+
+func TestRefreshDoesNotDisturbAPendingKill(t *testing.T) {
+	armed := press(press(nestedTree(12), "down"), "x")
+	next, _ := armed.Update(tickMsg{})
+
+	if next.(model).pendingKill == nil {
+		t.Error("a background refresh should not cancel a pending confirmation")
+	}
+	if !strings.Contains(footer(next.(model)), "kill zsh 10?") {
+		t.Error("the confirmation should stay on screen through a refresh")
+	}
+}

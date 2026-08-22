@@ -1,0 +1,81 @@
+package main
+
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+func TestSignalRefusesDangerousTargets(t *testing.T) {
+	for _, tc := range []struct {
+		pid  int
+		want string
+	}{
+		{0, "refusing"},
+		{1, "refusing"},
+		{os.Getpid(), "scrn itself"},
+	} {
+		err := signal(tc.pid)
+		if err == nil {
+			t.Fatalf("signal(%d) succeeded, want a refusal", tc.pid)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("signal(%d) = %q, want it to mention %q", tc.pid, err, tc.want)
+		}
+	}
+}
+
+func TestSignalReportsAMissingProcess(t *testing.T) {
+	// A process that has exited and been reaped.
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	err := signal(cmd.Process.Pid)
+	if err == nil || !strings.Contains(err.Error(), "already gone") {
+		t.Errorf("signal on a dead pid = %v, want %q", err, "already gone")
+	}
+}
+
+func TestSignalTerminatesARealProcess(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	if err := signal(pid); err != nil {
+		t.Fatalf("signal(%d) = %v, want it to terminate", pid, err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		var ee *exec.ExitError
+		if err == nil {
+			t.Fatal("process exited cleanly, want termination by signal")
+		}
+		if !asExitError(err, &ee) {
+			t.Fatalf("wait returned %v", err)
+		}
+		ws := ee.Sys().(syscall.WaitStatus)
+		if !ws.Signaled() || ws.Signal() != syscall.SIGTERM {
+			t.Errorf("exit status = %v, want termination by SIGTERM", ws)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("process did not exit after SIGTERM")
+	}
+}
+
+func asExitError(err error, target **exec.ExitError) bool {
+	ee, ok := err.(*exec.ExitError)
+	if ok {
+		*target = ee
+	}
+	return ok
+}
