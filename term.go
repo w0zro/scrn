@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/vt"
@@ -37,7 +39,16 @@ type terminal struct {
 	// output carries a signal that the emulator has changed and the pane
 	// should be redrawn. It is closed when the shell exits.
 	output chan struct{}
+
+	// done is closed once the process has been reaped, and closing guards the
+	// teardown: a shell ended by hand is torn down again when its output stops.
+	done    chan struct{}
+	closing sync.Once
 }
+
+// hangupGrace is how long a shell is given to act on losing its terminal
+// before it is killed outright.
+const hangupGrace = 2 * time.Second
 
 // termOutputMsg says a terminal has drawn something new.
 type termOutputMsg struct {
@@ -55,14 +66,6 @@ type termStartedMsg struct {
 	err  error
 }
 
-// openTerm starts a shell in dir on a pty of its own.
-func openTerm(dir string, width, height int) tea.Cmd {
-	return func() tea.Msg {
-		t, err := startTerm(dir, width, height)
-		return termStartedMsg{term: t, err: err}
-	}
-}
-
 // termMinWidth and termMinHeight stand in when a shell is opened before the
 // window size is known. A pty of no size makes the shell believe it is drawing
 // on nothing, which it will act on; the next resize corrects it.
@@ -71,7 +74,9 @@ const (
 	termMinHeight = 24
 )
 
-func startTerm(dir string, width, height int) (*terminal, error) {
+// startTerm runs command in dir on a pty of its own. An empty command means
+// the user's shell, which is what most of them are.
+func startTerm(dir, command string, width, height int) (*terminal, error) {
 	if width <= 0 {
 		width = termMinWidth
 	}
@@ -79,7 +84,13 @@ func startTerm(dir string, width, height int) (*terminal, error) {
 		height = termMinHeight
 	}
 
+	// Whatever is asked for is run under a shell, so that it is found on the
+	// PATH the user actually has rather than the one scrn inherited, and so a
+	// command that exits leaves the shell behind rather than the row vanishing.
 	c := exec.Command(shellCommand())
+	if command != "" {
+		c = exec.Command(shellCommand(), "-c", command+"; exec "+shellCommand())
+	}
 	c.Dir = dir
 	// TERM is what the shell and everything it runs will believe about the
 	// screen they are drawing on, so it has to describe the emulator here
@@ -98,7 +109,12 @@ func startTerm(dir string, width, height int) (*terminal, error) {
 		pty:    f,
 		vt:     vt.NewSafeEmulator(width, height),
 		output: make(chan struct{}, 1),
+		done:   make(chan struct{}),
 	}
+	go func() {
+		_ = c.Wait()
+		close(t.done)
+	}()
 	go t.pump()
 	go t.reply()
 	return t, nil
@@ -184,15 +200,28 @@ func (t *terminal) resize(width, height int) {
 	t.vt.Resize(width, height)
 }
 
-// close ends the shell and releases the pty. Closing the emulator is what
-// lets the goroutine waiting on its answers finish, rather than sitting on a
-// pipe nothing will ever write to again.
+// close ends the shell and releases the pty.
+//
+// Closing the pty is a hangup, which is what ending a shell actually looks
+// like: an interactive shell ignores SIGTERM by design, so signalling one does
+// nothing at all. Losing its terminal is the thing it listens to. Only a shell
+// that will not go even then is killed outright.
+//
+// Closing the emulator is what lets the goroutine waiting on its answers
+// finish, rather than sitting on a pipe nothing will ever write to again.
 func (t *terminal) close() {
-	_ = t.vt.Close()
-	_ = t.pty.Close()
-	if t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
-	}
+	t.closing.Do(func() {
+		_ = t.vt.Close()
+		_ = t.pty.Close()
+
+		select {
+		case <-t.done:
+		case <-time.After(hangupGrace):
+			if t.cmd.Process != nil {
+				_ = t.cmd.Process.Kill()
+			}
+		}
+	})
 }
 
 // lines is the emulator's screen, one string per row, ready to be drawn.

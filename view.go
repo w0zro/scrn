@@ -99,11 +99,11 @@ func (m model) renderHint() string {
 	}
 	// The keys matter more than the words for them, so a narrow window loses
 	// the wording rather than the last few bindings off the end.
-	full := "↑↓ move · n new shell · enter open · space collapse · x kill · X kill tree · " + all + " · q quit"
+	full := "↑↓ move · n shell · c claude · enter open · space collapse · x kill · X kill tree · " + all + " · q quit"
 	if lipgloss.Width(full) <= m.width {
 		return hintStyle.Render(full)
 	}
-	short := "↑↓ move · n shell · enter open · space fold · x kill · X tree · " + all + " · q quit"
+	short := "↑↓ move · n shell · c claude · enter open · space fold · x kill · X tree · " + all + " · q quit"
 	return hintStyle.Render(truncate(short, m.width))
 }
 

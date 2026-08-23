@@ -178,14 +178,16 @@ func (d *daemon) handle(cl *client, m message) {
 			cl.send(t.screenMsg())
 		}
 	case kindClose:
+		// Off this goroutine: a shell is given a moment to act on the hangup,
+		// and this client has other things to say in the meantime.
 		if t := d.session(m.PID); t != nil {
-			t.close()
+			go t.close()
 		}
 	}
 }
 
 func (d *daemon) open(cl *client, m message) {
-	t, err := startTerm(m.Dir, m.Width, m.Height)
+	t, err := startTerm(m.Dir, m.Run, m.Width, m.Height)
 	if err != nil {
 		cl.send(message{Kind: kindError, Err: err.Error()})
 		return

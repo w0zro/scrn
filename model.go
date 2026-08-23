@@ -79,9 +79,12 @@ type model struct {
 	err      error
 
 	// procs are the running processes; byRepo groups them under the repository
-	// they are working in, already arranged into parent/child trees.
+	// they are working in, already arranged into parent/child trees. parent
+	// maps a pid to the one that started it, which is how a process is traced
+	// back to the shell it is running inside.
 	procs  []Proc
 	byRepo map[string][]*ProcNode
+	parent map[int]int
 
 	// showAll toggles the navigator between every repository and only those
 	// with a process running in them. It starts off: the repositories with
@@ -316,7 +319,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.status, m.statusErr = "sent SIGTERM to "+msg.subject, false
+		m.status, m.statusErr = ended(msg.results)+msg.subject, false
 		if failed := len(msg.results) - signalled; failed > 0 {
 			// Part of a subtree going unsignalled is worth saying: the rest
 			// spins down and the survivors just sit there unexplained.
@@ -362,7 +365,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "x", "X", "y", "enter":
 				m.pendingKill = nil
-				return m, killTree(req)
+				return m, m.runKill(req)
 			default:
 				m.pendingKill = nil
 				m.status, m.statusErr = "kill cancelled", false
@@ -375,7 +378,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.openShell()
 		case "n":
-			return m, m.newShell()
+			return m, m.start("")
+		case "c":
+			// A Claude instance scrn owns, so it survives the window and can
+			// be stepped back into — unlike the ones it can only watch.
+			return m, m.start(claudeCommand)
 		case "x":
 			return m, m.askKill(false)
 		case "X":
@@ -433,16 +440,32 @@ func (m model) paneTerm() *remoteTerm {
 	return m.terms[r.node.PID]
 }
 
-// attachable reports whether enter can step into a row: a repository opens a
-// shell in itself, and a shell scrn started can be returned to. A process scrn
-// did not start is on a terminal it does not own, and no amount of asking will
-// change that.
+// attachable reports whether enter takes you somewhere. A repository opens a
+// shell in itself, and anything running inside a shell scrn holds can be
+// reached by attaching to that shell. Only a process on a terminal scrn does
+// not own is out of reach, and no amount of asking will change that.
 func (m model) attachable(r navRow) bool {
 	if r.kind == rowProject {
 		return true
 	}
-	_, mine := m.terms[r.node.PID]
-	return mine
+	return m.owningTerm(r.node.PID) != nil
+}
+
+// owningTerm is the shell scrn holds that a process is running inside: itself,
+// or the nearest ancestor that is one.
+//
+// A claude started with c is a child of the shell that ran it, so entering the
+// claude row means entering that shell — which is where the claude is drawing.
+// The walk is bounded because a process table that says a process is its own
+// ancestor should not hang the navigator.
+func (m model) owningTerm(pid int) *remoteTerm {
+	for i := 0; pid > 1 && i <= len(m.procs); i++ {
+		if t, ok := m.terms[pid]; ok {
+			return t
+		}
+		pid = m.parent[pid]
+	}
+	return nil
 }
 
 // newShell starts a shell wherever the cursor is, whatever the cursor is on.
@@ -452,16 +475,16 @@ func (m model) attachable(r navRow) bool {
 // own is a perfectly good reason to want a shell where that process is working.
 // Attaching to a foreign process is impossible; opening a shell beside it is
 // not, and the two are different questions.
-func (m *model) newShell() tea.Cmd {
+func (m *model) start(command string) tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
 		return nil
 	}
 	if m.daemon == nil {
-		m.status, m.statusErr = "no daemon to hold the shell: "+m.daemonErr, true
+		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
 		return nil
 	}
-	m.daemon.open(m.shellDir(r), m.detailWidth(), m.bodyHeight())
+	m.daemon.open(m.shellDir(r), command, m.detailWidth(), m.bodyHeight())
 	return nil
 }
 
@@ -485,19 +508,41 @@ func (m *model) openShell() tea.Cmd {
 	}
 
 	if r.kind == rowProc {
-		if !m.attachable(r) {
+		t := m.owningTerm(r.node.PID)
+		if t == nil {
 			// The row is already drawn dim to say so; this is the reminder for
 			// pressing enter on it anyway, not a failure.
 			m.status, m.statusErr = "scrn did not start "+procLabel(r.node), false
 			return nil
 		}
-		m.focus = r.node.PID
+		m.focus = t.pid
 		// The screen comes from the daemon, which is what makes a shell from
 		// an earlier window come back with what it had drawn still on it.
-		m.daemon.attach(r.node.PID, m.detailWidth(), m.bodyHeight())
+		m.daemon.attach(t.pid, m.detailWidth(), m.bodyHeight())
 		return nil
 	}
-	return m.newShell()
+	return m.start("")
+}
+
+// runKill carries out a confirmed kill, splitting it by who owns the target.
+//
+// A shell scrn holds is hung up through the daemon rather than signalled: an
+// interactive shell ignores SIGTERM, so signalling one leaves it sitting there
+// and scrn reporting that it would not go. Everything else is somebody else's
+// process, and a signal is all scrn has.
+func (m *model) runKill(req *killRequest) tea.Cmd {
+	var hungUp []killResult
+	var signalled []*ProcNode
+
+	for _, n := range req.nodes {
+		if _, mine := m.terms[n.PID]; mine {
+			m.daemon.closeTerm(n.PID)
+			hungUp = append(hungUp, killResult{command: n.Command, pid: n.PID, hungUp: true})
+			continue
+		}
+		signalled = append(signalled, n)
+	}
+	return killTree(&killRequest{subject: req.subject, nodes: signalled}, hungUp)
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the
@@ -544,6 +589,31 @@ func (m *model) askKill(tree bool) tea.Cmd {
 	}
 	m.pendingKill = &killRequest{subject: subject, nodes: nodes}
 	return nil
+}
+
+// ended names what was actually done, because a kill is not one thing: a shell
+// scrn holds is hung up and everything else is signalled, and a subtree can be
+// both at once.
+func ended(results []killResult) string {
+	var hungUp, signalled int
+	for _, r := range results {
+		if r.err != nil {
+			continue
+		}
+		if r.hungUp {
+			hungUp++
+			continue
+		}
+		signalled++
+	}
+	switch {
+	case signalled == 0:
+		return "closed "
+	case hungUp == 0:
+		return "sent SIGTERM to "
+	default:
+		return "ended "
+	}
 }
 
 // describeFailures says why a kill did not land, naming the reasons rather
@@ -739,6 +809,11 @@ func (m *model) pruneDetails() {
 // A process is attributed to the innermost repository containing it, so a
 // process in a nested checkout is listed there and not under its parent repo.
 func (m *model) groupProcs() {
+	m.parent = make(map[int]int, len(m.procs))
+	for _, pr := range m.procs {
+		m.parent[pr.PID] = pr.PPID
+	}
+
 	owner := make(map[string][]Proc, len(m.projects))
 	for _, pr := range m.procs {
 		best := ""

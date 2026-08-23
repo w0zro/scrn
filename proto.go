@@ -30,6 +30,7 @@ type message struct {
 
 	PID    int    `json:"pid,omitempty"`
 	Dir    string `json:"dir,omitempty"`
+	Run    string `json:"run,omitempty"` // what to run instead of a shell
 	Width  int    `json:"w,omitempty"`
 	Height int    `json:"h,omitempty"`
 

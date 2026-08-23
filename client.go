@@ -179,8 +179,8 @@ func (s *session) ask(m message) {
 	_ = s.conn.write(m)
 }
 
-func (s *session) open(dir string, w, h int) {
-	s.ask(message{Kind: kindOpen, Dir: dir, Width: w, Height: h})
+func (s *session) open(dir, run string, w, h int) {
+	s.ask(message{Kind: kindOpen, Dir: dir, Run: run, Width: w, Height: h})
 }
 
 func (s *session) list() { s.ask(message{Kind: kindList}) }
@@ -193,6 +193,12 @@ func (s *session) input(pid int, b []byte) {
 	if len(b) > 0 {
 		s.ask(message{Kind: kindInput, PID: pid, Data: b})
 	}
+}
+
+// closeTerm ends a shell the daemon holds. The daemon hangs it up rather than
+// signalling it, which is the only thing an interactive shell responds to.
+func (s *session) closeTerm(pid int) {
+	s.ask(message{Kind: kindClose, PID: pid})
 }
 
 func (s *session) resize(pid, w, h int) {

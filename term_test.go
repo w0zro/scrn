@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func paneHas(text string) func(model) bool {
 func openShellIn(t *testing.T, m model, dir string) model {
 	t.Helper()
 	m = connected(t, m)
-	m.daemon.open(dir, 40, 8)
+	m.daemon.open(dir, "", 40, 8)
 	return pump(t, m, hasShell, 5*time.Second)
 }
 
@@ -239,7 +240,7 @@ func TestAShellThatExitsIsForgotten(t *testing.T) {
 func TestManyShellsCanRunInOneRepository(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	first := m.focus
-	m.daemon.open("/tmp", 40, 8)
+	m.daemon.open("/tmp", "", 40, 8)
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	if len(m.terms) != 2 {
@@ -389,7 +390,245 @@ func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := footer(sized(120, 8)); !strings.Contains(f, "n new shell") {
+	if f := footer(sized(120, 8)); !strings.Contains(f, "n shell") {
 		t.Errorf("footer = %q, want the one way to make a process advertised", f)
+	}
+}
+
+func TestCStartsAClaudeInstanceScrnOwns(t *testing.T) {
+	// The Claude instances already running are somebody else's; this is how
+	// you get one that outlives the window and can be stepped back into.
+	m := connected(t, repoModel())
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = pump(t, next.(model), hasShell, 5*time.Second)
+
+	if len(m.terms) != 1 {
+		t.Fatalf("terms = %d, want the one instance", len(m.terms))
+	}
+}
+
+func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
+	// A command that exits should leave the shell behind rather than taking
+	// the row with it, so a claude that quits does not close the pane.
+	term, err := startTerm("/tmp", "echo the-command-ran", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-term.output:
+			if !ok {
+				t.Fatal("the shell exited with the command it ran")
+			}
+		case <-deadline:
+			t.Fatal("never saw the command run")
+		}
+		if strings.Contains(term.vt.Render(), "the-command-ran") {
+			break
+		}
+	}
+
+	// Still alive and still taking input once the command is done.
+	term.write([]byte("echo still-here\n"))
+	after := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-term.output:
+			if !ok {
+				t.Fatal("the shell exited after its command finished")
+			}
+		case <-after:
+			t.Fatal("the shell stopped responding once its command finished")
+		}
+		if strings.Contains(term.vt.Render(), "still-here") {
+			return
+		}
+	}
+}
+
+func TestFooterAdvertisesTheClaudeKey(t *testing.T) {
+	if f := footer(sized(120, 8)); !strings.Contains(f, "c claude") {
+		t.Errorf("footer = %q, want the claude key advertised", f)
+	}
+}
+
+// --- what enter can reach ------------------------------------------------
+
+// insideShell puts a process under a shell the daemon holds, the way a claude
+// started with c sits under the shell that ran it.
+func insideShell(t *testing.T, shellPID int) model {
+	t.Helper()
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{
+			{PID: shellPID, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: shellPID + 1, PPID: shellPID, Command: "claude", Dir: "/tmp"},
+			{PID: shellPID + 2, PPID: shellPID + 1, Command: "rg", Dir: "/tmp"},
+		})
+	m.terms = map[int]*remoteTerm{shellPID: {pid: shellPID, dir: "/tmp"}}
+	m.rebuild()
+	return m
+}
+
+func TestAnythingInsideAShellScrnHoldsIsBright(t *testing.T) {
+	m := insideShell(t, 500)
+
+	for _, r := range m.rows {
+		if dimmed(m, r, false) {
+			t.Errorf("row %q is dim, but enter reaches it through the shell", stripANSI(m.renderRow(r, false)))
+		}
+	}
+}
+
+func TestEnteringSomethingInsideAShellEntersTheShell(t *testing.T) {
+	// The claude is drawing on the shell's terminal, so that is what attaching
+	// to it means.
+	m := connected(t, insideShell(t, 500))
+	m.cursor = 2 // the claude row
+
+	if r, _ := m.selected(); r.node.Command != "claude" {
+		t.Fatalf("setup: selected %+v, want the claude row", r)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := next.(model).focus; got != 500 {
+		t.Errorf("focus = %d, want the shell %d the claude is running inside", got, 500)
+	}
+}
+
+func TestEnteringAGrandchildStillFindsTheShell(t *testing.T) {
+	m := connected(t, insideShell(t, 500))
+	m.cursor = 3 // rg, under the claude, under the shell
+
+	if r, _ := m.selected(); r.node.Command != "rg" {
+		t.Fatalf("setup: selected %+v, want the deepest row", r)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := next.(model).focus; got != 500 {
+		t.Errorf("focus = %d, want the shell at the top of its tree", got)
+	}
+}
+
+func TestAProcessOutsideAnyOwnedShellIsStillOutOfReach(t *testing.T) {
+	m := insideShell(t, 500)
+	next, _ := m.Update(procsMsg{procs: append(m.procs,
+		Proc{PID: 900, PPID: 1, Command: "vim", Dir: "/tmp"})})
+	m = next.(model)
+
+	var vim navRow
+	for _, r := range m.rows {
+		if r.kind == rowProc && r.node.PID == 900 {
+			vim = r
+		}
+	}
+	if vim.node == nil {
+		t.Fatal("setup: the unrelated process is not listed")
+	}
+	if !dimmed(m, vim, false) {
+		t.Error("a process in no shell scrn holds should still be dim")
+	}
+	if m.attachable(vim) {
+		t.Error("enter should not claim to reach it")
+	}
+}
+
+func TestAProcessTableThatLoopsDoesNotHangTheWalk(t *testing.T) {
+	// Two processes each claiming to be the other's parent.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{
+			{PID: 10, PPID: 11, Command: "a", Dir: "/tmp"},
+			{PID: 11, PPID: 10, Command: "b", Dir: "/tmp"},
+		})
+	if got := m.owningTerm(10); got != nil {
+		t.Errorf("owningTerm = %+v, want nothing found", got)
+	}
+}
+
+func TestKillingAShellScrnHoldsGoesThroughTheDaemon(t *testing.T) {
+	// Signalling it would do nothing: an interactive shell ignores SIGTERM.
+	m := connected(t, repoModel())
+	m.daemon.open("/tmp", "", 40, 8)
+	m = pump(t, m, hasShell, 5*time.Second)
+	pid := m.focus
+
+	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "zsh", Dir: "/tmp"}}})
+	m = next.(model)
+
+	// Leave the shell first, or X is just a letter typed into it.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = next.(model)
+	m.cursor = 1
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	m = next.(model)
+	if m.pendingKill == nil {
+		t.Fatal("X should arm a kill on a shell scrn holds")
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("confirming should report the outcome")
+	}
+
+	// The outcome is settled without a signal, because the daemon hung it up.
+	out, ok := cmd().(killedMsg)
+	if !ok || len(out.results) != 1 {
+		t.Fatalf("outcome = %+v, want the one shell accounted for", out)
+	}
+	if out.results[0].err != nil {
+		t.Errorf("result = %+v, want the hangup to have settled it", out.results[0])
+	}
+	m = pump(t, m, func(m model) bool { return len(m.terms) == 0 }, 5*time.Second)
+}
+
+func TestAProcessInsideAnOwnedShellIsStillSignalled(t *testing.T) {
+	// scrn does not hold the claude, only the shell it runs in, so ending the
+	// claude alone is still a signal.
+	m := connected(t, insideShell(t, 500))
+	m.cursor = 2 // the claude row
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(model)
+	if got := targets(m.pendingKill); !sameInts(got, []int{501}) {
+		t.Fatalf("targets = %v, want just the claude", got)
+	}
+
+	var hungUp []killResult
+	for _, n := range m.pendingKill.nodes {
+		if _, mine := m.terms[n.PID]; mine {
+			hungUp = append(hungUp, killResult{pid: n.PID})
+		}
+	}
+	if len(hungUp) != 0 {
+		t.Errorf("hungUp = %+v, want the claude signalled rather than hung up", hungUp)
+	}
+}
+
+func TestTheReportSaysWhatWasActuallyDone(t *testing.T) {
+	// A kill is not one thing: a shell scrn holds is hung up, everything else
+	// is signalled, and a subtree can be both at once.
+	cases := []struct {
+		name    string
+		results []killResult
+		want    string
+	}{
+		{"only signalled", []killResult{{pid: 1}}, "sent SIGTERM to "},
+		{"only hung up", []killResult{{pid: 1, hungUp: true}}, "closed "},
+		{"both", []killResult{{pid: 1}, {pid: 2, hungUp: true}}, "ended "},
+		{"failures do not count", []killResult{
+			{pid: 1, hungUp: true}, {pid: 2, err: errors.New("nope")},
+		}, "closed "},
+	}
+	for _, c := range cases {
+		if got := ended(c.results); got != c.want {
+			t.Errorf("%s: ended = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

@@ -171,3 +171,73 @@ func TestAStaleSocketIsCleared(t *testing.T) {
 	}
 	d.stop()
 }
+
+func TestAnInteractiveShellIsHungUpRatherThanSignalled(t *testing.T) {
+	// zsh and bash ignore SIGTERM when interactive, by design. Ending one
+	// means taking its terminal away, which is what closing the pty does.
+	t.Setenv("SHELL", "/bin/zsh")
+	term, err := startTerm("/tmp", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	waitFor(t, "the shell to draw a prompt", func() bool {
+		return strings.Contains(term.vt.Render(), "%") || strings.Contains(term.vt.Render(), "$")
+	})
+
+	// A signal first: it should be ignored, which is the whole problem.
+	if err := signal(term.pid); err != nil {
+		t.Fatalf("signalling: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-term.done:
+		t.Skip("this shell does exit on SIGTERM; the hangup path is still what scrn uses")
+	default:
+	}
+
+	// Now hang it up.
+	go term.close()
+	select {
+	case <-term.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the shell survived losing its terminal")
+	}
+}
+
+func TestClosingAShellTwiceIsHarmless(t *testing.T) {
+	// A shell ended by hand is torn down again when its output stops.
+	t.Setenv("SHELL", "/bin/sh")
+	term, err := startTerm("/tmp", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	term.close()
+	term.close()
+
+	select {
+	case <-term.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the shell did not go")
+	}
+}
+
+func TestClosingThroughTheDaemonEndsTheShell(t *testing.T) {
+	d := startDaemonFor(t)
+	t.Setenv("SHELL", "/bin/zsh")
+
+	c, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := newConn(c)
+	defer conn.close()
+
+	conn.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+	waitFor(t, "the shell to open", func() bool { return len(d.list()) == 1 })
+	pid := d.list()[0].PID
+
+	conn.write(message{Kind: kindClose, PID: pid})
+	waitFor(t, "the shell to go", func() bool { return d.session(pid) == nil })
+}

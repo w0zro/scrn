@@ -17,11 +17,14 @@ type killRequest struct {
 	nodes   []*ProcNode
 }
 
-// killResult is what became of one process a kill was aimed at.
+// killResult is what became of one process a kill was aimed at. hungUp marks
+// the ones scrn ended by taking their terminal away rather than by signalling
+// them, so the report can say what actually happened.
 type killResult struct {
 	command string
 	pid     int
 	err     error
+	hungUp  bool
 }
 
 // killedMsg reports the outcome of a kill. One process and a whole subtree are
@@ -76,10 +79,12 @@ func spin() tea.Cmd {
 // Parents are signalled before their children. A supervising process outliving
 // the children it started will start them again — that is what a watcher is
 // for — so the process that would do the restarting is stopped first.
-func killTree(req *killRequest) tea.Cmd {
+// done carries the outcomes already settled before the command runs — the
+// shells the daemon was asked to hang up, which needed no signal.
+func killTree(req *killRequest, done []killResult) tea.Cmd {
 	subject, nodes := req.subject, req.nodes
 	return func() tea.Msg {
-		msg := killedMsg{subject: subject, results: make([]killResult, 0, len(nodes))}
+		msg := killedMsg{subject: subject, results: append([]killResult{}, done...)}
 		for _, n := range nodes {
 			msg.results = append(msg.results, killResult{
 				command: n.Command,

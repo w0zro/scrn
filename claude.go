@@ -42,6 +42,10 @@ type claudeSession struct {
 	Context int
 }
 
+// claudeCommand starts a Claude Code instance. It is run through a shell, so
+// this is the name on the PATH rather than a path scrn has to find.
+const claudeCommand = "claude"
+
 // claudeDir is where Claude Code keeps its state.
 func claudeDir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
