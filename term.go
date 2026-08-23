@@ -100,6 +100,7 @@ func startTerm(dir string, width, height int) (*terminal, error) {
 		output: make(chan struct{}, 1),
 	}
 	go t.pump()
+	go t.reply()
 	return t, nil
 }
 
@@ -118,6 +119,29 @@ func (t *terminal) pump() {
 			select {
 			case t.output <- struct{}{}:
 			default: // a wake is already pending; one is enough
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// reply carries the emulator's answers back to the shell.
+//
+// A terminal is asked questions as well as told things: what colour the
+// background is, where the cursor got to, what the terminal claims to be.
+// The emulator writes its answers into a pipe, and that write blocks while it
+// still holds the lock on the screen — so with nothing draining the pipe, the
+// first program to ask anything wedges the emulator, and the pane and the UI
+// drawing it go with it. Every modern terminal program asks.
+func (t *terminal) reply() {
+	buf := make([]byte, 1024)
+	for {
+		n, err := t.vt.Read(buf)
+		if n > 0 {
+			if _, err := t.pty.Write(buf[:n]); err != nil {
+				return
 			}
 		}
 		if err != nil {
@@ -160,8 +184,11 @@ func (t *terminal) resize(width, height int) {
 	t.vt.Resize(width, height)
 }
 
-// close ends the shell and releases the pty.
+// close ends the shell and releases the pty. Closing the emulator is what
+// lets the goroutine waiting on its answers finish, rather than sitting on a
+// pipe nothing will ever write to again.
 func (t *terminal) close() {
+	_ = t.vt.Close()
 	_ = t.pty.Close()
 	if t.cmd.Process != nil {
 		_ = t.cmd.Process.Kill()

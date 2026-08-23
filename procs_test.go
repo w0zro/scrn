@@ -125,8 +125,9 @@ func pidOfSelf() int { return os.Getpid() }
 func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o644) }
 
 func TestTheScanDoesNotReportItself(t *testing.T) {
-	// lsof lists itself, and scrn is the one that ran it: without filtering it
-	// out, every refresh puts a fresh lsof row in whatever repo scrn runs in.
+	// scrn's own children — the lsof running the scan, the git and ps behind
+	// the detail pane — inherit its working directory, so without filtering
+	// they flicker through the tree of whatever repo scrn was started in.
 	procs, err := runningProcs()
 	if err != nil {
 		t.Skipf("lsof unavailable: %v", err)
@@ -134,8 +135,8 @@ func TestTheScanDoesNotReportItself(t *testing.T) {
 
 	self := os.Getpid()
 	for _, p := range procs {
-		if p.PPID == self && p.Command == "lsof" {
-			t.Errorf("the scan reported its own lsof: %+v", p)
+		if p.PPID == self {
+			t.Errorf("the scan reported a child of scrn's own: %+v", p)
 		}
 		if p.PID == self {
 			t.Errorf("the scan reported scrn itself: %+v", p)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // sized returns a model laid out for the given terminal dimensions.
@@ -355,7 +356,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheToggle(t *testing.T) {
-	m := sized(80, 8)
+	m := sized(120, 8)
 	if !strings.Contains(stripANSI(m.View()), "a all") {
 		t.Error("footer should offer to show all while narrowed, which is the default")
 	}
@@ -679,7 +680,7 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 }
 
 func TestFooterAdvertisesCollapse(t *testing.T) {
-	if !strings.Contains(stripANSI(sized(80, 8).View()), "space collapse") {
+	if !strings.Contains(stripANSI(sized(120, 8).View()), "space collapse") {
 		t.Error("footer should mention the collapse key")
 	}
 }
@@ -1321,7 +1322,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheTreeKill(t *testing.T) {
-	if f := footer(sized(80, 8)); !strings.Contains(f, "X kill tree") {
+	if f := footer(sized(120, 8)); !strings.Contains(f, "X kill tree") {
 		t.Errorf("footer = %q, want the tree kill advertised", f)
 	}
 }
@@ -1420,5 +1421,14 @@ func TestClaudeDetailIsAskedForOnlyOnAClaudeRow(t *testing.T) {
 	proc, _ := m.selected()
 	if got := m.claudeFor(proc); got == nil || got.Name != "scrn-1f" {
 		t.Errorf("claudeFor(claude row) = %+v, want the session", got)
+	}
+}
+
+func TestTheFooterNeverOutgrowsTheWindow(t *testing.T) {
+	// A hint that wraps costs a line the body was drawing on.
+	for _, w := range []int{40, 60, 80, 100, 140} {
+		if got := lipgloss.Width(footer(sized(w, 10))); got > w {
+			t.Errorf("at width %d the footer is %d columns: %q", w, got, footer(sized(w, 10)))
+		}
 	}
 }

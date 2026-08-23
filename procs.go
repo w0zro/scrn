@@ -37,10 +37,6 @@ func runningProcs() ([]Proc, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	// lsof reports itself, and it is scrn's own doing. Its pid is taken here
-	// rather than matching on the name, because a repository may well have a
-	// real lsof running in it that has nothing to do with this scan.
-	scanner := cmd.Process.Pid
 	if err := cmd.Wait(); err != nil && out.Len() == 0 {
 		return nil, err
 	}
@@ -70,10 +66,16 @@ func runningProcs() ([]Proc, error) {
 		case 'c':
 			cur.Command = value
 		case 'n':
-			// Neither scrn nor the scan it just ran is work happening in a
-			// repository, and reporting them would put a row in the tree for
-			// every refresh.
-			if cur.PID == 0 || cur.PID == self || cur.PID == scanner || !strings.HasPrefix(value, "/") {
+			// Neither scrn nor anything it started for itself is work
+			// happening in a repository. Its own children — the lsof that ran
+			// this scan, the git and ps behind the detail pane — inherit the
+			// directory scrn was started in, so without this they appear and
+			// disappear in that repository's tree on every refresh.
+			//
+			// scrn has no children worth showing: the shells it opens belong
+			// to the daemon, which is a different process and keeps its own
+			// working directory well away from any project.
+			if cur.PID == 0 || cur.PID == self || cur.PPID == self || !strings.HasPrefix(value, "/") {
 				continue
 			}
 			cur.Dir = value

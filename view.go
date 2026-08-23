@@ -97,8 +97,14 @@ func (m model) renderHint() string {
 	if m.showAll {
 		all = "a running"
 	}
-	hint := "↑↓ move · enter shell · space collapse · x kill · X kill tree · " + all + " · q quit"
-	return hintStyle.Render(truncate(hint, m.width))
+	// The keys matter more than the words for them, so a narrow window loses
+	// the wording rather than the last few bindings off the end.
+	full := "↑↓ move · n new shell · enter open · space collapse · x kill · X kill tree · " + all + " · q quit"
+	if lipgloss.Width(full) <= m.width {
+		return hintStyle.Render(full)
+	}
+	short := "↑↓ move · n shell · enter open · space fold · x kill · X tree · " + all + " · q quit"
+	return hintStyle.Render(truncate(short, m.width))
 }
 
 // renderBody draws the navigator beside the detail pane, each row ending in a
@@ -252,13 +258,11 @@ func (m model) paneLines(width, rows int) []string {
 	}
 
 	lines := t.lines(rows)
+
 	// The cursor is only drawn where the keystrokes are going. On an unfocused
 	// shell it would say the typing lands there, which it does not.
-	if m.focused() == t {
-		x, y := t.cursor()
-		if y >= 0 && y < len(lines) {
-			lines[y] = withCursor(lines[y], x, width)
-		}
+	if m.focused() == t && t.curY >= 0 && t.curY < len(lines) {
+		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
 	}
 	return lines
 }

@@ -146,3 +146,48 @@ func TestNamesStayDistinct(t *testing.T) {
 		seen[p.Name] = true
 	}
 }
+
+func TestReposAreFoundByTheirRealPath(t *testing.T) {
+	// A process list reports the resolved path, so repositories have to be
+	// discovered under theirs too or nothing is ever attributed to them.
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, "repo", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	projects, err := discoverProjects(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("projects = %+v, want the one repo", projects)
+	}
+
+	resolved, _ := filepath.EvalSymlinks(filepath.Join(real, "repo"))
+	if projects[0].Path != resolved {
+		t.Errorf("path = %q, want the resolved %q", projects[0].Path, resolved)
+	}
+}
+
+func TestProcessesUnderASymlinkedRootAreAttributed(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, "repo", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	projects, _ := discoverProjects(link)
+	resolved, _ := filepath.EvalSymlinks(filepath.Join(real, "repo"))
+
+	if !under(resolved, projects[0].Path) {
+		t.Errorf("a process in %q was not attributed to the repo at %q", resolved, projects[0].Path)
+	}
+}

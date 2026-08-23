@@ -123,10 +123,19 @@ type model struct {
 	// instances without the cursor having to visit them.
 	claude map[int]claudeSession
 
-	// terms are the shells scrn has opened, keyed by the pid running each one.
-	// A repository can hold as many as you open; they tell themselves apart in
-	// the navigator because each is its own process in that repository's tree.
-	terms map[int]*terminal
+	// terms are the shells the daemon is holding, keyed by the pid running
+	// each one. A repository can hold as many as you open; they tell themselves
+	// apart in the navigator because each is its own process in that
+	// repository's tree.
+	//
+	// The client owns none of them. It learns about them from the daemon, which
+	// is what lets them still be here when a window that opened one has gone.
+	terms map[int]*remoteTerm
+
+	// daemon is the connection to the process holding the shells, and err says
+	// so when there is not one.
+	daemon    *session
+	daemonErr string
 
 	// wantCursor is a shell just opened, waiting for the scan that will put it
 	// in the tree. The cursor moves to it when it lands, so leaving the shell
@@ -148,12 +157,12 @@ func newModel() model {
 		collapsed: map[string]bool{},
 		details:   map[string][]field{},
 		dying:     map[int]dyingProc{},
-		terms:     map[int]*terminal{},
+		terms:     map[int]*remoteTerm{},
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(scanProjects, scanProcs, scanClaude, tick(procPoll))
+	return tea.Batch(scanProjects, scanProcs, scanClaude, connectDaemon(), tick(procPoll))
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -191,8 +200,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scrollToCursor()
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
-		for _, t := range m.terms {
-			t.resize(m.detailWidth(), m.bodyHeight())
+		for pid := range m.terms {
+			m.daemon.resize(pid, m.detailWidth(), m.bodyHeight())
 		}
 
 	case projectsMsg:
@@ -211,34 +220,67 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, m.detailCmd()
 
-	case termStartedMsg:
+	case daemonReadyMsg:
 		if msg.err != nil {
-			m.status, m.statusErr = "could not open a shell: "+msg.err.Error(), true
+			m.daemonErr = msg.err.Error()
 			return m, nil
 		}
-		m.terms[msg.term.pid] = msg.term
-		m.focus = msg.term.pid
-		m.wantCursor = msg.term.pid
-		// Scan now rather than at the next tick, so the shell takes its place
-		// in the tree while the user is still looking at it.
-		return m, tea.Batch(waitForOutput(msg.term), scanProcs)
+		m.daemon, m.daemonErr = msg.session, ""
+		// Ask what is already running: shells from a window that has since
+		// been closed are still there, and this is where they come back.
+		m.daemon.list()
+		return m, nextEvent(m.daemon)
 
-	case termOutputMsg:
+	case daemonLostMsg:
+		m.daemon, m.daemonErr = nil, msg.err.Error()
+		m.terms, m.focus = map[int]*remoteTerm{}, 0
+		return m, nil
+
+	case termOpenedMsg:
+		// A shell this window opened takes the keys, and the cursor once the
+		// scan puts it in the tree.
+		if _, ok := m.terms[msg.pid]; !ok {
+			m.terms[msg.pid] = &remoteTerm{pid: msg.pid}
+		}
+		m.focus, m.wantCursor = msg.pid, msg.pid
+		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
+
+	case sessionsMsg:
+		// The daemon is the authority on what it holds, so the client takes
+		// the list rather than merging into what it thought it knew.
+		held := make(map[int]*remoteTerm, len(msg.sessions))
+		for _, s := range msg.sessions {
+			if was, ok := m.terms[s.PID]; ok {
+				held[s.PID] = was
+				continue
+			}
+			held[s.PID] = &remoteTerm{pid: s.PID, dir: s.Dir}
+		}
+		m.terms = held
+		if _, ok := m.terms[m.focus]; !ok {
+			m.focus = 0
+		}
+		m.rebuild()
+		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
+
+	case screenMsg:
 		t, ok := m.terms[msg.pid]
 		if !ok {
-			return m, nil
+			// A screen can arrive for a shell this window has not been told
+			// about yet; take it either way.
+			t = &remoteTerm{pid: msg.pid}
+			m.terms[msg.pid] = t
 		}
-		return m, waitForOutput(t)
+		t.screen, t.curX, t.curY = msg.screen, msg.curX, msg.curY
+		return m, nextEvent(m.daemon)
 
-	case termExitedMsg:
-		if t, ok := m.terms[msg.pid]; ok {
-			t.close()
-			delete(m.terms, msg.pid)
-		}
+	case termGoneMsg:
+		delete(m.terms, msg.pid)
 		if m.focus == msg.pid {
 			m.focus = 0
 		}
-		return m, scanProcs
+		m.rebuild()
+		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
 
 	case claudeMsg:
 		m.claude = msg.sessions
@@ -309,7 +351,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = 0
 				return m, m.detailCmd()
 			}
-			t.write(keyBytes(msg))
+			m.daemon.input(t.pid, keyBytes(msg))
 			return m, nil
 		}
 
@@ -332,6 +374,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			return m, m.openShell()
+		case "n":
+			return m, m.newShell()
 		case "x":
 			return m, m.askKill(false)
 		case "X":
@@ -369,7 +413,7 @@ func (m *model) move(delta int) tea.Cmd {
 }
 
 // focused returns the terminal taking keystrokes, if one is.
-func (m model) focused() *terminal {
+func (m model) focused() *remoteTerm {
 	if m.focus == 0 {
 		return nil
 	}
@@ -378,7 +422,7 @@ func (m model) focused() *terminal {
 
 // paneTerm is the shell the pane should be showing: the focused one, or the
 // one belonging to the row under the cursor.
-func (m model) paneTerm() *terminal {
+func (m model) paneTerm() *remoteTerm {
 	if t := m.focused(); t != nil {
 		return t
 	}
@@ -401,6 +445,36 @@ func (m model) attachable(r navRow) bool {
 	return mine
 }
 
+// newShell starts a shell wherever the cursor is, whatever the cursor is on.
+//
+// This is the one way to put a process into the tree, so it cannot be reserved
+// for the rows that happen to be enterable: standing on a process scrn does not
+// own is a perfectly good reason to want a shell where that process is working.
+// Attaching to a foreign process is impossible; opening a shell beside it is
+// not, and the two are different questions.
+func (m *model) newShell() tea.Cmd {
+	r, ok := m.selected()
+	if !ok {
+		return nil
+	}
+	if m.daemon == nil {
+		m.status, m.statusErr = "no daemon to hold the shell: "+m.daemonErr, true
+		return nil
+	}
+	m.daemon.open(m.shellDir(r), m.detailWidth(), m.bodyHeight())
+	return nil
+}
+
+// shellDir is where a new shell on this row should start: the repository, or
+// the directory the selected process is actually working in — which for a
+// build or a test run is often further in than the repository root.
+func (m model) shellDir(r navRow) string {
+	if r.kind == rowProc && r.node.Dir != "" {
+		return r.node.Dir
+	}
+	return r.project.Path
+}
+
 // openShell opens a shell on a repository row, or steps into one already open
 // on the row under the cursor. Enter on a repository always opens another, so
 // a repository can hold as many shells as the work needs.
@@ -418,9 +492,12 @@ func (m *model) openShell() tea.Cmd {
 			return nil
 		}
 		m.focus = r.node.PID
+		// The screen comes from the daemon, which is what makes a shell from
+		// an earlier window come back with what it had drawn still on it.
+		m.daemon.attach(r.node.PID, m.detailWidth(), m.bodyHeight())
 		return nil
 	}
-	return openTerm(r.project.Path, m.detailWidth(), m.bodyHeight())
+	return m.newShell()
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -8,47 +10,75 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// openShellIn starts a real shell in dir and drains its first output.
-func openShellIn(t *testing.T, m model, dir string) model {
+// startDaemonFor runs a daemon on a socket of this test's own, so tests never
+// touch the one holding the user's real shells.
+func startDaemonFor(t *testing.T) *daemon {
 	t.Helper()
 	t.Setenv("SHELL", "/bin/sh")
-
-	msg := openTerm(dir, 40, 8)()
-	started, ok := msg.(termStartedMsg)
-	if !ok || started.err != nil {
-		t.Fatalf("openTerm = %+v, want a shell", msg)
+	// A unix socket path is capped near 104 bytes, and the per-test temp
+	// directory alone is longer than that.
+	dir, err := os.MkdirTemp("/tmp", "scrnd")
+	if err != nil {
+		t.Fatal(err)
 	}
-	next, _ := m.Update(started)
-	m = next.(model)
-	t.Cleanup(func() {
-		for _, term := range m.terms {
-			term.close()
-		}
-	})
-	return drain(m, 2*time.Second)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	t.Setenv("SCRN_SOCKET", sock)
+
+	d, err := listenDaemon(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go d.accept()
+	t.Cleanup(d.stop)
+	return d
 }
 
-// drain pumps terminal output into the model until the shell goes quiet.
-func drain(m model, d time.Duration) model {
+// connected returns a model already talking to a daemon of this test's own.
+func connected(t *testing.T, m model) model {
+	t.Helper()
+	startDaemonFor(t)
+
+	s, err := openSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.conn.close() })
+
+	next, _ := m.Update(daemonReadyMsg{session: s})
+	return next.(model)
+}
+
+// pump feeds the daemon's messages into the model until want is satisfied.
+func pump(t *testing.T, m model, want func(model) bool, d time.Duration) model {
+	t.Helper()
 	deadline := time.After(d)
-	for {
-		t := m.terms[m.focus]
-		if t == nil {
-			return m
-		}
+	for !want(m) {
 		select {
-		case <-deadline:
-			return m
-		case _, ok := <-t.output:
+		case ev, ok := <-m.daemon.events:
 			if !ok {
-				return m
+				t.Fatal("the daemon connection closed")
 			}
-			next, _ := m.Update(termOutputMsg{pid: t.pid})
+			next, _ := m.Update(ev)
 			m = next.(model)
-		case <-time.After(300 * time.Millisecond):
-			return m
+		case <-deadline:
+			t.Fatalf("timed out; terms=%d focus=%d", len(m.terms), m.focus)
 		}
 	}
+	return m
+}
+
+func hasShell(m model) bool { return len(m.terms) > 0 && m.focus != 0 }
+func paneHas(text string) func(model) bool {
+	return func(m model) bool { return strings.Contains(strings.Join(m.terms[m.focus].lines(20), "\n"), text) }
+}
+
+// openShellIn opens a shell through the daemon and waits for its first screen.
+func openShellIn(t *testing.T, m model, dir string) model {
+	t.Helper()
+	m = connected(t, m)
+	m.daemon.open(dir, 40, 8)
+	return pump(t, m, hasShell, 5*time.Second)
 }
 
 func send(m model, s string) model {
@@ -65,7 +95,7 @@ func paneText(m model) string {
 }
 
 func repoModel() model {
-	return withProcList(90, 14, []Project{{Name: "scrn", Path: "/tmp"}}, nil)
+	return withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, nil)
 }
 
 func TestEnterOnARepoOpensAShellAndFocusesIt(t *testing.T) {
@@ -81,12 +111,12 @@ func TestEnterOnARepoOpensAShellAndFocusesIt(t *testing.T) {
 
 func TestTheShellRunsInThePaneAndTheNavigatorRemains(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
-	m = drain(send(m, "echo marker-in-the-pane"), 2*time.Second)
+	m = pump(t, send(m, "echo marker-in-the-pane"), paneHas("marker-in-the-pane"), 5*time.Second)
 
 	if !strings.Contains(paneText(m), "marker-in-the-pane") {
 		t.Errorf("pane should show the shell's output:\n%s", paneText(m))
 	}
-	if nav := navColumn(m); len(nav) == 0 || !strings.Contains(nav[0], "scrn") {
+	if nav := navColumn(m); len(nav) == 0 || !strings.Contains(nav[0], "tmp") {
 		t.Errorf("the navigator should still be there, got %v", nav)
 	}
 }
@@ -178,7 +208,7 @@ func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 
 func TestAnUnfocusedShellStillShowsInThePane(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
-	m = drain(send(m, "echo still-visible"), 2*time.Second)
+	m = pump(t, send(m, "echo still-visible"), paneHas("still-visible"), 5*time.Second)
 	pid := m.focus
 
 	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "sh", Dir: "/tmp"}}})
@@ -195,7 +225,7 @@ func TestAShellThatExitsIsForgotten(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	pid := m.focus
 
-	next, _ := m.Update(termExitedMsg{pid: pid})
+	next, _ := m.Update(termGoneMsg{pid: pid})
 	m = next.(model)
 
 	if len(m.terms) != 0 {
@@ -209,7 +239,8 @@ func TestAShellThatExitsIsForgotten(t *testing.T) {
 func TestManyShellsCanRunInOneRepository(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	first := m.focus
-	m = openShellIn(t, m, "/tmp")
+	m.daemon.open("/tmp", 40, 8)
+	m = pump(t, m, func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	if len(m.terms) != 2 {
 		t.Fatalf("terms = %d, want a repository to hold more than one shell", len(m.terms))
@@ -227,6 +258,9 @@ func TestResizingReachesTheShell(t *testing.T) {
 
 	if got := len(m.terms[m.focus].lines(40)); got == 0 {
 		t.Error("the shell should still render after a resize")
+	}
+	if m.daemon == nil {
+		t.Error("resizing should have gone to the daemon holding the shell")
 	}
 }
 
@@ -304,5 +338,58 @@ func TestRefusingToAttachIsNotAnError(t *testing.T) {
 	}
 	if !strings.Contains(footer(got), "did not start vim 900") {
 		t.Errorf("footer = %q, want it to say why", footer(got))
+	}
+}
+
+func TestNStartsAShellOnAnyRow(t *testing.T) {
+	// Standing on a process scrn does not own is a fine reason to want a shell
+	// where that process is working; it is only attaching that is impossible.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/tmp"}})
+	m.cursor = 1
+	if m.attachable(m.rows[1]) {
+		t.Fatal("setup: expected a row that cannot be attached to")
+	}
+	m = connected(t, m)
+	m.cursor = 1
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = pump(t, next.(model), hasShell, 5*time.Second)
+
+	if len(m.terms) != 1 || m.focused() == nil {
+		t.Errorf("terms = %d, want one new shell with the keys", len(m.terms))
+	}
+}
+
+func TestANewShellStartsWhereTheWorkIs(t *testing.T) {
+	// A build running in a subdirectory should give you a shell there, not at
+	// the top of the repository.
+	m := withProcList(90, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "go", Dir: "/p/scrn/internal/deep"}})
+
+	if got := m.shellDir(m.rows[1]); got != "/p/scrn/internal/deep" {
+		t.Errorf("shellDir = %q, want the directory the process works in", got)
+	}
+	if got := m.shellDir(m.rows[0]); got != "/p/scrn" {
+		t.Errorf("shellDir on a repo = %q, want the repository", got)
+	}
+}
+
+func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
+	// Inside a shell, n is just a letter.
+	m := openShellIn(t, repoModel(), "/tmp")
+	before := len(m.terms)
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if got := len(next.(model).terms); got != before {
+		t.Errorf("terms = %d, want n typed into the shell rather than opening another", got)
+	}
+}
+
+func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
+	if f := footer(sized(120, 8)); !strings.Contains(f, "n new shell") {
+		t.Errorf("footer = %q, want the one way to make a process advertised", f)
 	}
 }

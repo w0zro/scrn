@@ -32,6 +32,15 @@ var skipDirs = map[string]bool{
 func discoverProjects(root string) ([]Project, error) {
 	var found []Project
 
+	// Resolve the root before walking, so repository paths come out in the
+	// same form the process list reports working directories in. lsof answers
+	// with the real path, and on macOS a projects directory under /tmp — or
+	// anywhere reached through a symlink — would otherwise never match the
+	// processes running in it.
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		root = real
+	}
+
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// An unreadable directory should not abort the whole scan.
