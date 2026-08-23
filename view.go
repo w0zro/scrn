@@ -37,7 +37,26 @@ var (
 
 	errStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#CF222E", Dark: "#F85149"})
+
+	busyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
 )
+
+// claudeMark is the glyph beside a Claude instance: filled while it is
+// working, hollow while it is waiting on its user.
+func claudeMark(status string) string {
+	if status == "busy" {
+		return "●"
+	}
+	return "○"
+}
+
+func claudeMarkStyle(status string) lipgloss.Style {
+	if status == "busy" {
+		return busyStyle
+	}
+	return faintStyle
+}
 
 func (m model) View() string {
 	header := titleStyle.Render("scrn")
@@ -152,6 +171,13 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
+	// A busy Claude instance is marked in the gutter beside its name, so the
+	// repositories with work happening in them read at a glance.
+	mark, markStyle := "", faintStyle
+	if s := m.claudeFor(r); s != nil {
+		mark, markStyle = " "+claudeMark(s.Status), claudeMarkStyle(s.Status)
+	}
+
 	spinner := ""
 	if r.kind == rowProc {
 		if _, dying := m.dying[r.node.PID]; dying {
@@ -170,9 +196,10 @@ func (m model) renderRow(r navRow, selected bool) string {
 		label = procLabel(r.node)
 	}
 
-	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) - lipgloss.Width(spinner)
+	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) -
+		lipgloss.Width(spinner) - lipgloss.Width(mark)
 	return marker + faintStyle.Render(rules) + style.Render(truncate(label, room)) +
-		errStyle.Render(spinner) + faintStyle.Render(fold)
+		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
 // detailWidth is the room left for the detail pane beside the navigator.

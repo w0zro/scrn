@@ -49,6 +49,11 @@ type procsMsg struct {
 	err   error
 }
 
+// claudeMsg carries the Claude Code sessions found on disk.
+type claudeMsg struct {
+	sessions map[int]claudeSession
+}
+
 // rowKind distinguishes the two things the navigator lists.
 type rowKind int
 
@@ -113,6 +118,11 @@ type model struct {
 	// ticks counts refresh cycles, so slower work can run every Nth one.
 	ticks int
 
+	// claude holds the Claude Code sessions currently advertised, keyed by pid.
+	// It is refreshed with the process list so the navigator can mark the busy
+	// instances without the cursor having to visit them.
+	claude map[int]claudeSession
+
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
 	details map[string][]field
@@ -127,7 +137,7 @@ func newModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(scanProjects, scanProcs, tick(procPoll))
+	return tea.Batch(scanProjects, scanProcs, scanClaude, tick(procPoll))
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -143,6 +153,11 @@ func scanProjects() tea.Msg {
 	}
 	return projectsMsg{projects: projects}
 }
+
+// scanClaude reads what the running Claude Code instances say about
+// themselves. Nothing is reported if Claude Code is not installed: the
+// navigator simply has nothing extra to say about those processes.
+func scanClaude() tea.Msg { return claudeMsg{sessions: claudeSessions()} }
 
 // scanProcs reads the working directory of every visible process.
 func scanProcs() tea.Msg {
@@ -175,12 +190,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, m.detailCmd()
 
+	case claudeMsg:
+		m.claude = msg.sessions
+
 	case detailMsg:
 		m.details[msg.key] = msg.fields
 
 	case tickMsg:
 		m.ticks++
-		cmds := []tea.Cmd{scanProcs, tick(procPoll)}
+		cmds := []tea.Cmd{scanProcs, scanClaude, tick(procPoll)}
 		if m.ticks%projectEvery == 0 {
 			cmds = append(cmds, scanProjects)
 		}
@@ -598,7 +616,22 @@ func (m model) refreshDetailCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]))
+	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
+}
+
+// claudeFor returns the Claude Code session a row is running, if it is one.
+// The command name is checked as well as the session file, because a session
+// file can outlive its process and a reused pid would otherwise be dressed up
+// as a Claude instance.
+func (m model) claudeFor(r navRow) *claudeSession {
+	if r.kind != rowProc || r.node.Command != "claude" {
+		return nil
+	}
+	s, ok := m.claude[r.node.PID]
+	if !ok {
+		return nil
+	}
+	return &s
 }
 
 // detailCmd inspects the selected row unless it has been inspected already.
@@ -610,5 +643,5 @@ func (m model) detailCmd() tea.Cmd {
 	if _, cached := m.details[detailKey(r)]; cached {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]))
+	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
 }

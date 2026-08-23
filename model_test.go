@@ -1337,3 +1337,88 @@ func sameInts(a, b []int) bool {
 	}
 	return true
 }
+
+// --- claude instances -----------------------------------------------------
+
+// withClaude builds a repo holding one process, plus the sessions Claude Code
+// would have advertised for it.
+func withClaude(command string, sessions map[int]claudeSession) model {
+	m := withProcList(96, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 700, PPID: 1, Command: command, Dir: "/p/scrn"}})
+	m.claude = sessions
+	return m
+}
+
+func TestABusyClaudeIsMarkedInTheNavigator(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+	})
+
+	row := navColumn(m)[1]
+	if !strings.Contains(row, "claude 700 ●") {
+		t.Errorf("row = %q, want a filled marker on a working instance", row)
+	}
+}
+
+func TestAWaitingClaudeIsMarkedDifferently(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: "idle"},
+	})
+
+	row := navColumn(m)[1]
+	if !strings.Contains(row, "claude 700 ○") {
+		t.Errorf("row = %q, want a hollow marker on an idle instance", row)
+	}
+}
+
+func TestAReusedPIDIsNotDressedUpAsClaude(t *testing.T) {
+	// A session file can outlive its process; the command name settles it.
+	m := withClaude("vim", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+	})
+
+	row := navColumn(m)[1]
+	if strings.ContainsAny(row, "●○") {
+		t.Errorf("row = %q, want no marker on a process that is not claude", row)
+	}
+}
+
+func TestAClaudeWithNoSessionFileIsJustAProcess(t *testing.T) {
+	// The daemon is called claude too, and advertises no session.
+	m := withClaude("claude", nil)
+
+	row := navColumn(m)[1]
+	if strings.ContainsAny(row, "●○") {
+		t.Errorf("row = %q, want no marker without a session to report", row)
+	}
+}
+
+func TestTheMarkerLeavesRoomForTheName(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Status: "busy"},
+	})
+
+	for i, row := range bodyRows(m) {
+		nav, _ := splitRow(row)
+		if w := len([]rune(nav)); w != navWidth {
+			t.Fatalf("row %d is %d columns wide, want %d: %q", i, w, navWidth, nav)
+		}
+	}
+}
+
+func TestClaudeDetailIsAskedForOnlyOnAClaudeRow(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+	})
+
+	repo, _ := m.rows[0], m.rows[1]
+	if got := m.claudeFor(repo); got != nil {
+		t.Errorf("claudeFor(repo row) = %+v, want nothing", got)
+	}
+	m.cursor = 1
+	proc, _ := m.selected()
+	if got := m.claudeFor(proc); got == nil || got.Name != "scrn-1f" {
+		t.Errorf("claudeFor(claude row) = %+v, want the session", got)
+	}
+}

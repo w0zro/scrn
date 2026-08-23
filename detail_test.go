@@ -113,7 +113,7 @@ func TestRepoFieldsSurviveANonRepo(t *testing.T) {
 
 func TestProcFieldsDescribeThisProcess(t *testing.T) {
 	self := &ProcNode{Proc: Proc{PID: pidOfSelf(), PPID: 1, Command: "test", Dir: "/tmp"}}
-	fs := procFields(self)
+	fs := procFields(self, nil)
 
 	for _, label := range []string{"command", "pid", "parent", "cwd", "argv", "uptime", "cpu"} {
 		if _, ok := fieldValue(fs, label); !ok {

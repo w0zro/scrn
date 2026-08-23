@@ -35,12 +35,12 @@ func detailKey(r navRow) string {
 
 // loadDetail inspects the selected row off the render path. Git and ps are
 // fast, but they are still processes, and the UI should not wait on them.
-func loadDetail(r navRow, procCount int) tea.Cmd {
+func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
 	key := detailKey(r)
 	if r.kind == rowProc {
 		node := r.node
 		return func() tea.Msg {
-			return detailMsg{key: key, fields: procFields(node)}
+			return detailMsg{key: key, fields: procFields(node, sess)}
 		}
 	}
 	p := r.project
@@ -161,13 +161,23 @@ func describeAheadBehind(path string) string {
 
 // procFields describes a running process: what it is, where it runs, and how
 // long it has been going.
-func procFields(n *ProcNode) []field {
+func procFields(n *ProcNode, sess *claudeSession) []field {
 	fs := []field{
 		{"command", n.Command},
 		{"pid", strconv.Itoa(n.PID)},
-		{"parent", strconv.Itoa(n.PPID)},
-		{"cwd", n.Dir},
 	}
+
+	// What a Claude Code instance is doing outranks the process table: it is
+	// the reason the process is worth looking at.
+	if sess != nil {
+		readTranscript(transcriptPath(*sess), sess)
+		fs = append(fs, claudeFields(*sess)...)
+	}
+
+	fs = append(fs,
+		field{"parent", strconv.Itoa(n.PPID)},
+		field{"cwd", n.Dir},
+	)
 
 	if argv, err := ps(n.PID, "command="); err == nil && argv != "" {
 		fs = append(fs, field{"argv", argv})
