@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"os/exec"
 	"sort"
@@ -30,8 +31,17 @@ type ProcNode struct {
 // /proc to walk. Processes owned by other users are reported as permission
 // errors on stderr and simply do not appear, which is the behavior we want.
 func runningProcs() ([]Proc, error) {
-	out, err := exec.Command("lsof", "-a", "-d", "cwd", "-F", "pcRn").Output()
-	if err != nil && len(out) == 0 {
+	cmd := exec.Command("lsof", "-a", "-d", "cwd", "-F", "pcRn")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	// lsof reports itself, and it is scrn's own doing. Its pid is taken here
+	// rather than matching on the name, because a repository may well have a
+	// real lsof running in it that has nothing to do with this scan.
+	scanner := cmd.Process.Pid
+	if err := cmd.Wait(); err != nil && out.Len() == 0 {
 		return nil, err
 	}
 
@@ -39,7 +49,7 @@ func runningProcs() ([]Proc, error) {
 	var procs []Proc
 	var cur Proc
 
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	sc := bufio.NewScanner(bytes.NewReader(out.Bytes()))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := sc.Text()
@@ -60,8 +70,10 @@ func runningProcs() ([]Proc, error) {
 		case 'c':
 			cur.Command = value
 		case 'n':
-			// scrn should not report itself as work happening in a repo.
-			if cur.PID == 0 || cur.PID == self || !strings.HasPrefix(value, "/") {
+			// Neither scrn nor the scan it just ran is work happening in a
+			// repository, and reporting them would put a row in the tree for
+			// every refresh.
+			if cur.PID == 0 || cur.PID == self || cur.PID == scanner || !strings.HasPrefix(value, "/") {
 				continue
 			}
 			cur.Dir = value

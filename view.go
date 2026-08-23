@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -40,6 +41,12 @@ var (
 
 	busyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
+
+	cursorStyle = lipgloss.NewStyle().Reverse(true)
+
+	// offSelStyle marks the selected row when that row is one scrn cannot step
+	// into: bold enough to find, dim enough to still read as unavailable.
+	offSelStyle = faintStyle.Bold(true)
 )
 
 // claudeMark is the glyph beside a Claude instance: filled while it is
@@ -79,11 +86,19 @@ func (m model) renderHint() string {
 		return itemStyle.Render(m.status)
 	}
 
+	// A focused shell has its own vocabulary: every other key is the shell's,
+	// so listing scrn's would be a lie about what they do.
+	if m.focused() != nil {
+		return warnStyle.Render("shell") +
+			hintStyle.Render("  ·  ctrl+o back to the list")
+	}
+
 	all := "a all"
 	if m.showAll {
 		all = "a running"
 	}
-	return hintStyle.Render("↑↓ move  ·  space collapse  ·  x kill  ·  X kill tree  ·  " + all + "  ·  q quit")
+	hint := "↑↓ move · enter shell · space collapse · x kill · X kill tree · " + all + " · q quit"
+	return hintStyle.Render(truncate(hint, m.width))
 }
 
 // renderBody draws the navigator beside the detail pane, each row ending in a
@@ -94,7 +109,7 @@ func (m model) renderBody(rows int) string {
 		return joinRows(nav, rows)
 	}
 
-	detail := m.detailLines(m.detailWidth(), rows)
+	detail := m.paneLines(m.detailWidth(), rows)
 	divider := ruleStyle.Render("│")
 
 	var b strings.Builder
@@ -159,10 +174,11 @@ func (m model) navLines(rows int) []string {
 // A signalled process keeps its row and gains a red marker until a rescan finds
 // it gone, so the list never claims an exit that has not been observed.
 func (m model) renderRow(r navRow, selected bool) string {
-	marker, style := " ", itemStyle
+	marker := " "
 	if selected {
-		marker, style = "▸", selStyle
+		marker = "▸"
 	}
+	style := m.rowStyle(r, selected)
 
 	fold := ""
 	if m.collapsed[detailKey(r)] {
@@ -202,12 +218,64 @@ func (m model) renderRow(r navRow, selected bool) string {
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
+// rowStyle decides how brightly a row is drawn. Brightness in this list means
+// the row can be stepped into: a repository opens a shell, and a shell scrn
+// started can be returned to. Everything else is somebody else's process on
+// somebody else's terminal, which scrn cannot attach to, so it is drawn dim
+// rather than offered and then refused.
+func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
+	if !m.attachable(r) {
+		if selected {
+			return offSelStyle
+		}
+		return faintStyle
+	}
+	if selected {
+		return selStyle
+	}
+	return itemStyle
+}
+
 // detailWidth is the room left for the detail pane beside the navigator.
 func (m model) detailWidth() int { return m.width - navWidth - 1 }
 
 // showDetail reports whether the terminal is wide enough to carry a detail
 // pane beside the navigator.
 func (m model) showDetail() bool { return m.width >= navMin }
+
+// paneLines renders the pane beside the navigator: the shell it should be
+// showing, or, when there is none, what is known about the selected row.
+func (m model) paneLines(width, rows int) []string {
+	t := m.paneTerm()
+	if t == nil {
+		return m.detailLines(width, rows)
+	}
+
+	lines := t.lines(rows)
+	// The cursor is only drawn where the keystrokes are going. On an unfocused
+	// shell it would say the typing lands there, which it does not.
+	if m.focused() == t {
+		x, y := t.cursor()
+		if y >= 0 && y < len(lines) {
+			lines[y] = withCursor(lines[y], x, width)
+		}
+	}
+	return lines
+}
+
+// withCursor marks the cell the shell's cursor is on. The line already carries
+// the shell's own styling, so it is cut around the cell rather than indexed
+// into: a byte offset would land in the middle of an escape sequence.
+func withCursor(line string, x, width int) string {
+	if x < 0 || x >= width {
+		return line
+	}
+	under := ansi.Cut(line, x, x+1)
+	if strings.TrimSpace(under) == "" {
+		under = " "
+	}
+	return ansi.Cut(line, 0, x) + cursorStyle.Render(ansi.Strip(under)) + ansi.Cut(line, x+1, width)
+}
 
 // detailLines renders everything known about the selected row.
 func (m model) detailLines(width, rows int) []string {

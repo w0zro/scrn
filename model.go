@@ -123,6 +123,21 @@ type model struct {
 	// instances without the cursor having to visit them.
 	claude map[int]claudeSession
 
+	// terms are the shells scrn has opened, keyed by the pid running each one.
+	// A repository can hold as many as you open; they tell themselves apart in
+	// the navigator because each is its own process in that repository's tree.
+	terms map[int]*terminal
+
+	// wantCursor is a shell just opened, waiting for the scan that will put it
+	// in the tree. The cursor moves to it when it lands, so leaving the shell
+	// leaves the cursor on the row that shell belongs to.
+	wantCursor int
+
+	// focus is the pid of the terminal taking keystrokes, or 0 when the
+	// navigator has them. A focused terminal shows in the pane whatever the
+	// cursor is on, so that typing never goes somewhere you cannot see.
+	focus int
+
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
 	details map[string][]field
@@ -133,6 +148,7 @@ func newModel() model {
 		collapsed: map[string]bool{},
 		details:   map[string][]field{},
 		dying:     map[int]dyingProc{},
+		terms:     map[int]*terminal{},
 	}
 }
 
@@ -173,6 +189,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
+		// The shells are drawing into the pane, so they are the ones that have
+		// been resized, whatever the window did.
+		for _, t := range m.terms {
+			t.resize(m.detailWidth(), m.bodyHeight())
+		}
 
 	case projectsMsg:
 		m.projects, m.err = msg.projects, msg.err
@@ -189,6 +210,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.rebuild()
 		return m, m.detailCmd()
+
+	case termStartedMsg:
+		if msg.err != nil {
+			m.status, m.statusErr = "could not open a shell: "+msg.err.Error(), true
+			return m, nil
+		}
+		m.terms[msg.term.pid] = msg.term
+		m.focus = msg.term.pid
+		m.wantCursor = msg.term.pid
+		// Scan now rather than at the next tick, so the shell takes its place
+		// in the tree while the user is still looking at it.
+		return m, tea.Batch(waitForOutput(msg.term), scanProcs)
+
+	case termOutputMsg:
+		t, ok := m.terms[msg.pid]
+		if !ok {
+			return m, nil
+		}
+		return m, waitForOutput(t)
+
+	case termExitedMsg:
+		if t, ok := m.terms[msg.pid]; ok {
+			t.close()
+			delete(m.terms, msg.pid)
+		}
+		if m.focus == msg.pid {
+			m.focus = 0
+		}
+		return m, scanProcs
 
 	case claudeMsg:
 		m.claude = msg.sessions
@@ -251,6 +301,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		// A focused shell takes every keystroke except the one that leaves it.
+		// That has to come before everything else: ctrl+c belongs to whatever
+		// is running in the shell, not to scrn.
+		if t := m.focused(); t != nil {
+			if msg.Type == tea.KeyCtrlO {
+				m.focus = 0
+				return m, m.detailCmd()
+			}
+			t.write(keyBytes(msg))
+			return m, nil
+		}
+
 		// A pending kill takes the next key, whatever it is: no other binding
 		// should fire while a confirmation is on screen.
 		if m.pendingKill != nil {
@@ -268,6 +330,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.status = ""
 		switch msg.String() {
+		case "enter":
+			return m, m.openShell()
 		case "x":
 			return m, m.askKill(false)
 		case "X":
@@ -302,6 +366,61 @@ func (m *model) move(delta int) tea.Cmd {
 	m.cursor = (m.cursor + delta + len(m.rows)) % len(m.rows)
 	m.scrollToCursor()
 	return m.detailCmd()
+}
+
+// focused returns the terminal taking keystrokes, if one is.
+func (m model) focused() *terminal {
+	if m.focus == 0 {
+		return nil
+	}
+	return m.terms[m.focus]
+}
+
+// paneTerm is the shell the pane should be showing: the focused one, or the
+// one belonging to the row under the cursor.
+func (m model) paneTerm() *terminal {
+	if t := m.focused(); t != nil {
+		return t
+	}
+	r, ok := m.selected()
+	if !ok || r.kind != rowProc {
+		return nil
+	}
+	return m.terms[r.node.PID]
+}
+
+// attachable reports whether enter can step into a row: a repository opens a
+// shell in itself, and a shell scrn started can be returned to. A process scrn
+// did not start is on a terminal it does not own, and no amount of asking will
+// change that.
+func (m model) attachable(r navRow) bool {
+	if r.kind == rowProject {
+		return true
+	}
+	_, mine := m.terms[r.node.PID]
+	return mine
+}
+
+// openShell opens a shell on a repository row, or steps into one already open
+// on the row under the cursor. Enter on a repository always opens another, so
+// a repository can hold as many shells as the work needs.
+func (m *model) openShell() tea.Cmd {
+	r, ok := m.selected()
+	if !ok {
+		return nil
+	}
+
+	if r.kind == rowProc {
+		if !m.attachable(r) {
+			// The row is already drawn dim to say so; this is the reminder for
+			// pressing enter on it anyway, not a failure.
+			m.status, m.statusErr = "scrn did not start "+procLabel(r.node), false
+			return nil
+		}
+		m.focus = r.node.PID
+		return nil
+	}
+	return openTerm(r.project.Path, m.detailWidth(), m.bodyHeight())
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the
@@ -502,6 +621,17 @@ func (m *model) rebuild() {
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
+	}
+
+	// A shell just opened takes the cursor as soon as it is in the tree, so
+	// that leaving it leaves the cursor somewhere that makes sense.
+	if m.wantCursor != 0 {
+		for i, r := range m.rows {
+			if r.kind == rowProc && r.node.PID == m.wantCursor {
+				m.cursor, m.wantCursor = i, 0
+				break
+			}
+		}
 	}
 
 	m.pruneDetails()
