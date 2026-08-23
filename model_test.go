@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -53,6 +54,29 @@ func press(m model, key string) model {
 	}
 	next, _ := m.Update(msg)
 	return next.(model)
+}
+
+// killed and killFailed are the outcome of signalling one process, shaped the
+// way killTree reports it.
+func killed(command string, pid int) killedMsg {
+	return killedMsg{
+		subject: command + " " + strconv.Itoa(pid),
+		results: []killResult{{command: command, pid: pid}},
+	}
+}
+
+func killFailed(command string, pid int, err error) killedMsg {
+	msg := killed(command, pid)
+	msg.results[0].err = err
+	return msg
+}
+
+// targets lists what a pending kill would signal, in the order it would.
+func targets(req *killRequest) []int {
+	if req == nil {
+		return nil
+	}
+	return pids(req.nodes)
 }
 
 // splitRow cuts a body row into its navigator and detail halves at the pane
@@ -683,8 +707,8 @@ func TestXAsksBeforeKilling(t *testing.T) {
 	m := press(nestedTree(12), "down") // onto zsh 10
 	m = press(m, "x")
 
-	if m.pendingKill == nil || m.pendingKill.PID != 10 {
-		t.Fatalf("pendingKill = %v, want the selected process", m.pendingKill)
+	if m.pendingKill == nil || len(m.pendingKill.nodes) != 1 || m.pendingKill.nodes[0].PID != 10 {
+		t.Fatalf("pendingKill = %v, want just the selected process", m.pendingKill)
 	}
 	if f := footer(m); !strings.Contains(f, "kill zsh 10?") {
 		t.Errorf("footer = %q, want it to ask before killing", f)
@@ -778,7 +802,7 @@ func TestXOnARepoSaysItIsNotKillable(t *testing.T) {
 
 func TestKillFailureIsReported(t *testing.T) {
 	m := nestedTree(12)
-	next, cmd := m.Update(killedMsg{command: "zsh", pid: 10, err: errors.New("not permitted")})
+	next, cmd := m.Update(killFailed("zsh", 10, errors.New("not permitted")))
 
 	if f := footer(next.(model)); !strings.Contains(f, "not permitted") {
 		t.Errorf("footer = %q, want the failure reported", f)
@@ -788,15 +812,19 @@ func TestKillFailureIsReported(t *testing.T) {
 	}
 }
 
-func TestKillSuccessRescans(t *testing.T) {
+func TestKillSuccessStartsTheMarker(t *testing.T) {
 	m := nestedTree(12)
-	next, cmd := m.Update(killedMsg{command: "zsh", pid: 10})
+	next, cmd := m.Update(killed("zsh", 10))
+	got := next.(model)
 
-	if f := footer(next.(model)); !strings.Contains(f, "SIGTERM") {
+	if f := footer(got); !strings.Contains(f, "SIGTERM") {
 		t.Errorf("footer = %q, want it to report the signal", f)
 	}
-	if cmd == nil {
-		t.Error("a successful kill should refresh the process list")
+	if cmd == nil || !got.spinning {
+		t.Error("a successful kill should start the frame chain that watches for the exit")
+	}
+	if _, dying := got.dying[10]; !dying {
+		t.Error("a successful kill should mark the process")
 	}
 }
 
@@ -952,7 +980,7 @@ func TestRefreshPreservesCollapsedNodes(t *testing.T) {
 
 func TestRefreshDoesNotClearAStatusMessage(t *testing.T) {
 	m := nestedTree(12)
-	next, _ := m.Update(killedMsg{command: "zsh", pid: 10})
+	next, _ := m.Update(killed("zsh", 10))
 	next, _ = next.Update(tickMsg{})
 
 	if !strings.Contains(footer(next.(model)), "SIGTERM") {
@@ -970,4 +998,342 @@ func TestRefreshDoesNotDisturbAPendingKill(t *testing.T) {
 	if !strings.Contains(footer(next.(model)), "kill zsh 10?") {
 		t.Error("the confirmation should stay on screen through a refresh")
 	}
+}
+
+func TestASignalledProcessKeepsItsRowAndIsMarked(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killed("fmt", 40))
+	got := next.(model)
+
+	row := navColumn(got)[3]
+	if !strings.Contains(row, "fmt 40") {
+		t.Fatalf("row = %q, want the process still listed until it is seen gone", row)
+	}
+	if !strings.Contains(row, spinFrames[got.frame%len(spinFrames)]) {
+		t.Errorf("row = %q, want a marker on the signalled process", row)
+	}
+}
+
+func TestOnlyTheSignalledProcessIsMarked(t *testing.T) {
+	next, _ := nestedTree(12).Update(killed("fmt", 40))
+
+	for i, row := range navColumn(next.(model)) {
+		if strings.Contains(row, "fmt 40") {
+			continue
+		}
+		for _, f := range spinFrames {
+			if strings.Contains(row, f) {
+				t.Errorf("row %d = %q carries a marker but was not signalled", i, row)
+			}
+		}
+	}
+}
+
+func TestAFailedKillMarksNothing(t *testing.T) {
+	next, _ := nestedTree(12).Update(killFailed("fmt", 40, errors.New("not permitted")))
+
+	if got := next.(model); len(got.dying) != 0 {
+		t.Errorf("dying = %v, want nothing marked when the signal did not land", got.dying)
+	}
+}
+
+func TestTheMarkerAdvances(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killed("fmt", 40))
+	first := navColumn(next.(model))[3]
+
+	next, _ = next.(model).Update(spinMsg{})
+	if second := navColumn(next.(model))[3]; second == first {
+		t.Errorf("the marker did not advance: %q twice", second)
+	}
+}
+
+func TestTheMarkerGoesWhenTheProcessDoes(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killed("fmt", 40))
+
+	// The next scan without pid 40, as if it had acted on the signal.
+	next, _ = next.(model).Update(procsMsg{procs: []Proc{
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+	}})
+	got := next.(model)
+
+	if col := strings.Join(navColumn(got), "\n"); strings.Contains(col, "fmt 40") {
+		t.Errorf("an exited process should leave the tree:\n%s", col)
+	}
+	if len(got.dying) != 0 {
+		t.Errorf("dying = %v, want it forgotten once the process is gone", got.dying)
+	}
+}
+
+func TestAProcessDyingInAFoldedSubtreeIsNotForgotten(t *testing.T) {
+	// fmt 40 hangs under vim 20. Folding vim takes its row away, which is not
+	// the same as the process having exited.
+	m := press(press(nestedTree(12), "down"), "down") // onto vim 20
+	next, _ := m.Update(killed("fmt", 40))
+	folded := press(next.(model), " ")
+
+	if _, dying := folded.dying[40]; !dying {
+		t.Error("folding a subtree should not count its processes as gone")
+	}
+}
+
+func TestTheFrameChainRescansButNotEveryFrame(t *testing.T) {
+	// The chain always schedules the next frame; on a rescanning frame it also
+	// asks for a scan, which is what eventually finds the process gone. A batch
+	// of two is that second command; a lone command is the next frame alone.
+	m := nestedTree(12)
+	next, _ := m.Update(killed("fmt", 40))
+	got := next.(model)
+
+	scans := 0
+	for i := 0; i < 2*rescanFrames; i++ {
+		n, cmd := got.Update(spinMsg{})
+		got = n.(model)
+		if cmd == nil {
+			t.Fatalf("frame %d ended the chain while a process was still dying", i)
+		}
+		if got.frame%rescanFrames != 0 {
+			// Only the next frame, which is a real timer: running it would
+			// make the test wait out the frame rate.
+			continue
+		}
+		scans++
+		batch, ok := cmd().(tea.BatchMsg)
+		if !ok {
+			t.Errorf("frame %d scheduled one command, want the next frame and a scan", got.frame)
+			continue
+		}
+		if len(batch) != 2 {
+			t.Errorf("frame %d batched %d commands, want the next frame and a scan", got.frame, len(batch))
+		}
+	}
+
+	if scans != 2 {
+		t.Errorf("scanned %d times in %d frames, want one every %d", scans, 2*rescanFrames, rescanFrames)
+	}
+}
+
+func TestASecondKillJoinsTheRunningChain(t *testing.T) {
+	m := nestedTree(12)
+	next, cmd := m.Update(killed("fmt", 40))
+	if cmd == nil {
+		t.Fatal("the first kill should start the frame chain")
+	}
+
+	next, cmd = next.(model).Update(killed("go", 30))
+	if cmd != nil {
+		t.Error("a second kill started its own chain, doubling the frame rate")
+	}
+	if got := next.(model); len(got.dying) != 2 {
+		t.Errorf("dying = %v, want both signalled processes marked", got.dying)
+	}
+}
+
+func TestTheChainStopsWhenNothingIsDying(t *testing.T) {
+	m := nestedTree(12)
+	m.spinning = true
+
+	next, cmd := m.Update(spinMsg{})
+	if cmd != nil {
+		t.Error("the frame chain should stop once nothing is marked")
+	}
+	if next.(model).spinning {
+		t.Error("spinning should be cleared so the next kill can start a chain")
+	}
+}
+
+func TestAProcessThatIgnoresTheSignalIsGivenUpOn(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killed("fmt", 40))
+	got := next.(model)
+
+	for i := 0; i <= killLinger; i++ {
+		n, _ := got.Update(spinMsg{})
+		got = n.(model)
+	}
+
+	if _, dying := got.dying[40]; dying {
+		t.Error("a process that never acted on SIGTERM is still marked as dying")
+	}
+	if f := footer(got); !strings.Contains(f, "fmt 40 did not exit") {
+		t.Errorf("footer = %q, want it to say the process did not go", f)
+	}
+	if col := strings.Join(navColumn(got), "\n"); !strings.Contains(col, "fmt 40") {
+		t.Errorf("the process is still running and should still be listed:\n%s", col)
+	}
+}
+
+// --- killing a whole tree ------------------------------------------------
+
+func TestXKillsTheSubtreeParentsFirst(t *testing.T) {
+	// zsh 10 holds vim 20 (holding fmt 40) and go 30.
+	m := press(press(nestedTree(12), "down"), "X") // onto zsh 10
+
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+		t.Errorf("targets = %v, want the subtree parents first %v", got, want)
+	}
+	if f := footer(m); !strings.Contains(f, "kill zsh 10 and 3 under it?") {
+		t.Errorf("footer = %q, want it to say how much it is about to kill", f)
+	}
+}
+
+func TestLowercaseXTakesOnlyTheOneProcess(t *testing.T) {
+	m := press(press(nestedTree(12), "down"), "x") // onto zsh 10
+
+	if got := targets(m.pendingKill); !sameInts(got, []int{10}) {
+		t.Errorf("targets = %v, want only the selected process", got)
+	}
+	if f := footer(m); !strings.Contains(f, "kill zsh 10?") {
+		t.Errorf("footer = %q, want a plain kill to read as one", f)
+	}
+}
+
+func TestXOnALeafReadsAsAPlainKill(t *testing.T) {
+	m := nestedTree(12)
+	for i := 0; i < 3; i++ {
+		m = press(m, "down") // onto fmt 40, which has nothing below it
+	}
+	m = press(m, "X")
+
+	if got := targets(m.pendingKill); !sameInts(got, []int{40}) {
+		t.Errorf("targets = %v, want just the leaf", got)
+	}
+	if f := footer(m); !strings.Contains(f, "kill fmt 40?") {
+		t.Errorf("footer = %q, want no count when there is nothing below it", f)
+	}
+}
+
+func TestXOnARepoTakesEverythingInIt(t *testing.T) {
+	m := press(nestedTree(12), "X") // cursor is on the repo row
+
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+		t.Errorf("targets = %v, want every process in the repo %v", got, want)
+	}
+	if f := footer(m); !strings.Contains(f, "kill 4 processes in scrn?") {
+		t.Errorf("footer = %q, want it to say what it is about to clear out", f)
+	}
+}
+
+func TestXOnAnIdleRepoSaysThereIsNothingToKill(t *testing.T) {
+	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+	m = press(m, "X")
+
+	if m.pendingKill != nil {
+		t.Error("an idle repository should not arm a kill")
+	}
+	if f := footer(m); !strings.Contains(f, "nothing running in scrn") {
+		t.Errorf("footer = %q, want it to explain why nothing happened", f)
+	}
+}
+
+func TestXOnARepoPointsAtTheTreeKill(t *testing.T) {
+	if f := footer(press(nestedTree(12), "x")); !strings.Contains(f, "X for the whole repository") {
+		t.Errorf("footer = %q, want it to point at the key that does work here", f)
+	}
+}
+
+func TestXCollapsedStillKillsWhatIsFoldedAway(t *testing.T) {
+	// Folding is a display state; it should not narrow what a kill covers.
+	m := press(press(nestedTree(12), "down"), " ") // fold zsh 10
+	m = press(m, "X")
+
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+		t.Errorf("targets = %v, want the folded subtree too %v", got, want)
+	}
+}
+
+func TestConfirmingATreeKillSignalsEveryProcess(t *testing.T) {
+	m := press(press(nestedTree(12), "down"), "X")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	if cmd == nil {
+		t.Fatal("X should confirm a tree kill it armed")
+	}
+	if next.(model).pendingKill != nil {
+		t.Error("confirming should clear the pending kill")
+	}
+}
+
+func TestEveryProcessInATreeKillIsMarked(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killedMsg{
+		subject: "zsh 10 and 3 under it",
+		results: []killResult{
+			{command: "zsh", pid: 10}, {command: "vim", pid: 20},
+			{command: "fmt", pid: 40}, {command: "go", pid: 30},
+		},
+	})
+	got := next.(model)
+
+	for _, pid := range []int{10, 20, 30, 40} {
+		if _, dying := got.dying[pid]; !dying {
+			t.Errorf("pid %d was signalled but is not marked", pid)
+		}
+	}
+	if f := footer(got); !strings.Contains(f, "sent SIGTERM to zsh 10 and 3 under it") {
+		t.Errorf("footer = %q, want the whole kill reported once", f)
+	}
+}
+
+func TestAPartlyRefusedTreeKillSaysSo(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killedMsg{
+		subject: "zsh 10 and 1 under it",
+		results: []killResult{
+			{command: "zsh", pid: 10},
+			{command: "vim", pid: 20, err: errors.New("not permitted")},
+		},
+	})
+	got := next.(model)
+
+	f := footer(got)
+	if !strings.Contains(f, "1 could not be killed") || !strings.Contains(f, "not permitted") {
+		t.Errorf("footer = %q, want the survivors accounted for", f)
+	}
+	if _, dying := got.dying[20]; dying {
+		t.Error("a process that refused the signal should not be marked as dying")
+	}
+	if _, dying := got.dying[10]; !dying {
+		t.Error("the processes that did take the signal should still be marked")
+	}
+}
+
+func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
+	m := nestedTree(12)
+	next, _ := m.Update(killedMsg{
+		subject: "3 processes in scrn",
+		results: []killResult{
+			{command: "zsh", pid: 10, err: errors.New("not permitted")},
+			{command: "vim", pid: 20, err: errors.New("not permitted")},
+			{command: "go", pid: 30, err: errors.New("already gone")},
+		},
+	})
+	got := next.(model)
+
+	if f := footer(got); !strings.Contains(f, "could not kill 3 processes in scrn: already gone, not permitted") {
+		t.Errorf("footer = %q, want each reason named once", f)
+	}
+	if got.spinning {
+		t.Error("nothing was signalled, so nothing should be spinning")
+	}
+}
+
+func TestFooterAdvertisesTheTreeKill(t *testing.T) {
+	if f := footer(sized(80, 8)); !strings.Contains(f, "X kill tree") {
+		t.Errorf("footer = %q, want the tree kill advertised", f)
+	}
+}
+
+func sameInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

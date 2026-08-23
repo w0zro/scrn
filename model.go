@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -91,9 +93,17 @@ type model struct {
 	// same way as details so the state survives a rescan.
 	collapsed map[string]bool
 
-	// pendingKill is the process a kill has been asked for but not confirmed.
+	// pendingKill is the kill that has been asked for but not confirmed.
 	// Killing cannot be undone, so it takes a second key.
-	pendingKill *ProcNode
+	pendingKill *killRequest
+
+	// dying holds the processes that have been signalled and are still listed.
+	// They keep their place, marked, until a rescan finds them gone: a row that
+	// vanished on the keystroke would claim an exit scrn has not seen yet.
+	// spinning says whether the frame chain is running and frame is its count.
+	dying    map[int]dyingProc
+	spinning bool
+	frame    int
 
 	// status is a one-line report of the last action, cleared as soon as the
 	// cursor moves on.
@@ -112,6 +122,7 @@ func newModel() model {
 	return model{
 		collapsed: map[string]bool{},
 		details:   map[string][]field{},
+		dying:     map[int]dyingProc{},
 	}
 }
 
@@ -182,22 +193,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case killedMsg:
 		m.pendingKill = nil
-		if msg.err != nil {
-			m.status, m.statusErr = "could not kill "+msg.command+": "+msg.err.Error(), true
+		signalled := 0
+		for _, r := range msg.results {
+			if r.err != nil {
+				continue
+			}
+			signalled++
+			m.dying[r.pid] = dyingProc{command: r.command}
+		}
+		if signalled == 0 {
+			m.status, m.statusErr = "could not kill "+msg.subject+": "+describeFailures(msg.results), true
 			return m, nil
 		}
-		m.status, m.statusErr = "sent SIGTERM to "+msg.command+" "+strconv.Itoa(msg.pid), false
-		return m, rescanAfter(killGrace)
+
+		m.status, m.statusErr = "sent SIGTERM to "+msg.subject, false
+		if failed := len(msg.results) - signalled; failed > 0 {
+			// Part of a subtree going unsignalled is worth saying: the rest
+			// spins down and the survivors just sit there unexplained.
+			m.status += " — " + strconv.Itoa(failed) + " could not be killed: " + describeFailures(msg.results)
+			m.statusErr = true
+		}
+		if m.spinning {
+			return m, nil
+		}
+		m.spinning = true
+		return m, spin()
+
+	case spinMsg:
+		m.frame++
+		m.ageDying()
+		if len(m.dying) == 0 {
+			m.spinning = false
+			return m, nil
+		}
+		cmds := []tea.Cmd{spin()}
+		if m.frame%rescanFrames == 0 {
+			cmds = append(cmds, scanProcs)
+		}
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		// A pending kill takes the next key, whatever it is: no other binding
 		// should fire while a confirmation is on screen.
 		if m.pendingKill != nil {
-			node := m.pendingKill
+			req := m.pendingKill
 			switch msg.String() {
-			case "x", "y", "enter":
+			case "x", "X", "y", "enter":
 				m.pendingKill = nil
-				return m, killProc(node)
+				return m, killTree(req)
 			default:
 				m.pendingKill = nil
 				m.status, m.statusErr = "kill cancelled", false
@@ -208,7 +251,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		switch msg.String() {
 		case "x":
-			return m, m.askKill()
+			return m, m.askKill(false)
+		case "X":
+			return m, m.askKill(true)
 		case "down", "j", "tab":
 			return m, m.move(1)
 		case "up", "k", "shift+tab":
@@ -241,19 +286,67 @@ func (m *model) move(delta int) tea.Cmd {
 	return m.detailCmd()
 }
 
-// askKill arms a kill for the selected process. Repositories are not
-// killable, so it says so rather than doing nothing.
-func (m *model) askKill() tea.Cmd {
+// askKill arms a kill for whatever the cursor is on. A plain kill takes the
+// one selected process; a tree kill takes everything below it too, which for a
+// repository row means everything running in that repository.
+func (m *model) askKill(tree bool) tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
 		return nil
 	}
-	if r.kind != rowProc {
-		m.status, m.statusErr = "select a process to kill", true
+
+	if r.kind == rowProject {
+		// A repository is not itself killable, but the tree under it is.
+		if !tree {
+			m.status, m.statusErr = "select a process to kill, or X for the whole repository", true
+			return nil
+		}
+		var nodes []*ProcNode
+		for _, root := range m.byRepo[r.project.Path] {
+			nodes = append(nodes, subtree(root)...)
+		}
+		if len(nodes) == 0 {
+			m.status, m.statusErr = "nothing running in "+r.project.Name, true
+			return nil
+		}
+		m.pendingKill = &killRequest{
+			subject: plural(len(nodes), "process", "processes") + " in " + r.project.Name,
+			nodes:   nodes,
+		}
 		return nil
 	}
-	m.pendingKill = r.node
+
+	if !tree {
+		m.pendingKill = &killRequest{subject: procLabel(r.node), nodes: []*ProcNode{r.node}}
+		return nil
+	}
+
+	// A leaf has nothing below it, so X on one is just a kill, and saying so
+	// would only make the confirmation harder to read.
+	nodes := subtree(r.node)
+	subject := procLabel(r.node)
+	if len(nodes) > 1 {
+		subject += " and " + strconv.Itoa(len(nodes)-1) + " under it"
+	}
+	m.pendingKill = &killRequest{subject: subject, nodes: nodes}
 	return nil
+}
+
+// describeFailures says why a kill did not land, naming the reasons rather
+// than the processes: a subtree fails for the same handful of reasons over and
+// over, and "not permitted" said once is the useful report.
+func describeFailures(results []killResult) string {
+	var reasons []string
+	seen := map[string]bool{}
+	for _, r := range results {
+		if r.err == nil || seen[r.err.Error()] {
+			continue
+		}
+		seen[r.err.Error()] = true
+		reasons = append(reasons, r.err.Error())
+	}
+	sort.Strings(reasons)
+	return strings.Join(reasons, ", ")
 }
 
 // toggleCollapse folds or unfolds the selected node. A row with nothing under
@@ -287,6 +380,50 @@ func (m model) childCount(r navRow) int {
 		return total
 	}
 	return countTree(r.node) - 1
+}
+
+// ageDying counts the frames each signalled process has lasted and gives up on
+// the ones that are not going. Marking a process forever would both misreport
+// it and keep rescanning on its behalf for the rest of the session.
+func (m *model) ageDying() {
+	var stuck []int
+	for pid, d := range m.dying {
+		d.frames++
+		m.dying[pid] = d
+		if d.frames > killLinger {
+			stuck = append(stuck, pid)
+		}
+	}
+	if len(stuck) == 0 {
+		return
+	}
+
+	// Sorted, so what the footer says does not depend on map order.
+	sort.Ints(stuck)
+	names := make([]string, 0, len(stuck))
+	for _, pid := range stuck {
+		names = append(names, m.dying[pid].command+" "+strconv.Itoa(pid))
+		delete(m.dying, pid)
+	}
+	m.status, m.statusErr = strings.Join(names, ", ")+" did not exit", true
+}
+
+// pruneDying forgets the processes that have gone. It reads the process list
+// rather than the rows, because a dying process inside a folded subtree has no
+// row and is not therefore gone.
+func (m *model) pruneDying() {
+	if len(m.dying) == 0 {
+		return
+	}
+	live := make(map[int]bool, len(m.procs))
+	for _, p := range m.procs {
+		live[p.PID] = true
+	}
+	for pid := range m.dying {
+		if !live[pid] {
+			delete(m.dying, pid)
+		}
+	}
 }
 
 // bodyHeight is the number of rows between the header and the footer.
@@ -350,6 +487,7 @@ func (m *model) rebuild() {
 	}
 
 	m.pruneDetails()
+	m.pruneDying()
 	m.scrollToCursor()
 }
 

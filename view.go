@@ -49,8 +49,8 @@ func (m model) View() string {
 // last action takes the whole line: while either is on screen it is the only
 // thing the next keystroke is about.
 func (m model) renderHint() string {
-	if n := m.pendingKill; n != nil {
-		return warnStyle.Render("kill "+n.Command+" "+strconv.Itoa(n.PID)+"?") +
+	if req := m.pendingKill; req != nil {
+		return warnStyle.Render("kill "+req.subject+"?") +
 			hintStyle.Render("   x confirm  ·  any other key cancels")
 	}
 	if m.status != "" {
@@ -64,7 +64,7 @@ func (m model) renderHint() string {
 	if m.showAll {
 		all = "a running"
 	}
-	return hintStyle.Render("↑↓ move  ·  space collapse  ·  x kill  ·  " + all + "  ·  q quit")
+	return hintStyle.Render("↑↓ move  ·  space collapse  ·  x kill  ·  X kill tree  ·  " + all + "  ·  q quit")
 }
 
 // renderBody draws the navigator beside the detail pane, each row ending in a
@@ -136,6 +136,9 @@ func (m model) navLines(rows int) []string {
 // A collapsed node carries the count of what it is hiding. That count is what
 // distinguishes a folded node from a leaf, which the tree rules alone cannot
 // show once the children are gone.
+//
+// A signalled process keeps its row and gains a red marker until a rescan finds
+// it gone, so the list never claims an exit that has not been observed.
 func (m model) renderRow(r navRow, selected bool) string {
 	marker, style := " ", itemStyle
 	if selected {
@@ -149,6 +152,13 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
+	spinner := ""
+	if r.kind == rowProc {
+		if _, dying := m.dying[r.node.PID]; dying {
+			spinner = " " + spinFrames[m.frame%len(spinFrames)]
+		}
+	}
+
 	rules := ""
 	label := r.project.Name
 	if r.kind == rowProc {
@@ -157,11 +167,12 @@ func (m model) renderRow(r navRow, selected bool) string {
 			branch = "└─"
 		}
 		rules = r.prefix + branch + " "
-		label = r.node.Command + " " + strconv.Itoa(r.node.PID)
+		label = procLabel(r.node)
 	}
 
-	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold)
-	return marker + faintStyle.Render(rules) + style.Render(truncate(label, room)) + faintStyle.Render(fold)
+	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) - lipgloss.Width(spinner)
+	return marker + faintStyle.Render(rules) + style.Render(truncate(label, room)) +
+		errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
 // detailWidth is the room left for the detail pane beside the navigator.
