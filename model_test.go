@@ -91,23 +91,27 @@ func splitRow(row string) (nav, detail string) {
 	return string(r[:navWidth]), string(r[navWidth+1:])
 }
 
-// bodyRows returns the rows between the header and the footer.
+// bodyRows returns every row of the view.
 func bodyRows(m model) []string {
 	all := strings.Split(m.View(), "\n")
-	if len(all) < 3 {
-		return nil
-	}
-	out := make([]string, 0, len(all)-2)
-	for _, ln := range all[1 : len(all)-1] {
+	out := make([]string, 0, len(all))
+	for _, ln := range all {
 		out = append(out, stripANSI(ln))
 	}
 	return out
 }
 
-// navColumn returns the non-blank navigator rows alone.
+// navColumn returns the non-blank navigator rows: scrn's own name and keys
+// bracket them in that column and are not part of the list.
 func navColumn(m model) []string {
+	rows := bodyRows(m)
+	end := len(rows) - len(m.hintLines(m.hintWidth(), m.height))
+	if end < 1 {
+		return nil
+	}
+
 	var out []string
-	for _, row := range bodyRows(m) {
+	for _, row := range rows[1:end] {
 		nav, _ := splitRow(row)
 		if nav = strings.TrimRight(nav, " "); strings.TrimSpace(nav) != "" {
 			out = append(out, nav)
@@ -116,7 +120,8 @@ func navColumn(m model) []string {
 	return out
 }
 
-// detailColumn returns the non-blank detail rows alone.
+// detailColumn returns the non-blank pane rows. The pane runs the whole height
+// of the window, so none of them are skipped.
 func detailColumn(m model) []string {
 	var out []string
 	for _, row := range bodyRows(m) {
@@ -159,9 +164,9 @@ func TestViewPutsScrnInTopLeft(t *testing.T) {
 func TestNavPaneOccupiesItsColumn(t *testing.T) {
 	lines := strings.Split(sized(80, 24).View(), "\n")
 	for i := 1; i < len(lines)-1; i++ {
-		row := stripANSI(lines[i])
-		if got := strings.Index(row, "│"); got != navWidth {
-			t.Fatalf("row %d: divider at column %d, want %d (row %q)", i, got, navWidth, row)
+		row := []rune(stripANSI(lines[i]))
+		if len(row) <= navWidth || row[navWidth] != '│' {
+			t.Fatalf("row %d: no divider at column %d: %q", i, navWidth, string(row))
 		}
 	}
 }
@@ -388,7 +393,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheToggle(t *testing.T) {
-	m := sized(160, 8)
+	m := sized(160, 24)
 	if !strings.Contains(stripANSI(m.View()), "a all") {
 		t.Error("footer should offer to show all while narrowed, which is the default")
 	}
@@ -590,13 +595,29 @@ func TestCursorKeepsItsSubjectAcrossRescans(t *testing.T) {
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] == 0x1b {
-			for i < len(s) && !isANSITerm(s[i]) {
-				i++
+		if s[i] != 0x1b {
+			b.WriteByte(s[i])
+			continue
+		}
+
+		// An OSC runs to a bell or a string terminator, not to the first
+		// letter — its payload is words, and stopping at one would eat what
+		// came after it.
+		if i+1 < len(s) && s[i+1] == ']' {
+			for i += 2; i < len(s); i++ {
+				if s[i] == 0x07 {
+					break
+				}
+				if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+					i++
+					break
+				}
 			}
 			continue
 		}
-		b.WriteByte(s[i])
+		for i < len(s) && !isANSITerm(s[i]) {
+			i++
+		}
 	}
 	return b.String()
 }
@@ -713,7 +734,7 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 }
 
 func TestFooterAdvertisesCollapse(t *testing.T) {
-	if !strings.Contains(stripANSI(sized(160, 8).View()), "space collapse") {
+	if !strings.Contains(stripANSI(sized(160, 24).View()), "space fold") {
 		t.Error("footer should mention the collapse key")
 	}
 }
@@ -732,9 +753,21 @@ func TestCollapsedRowStaysInItsColumn(t *testing.T) {
 
 // --- killing --------------------------------------------------------------
 
+// footer is scrn's own block at the foot of its column, flattened to one
+// string so a test can ask whether something is in it.
 func footer(m model) string {
-	all := strings.Split(m.View(), "\n")
-	return stripANSI(all[len(all)-1])
+	lines := strings.Split(m.View(), "\n")
+	n := len(m.hintLines(m.hintWidth(), m.height))
+	if n > len(lines) {
+		n = len(lines)
+	}
+
+	out := make([]string, 0, n)
+	for _, ln := range lines[len(lines)-n:] {
+		nav, _ := splitRow(stripANSI(ln))
+		out = append(out, strings.Join(strings.Fields(nav), " "))
+	}
+	return strings.Join(out, " ")
 }
 
 func TestXAsksBeforeKilling(t *testing.T) {
@@ -875,7 +908,7 @@ func TestStatusClearsOnTheNextKey(t *testing.T) {
 }
 
 func TestFooterAdvertisesKill(t *testing.T) {
-	if !strings.Contains(footer(sized(80, 8)), "x kill") {
+	if !strings.Contains(footer(sized(80, 24)), "x kill") {
 		t.Error("footer should mention the kill key")
 	}
 }
@@ -1355,7 +1388,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheTreeKill(t *testing.T) {
-	if f := footer(sized(160, 8)); !strings.Contains(f, "X kill tree") {
+	if f := footer(sized(160, 24)); !strings.Contains(f, "X kill tree") {
 		t.Errorf("footer = %q, want the tree kill advertised", f)
 	}
 }
@@ -1457,11 +1490,28 @@ func TestClaudeDetailIsAskedForOnlyOnAClaudeRow(t *testing.T) {
 	}
 }
 
-func TestTheFooterNeverOutgrowsTheWindow(t *testing.T) {
-	// A hint that wraps costs a line the body was drawing on.
+func TestTheKeysNeverOutgrowTheirColumn(t *testing.T) {
+	// A line that overflows the column would push the divider out of true.
 	for _, w := range []int{40, 60, 80, 100, 140} {
-		if got := lipgloss.Width(footer(sized(w, 10))); got > w {
-			t.Errorf("at width %d the footer is %d columns: %q", w, got, footer(sized(w, 10)))
+		m := sized(w, 24)
+		for i, ln := range m.hintLines(m.hintWidth(), 24) {
+			if got := lipgloss.Width(ln); got > m.hintWidth() {
+				t.Errorf("width %d: key line %d is %d columns, want at most %d: %q",
+					w, i, got, m.hintWidth(), stripANSI(ln))
+			}
+		}
+	}
+}
+
+func TestTheKeysNeverCrowdOutTheList(t *testing.T) {
+	// However short the window, the list keeps a row of its own.
+	for _, h := range []int{3, 4, 6, 8, 12, 24} {
+		m := withProcList(80, h, []Project{{Name: "alpha"}, {Name: "beta"}}, nil)
+		if got := len(strings.Split(m.View(), "\n")); got != h {
+			t.Errorf("height %d: view is %d lines", h, got)
+		}
+		if h >= 3 && len(navColumn(m)) == 0 {
+			t.Errorf("height %d: the keys left no room for the list", h)
 		}
 	}
 }
@@ -1548,12 +1598,12 @@ func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 }
 
 func TestTheFooterSaysWhichWayTheFoldGoes(t *testing.T) {
-	m := sized(160, 8)
-	if f := footer(m); !strings.Contains(f, "- every process") {
+	m := sized(160, 24)
+	if f := footer(m); !strings.Contains(f, "- unfold") {
 		t.Errorf("footer = %q, want it to offer the full tree", f)
 	}
 	m = press(m, "-")
-	if f := footer(m); !strings.Contains(f, "- fold runs") {
+	if f := footer(m); !strings.Contains(f, "- fold") {
 		t.Errorf("footer = %q, want it to offer folding back", f)
 	}
 }

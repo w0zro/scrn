@@ -27,6 +27,11 @@ type remoteTerm struct {
 	screen string
 	curX   int
 	curY   int
+
+	// What the program in it has asked of the terminal window. scrn is the one
+	// with a window, so it is scrn that has to ask for it.
+	title    string
+	progress string
 }
 
 // session is the client's connection to the daemon.
@@ -51,10 +56,12 @@ type (
 
 	// screenMsg is one shell's pane as it now stands.
 	screenMsg struct {
-		pid    int
-		screen string
-		curX   int
-		curY   int
+		pid      int
+		screen   string
+		curX     int
+		curY     int
+		title    string
+		progress string
 	}
 
 	// termGoneMsg says a shell has finished.
@@ -145,7 +152,10 @@ func (s *session) receive() {
 		case kindSessions:
 			s.events <- sessionsMsg{sessions: m.Sessions}
 		case kindScreen:
-			s.events <- screenMsg{pid: m.PID, screen: m.Screen, curX: m.CursorX, curY: m.CursorY}
+			s.events <- screenMsg{
+				pid: m.PID, screen: m.Screen, curX: m.CursorX, curY: m.CursorY,
+				title: m.Title, progress: m.Progress,
+			}
 		case kindExited:
 			s.events <- termGoneMsg{pid: m.PID}
 		case kindError:

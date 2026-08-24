@@ -43,6 +43,12 @@ type message struct {
 	CursorX int    `json:"cx,omitempty"`
 	CursorY int    `json:"cy,omitempty"`
 
+	// Title and Progress are what the program running in the pane has asked of
+	// the terminal window. The daemon has no window, so they are carried out to
+	// the client, which does.
+	Title    string `json:"title,omitempty"`
+	Progress string `json:"progress,omitempty"`
+
 	Sessions []sessionInfo `json:"sessions,omitempty"`
 	Err      string        `json:"err,omitempty"`
 }

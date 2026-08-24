@@ -223,7 +223,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
 		for pid := range m.terms {
-			m.daemon.resize(pid, m.detailWidth(), m.bodyHeight())
+			m.daemon.resize(pid, m.detailWidth(), m.paneHeight())
 		}
 
 	case projectsMsg:
@@ -294,6 +294,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.terms[msg.pid] = t
 		}
 		t.screen, t.curX, t.curY = msg.screen, msg.curX, msg.curY
+		t.title, t.progress = msg.title, msg.progress
+
+		// Only the shell being looked at speaks for the window. Another one
+		// finishing a build should not retitle a tab showing something else.
+		if m.focus == msg.pid && t.title != "" {
+			return m, tea.Batch(nextEvent(m.daemon), tea.SetWindowTitle(oscTitleText(t.title)))
+		}
 		return m, nextEvent(m.daemon)
 
 	case termGoneMsg:
@@ -571,7 +578,7 @@ func (m *model) start(command string) tea.Cmd {
 		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
 		return nil
 	}
-	m.daemon.open(m.shellDir(r), command, m.detailWidth(), m.bodyHeight())
+	m.daemon.open(m.shellDir(r), command, m.detailWidth(), m.paneHeight())
 	return nil
 }
 
@@ -609,7 +616,7 @@ func (m *model) openShell() tea.Cmd {
 		m.setFilter("")
 		// The screen comes from the daemon, which is what makes a shell from
 		// an earlier window come back with what it had drawn still on it.
-		m.daemon.attach(t.pid, m.detailWidth(), m.bodyHeight())
+		m.daemon.attach(t.pid, m.detailWidth(), m.paneHeight())
 		return nil
 	}
 	return m.start("")
@@ -801,12 +808,22 @@ func (m *model) pruneDying() {
 	}
 }
 
-// bodyHeight is the number of rows between the header and the footer.
+// bodyHeight is the number of navigator rows that fit between scrn's name and
+// its keys, which is what the cursor scrolls within.
 func (m model) bodyHeight() int {
-	if h := m.height - 2; h > 0 {
+	if h := m.height - 1 - len(m.hintLines(m.hintWidth(), m.height)); h > 0 {
 		return h
 	}
 	return 0
+}
+
+// paneHeight is the room the attached process has, which is the whole window:
+// scrn's own rows are in its column, not across the top and bottom.
+func (m model) paneHeight() int {
+	if m.height > 0 {
+		return m.height
+	}
+	return 1
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back

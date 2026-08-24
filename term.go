@@ -40,6 +40,14 @@ type terminal struct {
 	// should be redrawn. It is closed when the shell exits.
 	output chan struct{}
 
+	// window holds what the program running in here has asked of the terminal
+	// window itself rather than of its screen: its title, and its progress.
+	// Those mean nothing to an emulator drawn inside a pane, so they are kept
+	// to be handed to the real terminal outside.
+	windowMu sync.Mutex
+	title    string
+	progress string
+
 	// done is closed once the process has been reaped, and closing guards the
 	// teardown: a shell ended by hand is torn down again when its output stops.
 	done    chan struct{}
@@ -111,6 +119,7 @@ func startTerm(dir, command string, width, height int) (*terminal, error) {
 		output: make(chan struct{}, 1),
 		done:   make(chan struct{}),
 	}
+	t.watchWindow()
 	go func() {
 		_ = c.Wait()
 		close(t.done)
@@ -187,6 +196,51 @@ func (t *terminal) write(b []byte) {
 	if len(b) > 0 {
 		_, _ = t.pty.Write(b)
 	}
+}
+
+// Window-scoped sequences. A program addresses these to the terminal it is in,
+// not to the grid it is drawing on, so an emulator has nothing to do with them
+// and swallowing them loses what they were for: the title on the tab, and the
+// progress the terminal shows while work is running.
+const (
+	oscTitleAndIcon = 0 // both at once
+	oscIconName     = 1
+	oscWindowTitle  = 2
+	oscProgress     = 9 // 9;4;state;percent, as ConEmu defined it
+)
+
+// watchWindow catches what the program says to the window, so it can be passed
+// out to the terminal that actually has one.
+func (t *terminal) watchWindow() {
+	for _, cmd := range []int{oscTitleAndIcon, oscIconName, oscWindowTitle} {
+		t.vt.RegisterOscHandler(cmd, func(data []byte) bool {
+			t.setWindow(&t.title, string(data))
+			return false // the emulator still wants it for its own title
+		})
+	}
+	t.vt.RegisterOscHandler(oscProgress, func(data []byte) bool {
+		t.setWindow(&t.progress, string(data))
+		return true
+	})
+}
+
+func (t *terminal) setWindow(field *string, data string) {
+	t.windowMu.Lock()
+	*field = data
+	t.windowMu.Unlock()
+
+	// Wake the pane so what was just asked for goes out with the next screen.
+	select {
+	case t.output <- struct{}{}:
+	default:
+	}
+}
+
+// window returns what the program has asked of the terminal window.
+func (t *terminal) window() (title, progress string) {
+	t.windowMu.Lock()
+	defer t.windowMu.Unlock()
+	return t.title, t.progress
 }
 
 // resize tells both the shell and the emulator the pane has changed shape.

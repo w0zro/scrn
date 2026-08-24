@@ -320,14 +320,18 @@ func (cl *client) markClosed() {
 	cl.closed = true
 }
 
-// screenMsg is the shell's pane as it now stands.
+// screenMsg is the shell's pane as it now stands, with whatever the program in
+// it has asked of the window it believes it is in.
 func (t *terminal) screenMsg() message {
 	x, y := t.cursor()
+	title, progress := t.window()
 	return message{
-		Kind:    kindScreen,
-		PID:     t.pid,
-		Screen:  t.vt.Render(),
-		CursorX: x,
-		CursorY: y,
+		Kind:     kindScreen,
+		PID:      t.pid,
+		Screen:   t.vt.Render(),
+		CursorX:  x,
+		CursorY:  y,
+		Title:    title,
+		Progress: progress,
 	}
 }

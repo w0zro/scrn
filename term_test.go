@@ -390,7 +390,7 @@ func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := footer(sized(160, 8)); !strings.Contains(f, "n shell") {
+	if f := footer(sized(160, 24)); !strings.Contains(f, "n shell") {
 		t.Errorf("footer = %q, want the one way to make a process advertised", f)
 	}
 }
@@ -451,7 +451,7 @@ func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheClaudeKey(t *testing.T) {
-	if f := footer(sized(160, 8)); !strings.Contains(f, "c claude") {
+	if f := footer(sized(160, 24)); !strings.Contains(f, "c claude") {
 		t.Errorf("footer = %q, want the claude key advertised", f)
 	}
 }
@@ -633,5 +633,92 @@ func TestTheReportSaysWhatWasActuallyDone(t *testing.T) {
 		if got := ended(c.results); got != c.want {
 			t.Errorf("%s: ended = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// --- what the process asks of the window ---------------------------------
+
+func TestWhatTheProcessAsksOfTheWindowIsCarriedOut(t *testing.T) {
+	// A program addresses its title and progress to the terminal it believes
+	// it is in. That is scrn, and scrn is the one with a real window.
+	t.Setenv("SHELL", "/bin/sh")
+	term, err := startTerm("/tmp", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	term.write([]byte("printf '\\033]0;a title\\007\\033]9;4;3;50\\007'\n"))
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-term.output:
+			if !ok {
+				t.Fatal("the shell exited")
+			}
+		case <-deadline:
+			title, progress := term.window()
+			t.Fatalf("never saw them: title=%q progress=%q", title, progress)
+		}
+		if title, progress := term.window(); title == "0;a title" && progress == "9;4;3;50" {
+			return
+		}
+	}
+}
+
+func TestOnlyTheAttachedProcessSpeaksForTheWindow(t *testing.T) {
+	// A build finishing in a shell you are not looking at should not put its
+	// progress on the tab of the one you are.
+	m := repoModel()
+	m.terms = map[int]*remoteTerm{
+		700: {pid: 700, progress: "9;4;3;50"},
+		800: {pid: 800, progress: "9;4;1;10"},
+	}
+
+	m.focus = 700
+	if got := m.windowRequests(); !strings.Contains(got, "9;4;3;50") {
+		t.Errorf("requests = %q, want the attached shell's progress", got)
+	}
+	m.focus = 800
+	if got := m.windowRequests(); !strings.Contains(got, "9;4;1;10") {
+		t.Errorf("requests = %q, want the newly attached shell's progress", got)
+	}
+}
+
+func TestProgressIsClearedWhenNothingIsAttached(t *testing.T) {
+	// Leaving a shell that was reporting progress must take the indicator with
+	// it, or the terminal keeps showing work that is no longer being watched.
+	m := repoModel()
+	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;3;50"}}
+
+	m.focus = 0
+	if got := m.windowRequests(); got != "\x1b]9;4;0;\x07" {
+		t.Errorf("requests = %q, want the progress cleared", got)
+	}
+}
+
+func TestTheTitlePayloadDropsItsCommandNumber(t *testing.T) {
+	cases := map[string]string{
+		"0;✳ Claude Code": "✳ Claude Code",
+		"2;vim README.md": "vim README.md",
+		"no semicolon":    "no semicolon",
+	}
+	for in, want := range cases {
+		if got := oscTitleText(in); got != want {
+			t.Errorf("oscTitleText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTheProgressGoesOutAsItCameIn(t *testing.T) {
+	// The payload already carries its own command number; prefixing another
+	// makes a sequence no terminal will act on.
+	m := repoModel()
+	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;3;77"}}
+	m.focus = 700
+
+	if got := m.windowRequests(); got != "\x1b]9;4;3;77\x07" {
+		t.Errorf("requests = %q, want the payload passed through unchanged", got)
 	}
 }

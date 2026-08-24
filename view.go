@@ -65,88 +65,204 @@ func claudeMarkStyle(status string) lipgloss.Style {
 	return faintStyle
 }
 
+// View lays the window out as two full-height columns.
+//
+// scrn's own name and keys sit at the top and bottom of the left one rather
+// than spanning the window, so the pane on the right is the attached process
+// and nothing else. A terminal made to give up its first and last rows to a
+// header and a footer is a terminal drawing something other than what it was
+// told it had room for.
 func (m model) View() string {
-	header := titleStyle.Render("scrn")
-	hint := m.renderHint()
-	return header + "\n" + m.renderBody(m.bodyHeight()) + hint
+	return m.windowRequests() + m.layout()
 }
 
-// renderHint draws the footer. A pending confirmation or the report of the
-// last action takes the whole line: while either is on screen it is the only
-// thing the next keystroke is about.
-func (m model) renderHint() string {
-	if req := m.pendingKill; req != nil {
-		return warnStyle.Render("kill "+req.subject+"?") +
-			hintStyle.Render("   x confirm  ·  any other key cancels")
+// windowRequests passes on what the attached process asked of the terminal
+// window. A program in the pane addresses these to the terminal it believes it
+// is in, which is scrn; scrn is inside a real one, and it is the only thing
+// that can hand them on.
+//
+// They ride out with the frame rather than being written straight to the
+// terminal, because the renderer holds the output while it draws and a write
+// from anywhere else would land in the middle of one. Neither sequence moves
+// the cursor or changes a colour, so carrying them along costs the frame
+// nothing, and repeating them every frame is how a terminal expects to be told.
+func (m model) windowRequests() string {
+	t := m.focused()
+	if t == nil || t.progress == "" {
+		// Nothing attached, or nothing running: say so once the shell that was
+		// reporting progress is no longer the one being watched.
+		return "\x1b]9;4;0;\x07"
 	}
-	if m.typing {
-		return titleStyle.Render("/") + itemStyle.Render(m.filter) + cursorStyle.Render(" ") +
-			hintStyle.Render("   enter keep  ·  esc clear")
+	// The payload the emulator hands over already carries its own command
+	// number, so it goes out as it came in.
+	return "\x1b]" + t.progress + "\x07"
+}
+
+// oscTitleText is the title out of an OSC 0, 1 or 2 payload, which is the part
+// after the leading command number the emulator hands over.
+func oscTitleText(data string) string {
+	if _, rest, ok := strings.Cut(data, ";"); ok {
+		return rest
 	}
-	if m.filter != "" {
-		return hintStyle.Render("filter ") + selStyle.Render(m.filter) +
-			hintStyle.Render("   n shell  ·  c claude  ·  / edit  ·  esc clear")
+	return data
+}
+
+func (m model) layout() string {
+	rows := m.height
+	if rows <= 0 {
+		rows = 1
 	}
-	if m.status != "" {
+
+	left := m.leftColumn(rows)
+	if !m.showDetail() {
+		return strings.Join(padTo(left, rows), "\n")
+	}
+
+	right := m.paneLines(m.detailWidth(), rows)
+	divider := ruleStyle.Render("│")
+
+	lines := make([]string, 0, rows)
+	for i := 0; i < rows; i++ {
+		lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// leftColumn is scrn's own column: its name, the navigator, and its keys held
+// down at the bottom.
+func (m model) leftColumn(rows int) []string {
+	hint := m.hintLines(m.hintWidth(), rows)
+	// Whatever is being said, the list keeps a row.
+	if max := rows - 2; max > 0 && len(hint) > max {
+		hint = hint[:max]
+	}
+	body := rows - 1 - len(hint)
+	if body < 0 {
+		body = 0
+	}
+
+	lines := make([]string, 0, rows)
+	lines = append(lines, titleStyle.Render("scrn"))
+
+	nav := m.navLines(body)
+	if len(nav) > body {
+		nav = nav[:body]
+	}
+	lines = append(lines, nav...)
+
+	// Blank rows push the keys to the bottom rather than leaving them under
+	// the last project.
+	for len(lines) < rows-len(hint) {
+		lines = append(lines, "")
+	}
+	return append(lines, hint...)
+}
+
+// hintWidth is the room scrn's keys have: its own column, or the whole window
+// when there is no pane beside it.
+func (m model) hintWidth() int {
+	if m.showDetail() {
+		return navWidth
+	}
+	return m.width
+}
+
+// padTo lengthens lines to exactly n.
+func padTo(lines []string, n int) []string {
+	for len(lines) < n {
+		lines = append(lines, "")
+	}
+	return lines[:n]
+}
+
+// hintLines draws scrn's own keys at the foot of its column. It is a block
+// rather than a line because that column is narrow, and knowing the keys is
+// worth more than the horizontal room it would take to list them across.
+//
+// A pending confirmation or the report of the last action takes the whole
+// block: while either is on screen it is the only thing the next keystroke
+// is about.
+func (m model) hintLines(width, rows int) []string {
+	switch {
+	case m.pendingKill != nil:
+		return append(
+			hintBlock("kill "+m.pendingKill.subject+"?", width, warnStyle),
+			hintBlock("x confirm · any other key cancels", width, hintStyle)...)
+
+	case m.typing:
+		return append(
+			hintBlock("/"+m.filter+"█", width, itemStyle),
+			hintBlock("enter keep · esc clear", width, hintStyle)...)
+
+	case m.focused() != nil:
+		return append(
+			hintBlock("shell", width, warnStyle),
+			hintBlock("ctrl+o back to the list", width, hintStyle)...)
+
+	case m.status != "":
+		style := itemStyle
 		if m.statusErr {
-			return errStyle.Render(m.status)
+			style = errStyle
 		}
-		return itemStyle.Render(m.status)
-	}
+		return hintBlock(m.status, width, style)
 
-	// A focused shell has its own vocabulary: every other key is the shell's,
-	// so listing scrn's would be a lie about what they do.
-	if m.focused() != nil {
-		return warnStyle.Render("shell") +
-			hintStyle.Render("  ·  ctrl+o back to the list")
+	case m.filter != "":
+		return append(
+			hintBlock("filter "+m.filter, width, selStyle),
+			hintBlock("n shell · c claude · / edit · esc clear", width, hintStyle)...)
 	}
+	return m.keyLines(width, rows)
+}
 
+// keyLines is the standing list of keys, in two columns.
+func (m model) keyLines(width, rows int) []string {
 	all := "a all"
 	if m.showAll {
 		all = "a running"
 	}
-	folds := "every process"
+	folds := "- unfold"
 	if m.unfolded {
-		folds = "fold runs"
+		folds = "- fold"
 	}
-	// The keys matter more than the words for them, so a narrow window loses
-	// the wording rather than the last few bindings off the end.
-	full := "↑↓ move · / find · n shell · c claude · enter open · space collapse · - " + folds + " · x kill · X kill tree · " + all + " · q quit"
-	if lipgloss.Width(full) <= m.width {
-		return hintStyle.Render(full)
+
+	pairs := [][2]string{
+		{"↑↓ move", "/ find"},
+		{"n shell", "c claude"},
+		{"enter open", "space fold"},
+		{folds, all},
+		{"x kill", "X kill tree"},
+		{"q quit", ""},
 	}
-	short := "↑↓ move · / find · n shell · c claude · enter open · space fold · x kill · X tree · " + all + " · q quit"
-	return hintStyle.Render(truncate(short, m.width))
+
+	// The keys must not crowd out the list they are about, so a short window
+	// gets the first of them rather than all of them. They are ordered so that
+	// what goes first is what is least missed.
+	if max := rows / 3; max < len(pairs) {
+		if max < 1 {
+			max = 1
+		}
+		pairs = pairs[:max]
+	}
+
+	col := (width - 1) / 2
+	lines := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		lines = append(lines, " "+pad(hintStyle.Render(p[0]), col)+hintStyle.Render(p[1]))
+	}
+	return lines
 }
 
-// renderBody draws the navigator beside the detail pane, each row ending in a
-// newline so the footer starts on its own line.
-func (m model) renderBody(rows int) string {
-	nav := m.navLines(rows)
-	if !m.showDetail() {
-		return joinRows(nav, rows)
+// hintBlock wraps a line of scrn's own words to the column it has.
+func hintBlock(s string, width int, style lipgloss.Style) []string {
+	chunks := wrapValue(s, width-1)
+	if len(chunks) == 0 {
+		return nil
 	}
-
-	detail := m.paneLines(m.detailWidth(), rows)
-	divider := ruleStyle.Render("│")
-
-	var b strings.Builder
-	for i := 0; i < rows; i++ {
-		b.WriteString(pad(at(nav, i), navWidth))
-		b.WriteString(divider)
-		b.WriteString(at(detail, i))
-		b.WriteString("\n")
+	lines := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		lines = append(lines, " "+style.Render(c))
 	}
-	return b.String()
-}
-
-func joinRows(lines []string, rows int) string {
-	var b strings.Builder
-	for i := 0; i < rows; i++ {
-		b.WriteString(at(lines, i))
-		b.WriteString("\n")
-	}
-	return b.String()
+	return lines
 }
 
 // navLines renders the visible window of the navigator: repositories, each
