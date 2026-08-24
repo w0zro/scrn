@@ -79,6 +79,14 @@ func (m model) renderHint() string {
 		return warnStyle.Render("kill "+req.subject+"?") +
 			hintStyle.Render("   x confirm  ·  any other key cancels")
 	}
+	if m.typing {
+		return titleStyle.Render("/") + itemStyle.Render(m.filter) + cursorStyle.Render(" ") +
+			hintStyle.Render("   enter keep  ·  esc clear")
+	}
+	if m.filter != "" {
+		return hintStyle.Render("filter ") + selStyle.Render(m.filter) +
+			hintStyle.Render("   n shell  ·  c claude  ·  / edit  ·  esc clear")
+	}
 	if m.status != "" {
 		if m.statusErr {
 			return errStyle.Render(m.status)
@@ -97,13 +105,17 @@ func (m model) renderHint() string {
 	if m.showAll {
 		all = "a running"
 	}
+	folds := "every process"
+	if m.unfolded {
+		folds = "fold runs"
+	}
 	// The keys matter more than the words for them, so a narrow window loses
 	// the wording rather than the last few bindings off the end.
-	full := "↑↓ move · n shell · c claude · enter open · space collapse · x kill · X kill tree · " + all + " · q quit"
+	full := "↑↓ move · / find · n shell · c claude · enter open · space collapse · - " + folds + " · x kill · X kill tree · " + all + " · q quit"
 	if lipgloss.Width(full) <= m.width {
 		return hintStyle.Render(full)
 	}
-	short := "↑↓ move · n shell · c claude · enter open · space fold · x kill · X tree · " + all + " · q quit"
+	short := "↑↓ move · / find · n shell · c claude · enter open · space fold · x kill · X tree · " + all + " · q quit"
 	return hintStyle.Render(truncate(short, m.width))
 }
 
@@ -150,11 +162,14 @@ func (m model) navLines(rows int) []string {
 	switch {
 	case len(m.projects) == 0:
 		return []string{" " + faintStyle.Render("no repositories")}
+	case len(m.rows) == 0 && m.filter != "":
+		return []string{" " + faintStyle.Render("no project matches")}
 	case len(m.rows) == 0:
 		return []string{
 			" " + faintStyle.Render("nothing running"),
 			"",
 			" " + faintStyle.Render("a  show all"),
+			" " + faintStyle.Render("/  find a project"),
 		}
 	}
 
@@ -230,6 +245,15 @@ func (m model) renderRow(r navRow, selected bool) string {
 // somebody else's terminal, which scrn cannot attach to, so it is drawn dim
 // rather than offered and then refused.
 func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
+	// While a project is being looked up the list is a reference rather than
+	// the working view. Every row is a candidate and none of them has been
+	// chosen, so nothing is lit but the one under the cursor.
+	if m.typing {
+		if selected {
+			return selStyle
+		}
+		return faintStyle
+	}
 	if !m.attachable(r) {
 		if selected {
 			return offSelStyle

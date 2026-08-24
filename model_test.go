@@ -226,7 +226,9 @@ func TestNavShowsEmptyProjectsDir(t *testing.T) {
 
 // --- process trees --------------------------------------------------------
 
-func TestNavNestsProcessesUnderTheirRepo(t *testing.T) {
+func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
+	// A shell that started a claude that started a go build is one thing
+	// happening, and the row is named for what it ends in.
 	m := withProcList(80, 12,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{
@@ -235,7 +237,36 @@ func TestNavNestsProcessesUnderTheirRepo(t *testing.T) {
 			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   └─ claude 20", "     └─ go 30"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ go 30"})
+
+	if r, _ := m.rows[1], 0; r.chain.PID != 10 {
+		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain.PID)
+	}
+}
+
+func TestASameCommandForkingItselfIsStillOneRow(t *testing.T) {
+	// nvim starts a second nvim; that is one editor, not two.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+		},
+	)
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 21"})
+}
+
+func TestARunStopsFoldingWhereItBranches(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+		},
+	)
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   ├─ nvim 20", "   └─ go 30"})
 }
 
 func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
@@ -246,10 +277,11 @@ func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
 			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
 			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
+			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ └─ fmt 40", "   └─ go 30",
+		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ ├─ fmt 40", "   │ └─ lint 50", "   └─ go 30",
 	})
 }
 
@@ -356,7 +388,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheToggle(t *testing.T) {
-	m := sized(120, 8)
+	m := sized(160, 8)
 	if !strings.Contains(stripANSI(m.View()), "a all") {
 		t.Error("footer should offer to show all while narrowed, which is the default")
 	}
@@ -584,6 +616,7 @@ func nestedTree(h int) model {
 			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
 			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
 			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
+			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
 		},
 	)
 }
@@ -591,13 +624,13 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ └─ fmt 40", "   └─ go 30",
+		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ ├─ fmt 40", "   │ └─ lint 50", "   └─ go 30",
 	})
 
 	// Move onto vim and fold it.
 	m = press(press(press(m, "down"), "down"), " ")
 	wantRows(t, navColumn(m), []string{
-		" scrn", " └─ zsh 10", "▸  ├─ vim 20 +1", "   └─ go 30",
+		" scrn", " └─ zsh 10", "▸  ├─ vim 20 +2", "   └─ go 30",
 	})
 }
 
@@ -605,7 +638,7 @@ func TestSpaceCollapsesARepo(t *testing.T) {
 	m := press(nestedTree(12), " ")
 
 	col := navColumn(m)
-	wantRows(t, col, []string{"▸scrn +4"})
+	wantRows(t, col, []string{"▸scrn +5"})
 	if len(col) != 1 {
 		t.Errorf("a collapsed repo should hide its whole tree, got:\n%s", strings.Join(col, "\n"))
 	}
@@ -624,7 +657,7 @@ func TestSpaceUnfoldsAgain(t *testing.T) {
 func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 	// zsh hides vim, go and fmt.
 	m := press(press(nestedTree(12), "down"), " ")
-	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10 +3"})
+	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10 +4"})
 }
 
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
@@ -680,7 +713,7 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 }
 
 func TestFooterAdvertisesCollapse(t *testing.T) {
-	if !strings.Contains(stripANSI(sized(120, 8).View()), "space collapse") {
+	if !strings.Contains(stripANSI(sized(160, 8).View()), "space collapse") {
 		t.Error("footer should mention the collapse key")
 	}
 }
@@ -887,8 +920,8 @@ func TestProjectsAreRescannedLessOftenThanProcesses(t *testing.T) {
 
 func TestKilledProcessDisappearsOnTheNextScan(t *testing.T) {
 	m := nestedTree(12)
-	if len(m.rows) != 5 {
-		t.Fatalf("rows = %d, want 5 to start", len(m.rows))
+	if len(m.rows) != 6 {
+		t.Fatalf("rows = %d, want 6 to start", len(m.rows))
 	}
 
 	// The same scan without pid 40, as if it had exited.
@@ -1173,10 +1206,10 @@ func TestXKillsTheSubtreeParentsFirst(t *testing.T) {
 	// zsh 10 holds vim 20 (holding fmt 40) and go 30.
 	m := press(press(nestedTree(12), "down"), "X") // onto zsh 10
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
 		t.Errorf("targets = %v, want the subtree parents first %v", got, want)
 	}
-	if f := footer(m); !strings.Contains(f, "kill zsh 10 and 3 under it?") {
+	if f := footer(m); !strings.Contains(f, "kill zsh 10 and 4 under it?") {
 		t.Errorf("footer = %q, want it to say how much it is about to kill", f)
 	}
 }
@@ -1210,10 +1243,10 @@ func TestXOnALeafReadsAsAPlainKill(t *testing.T) {
 func TestXOnARepoTakesEverythingInIt(t *testing.T) {
 	m := press(nestedTree(12), "X") // cursor is on the repo row
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
 		t.Errorf("targets = %v, want every process in the repo %v", got, want)
 	}
-	if f := footer(m); !strings.Contains(f, "kill 4 processes in scrn?") {
+	if f := footer(m); !strings.Contains(f, "kill 5 processes in scrn?") {
 		t.Errorf("footer = %q, want it to say what it is about to clear out", f)
 	}
 }
@@ -1241,7 +1274,7 @@ func TestXCollapsedStillKillsWhatIsFoldedAway(t *testing.T) {
 	m := press(press(nestedTree(12), "down"), " ") // fold zsh 10
 	m = press(m, "X")
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
 		t.Errorf("targets = %v, want the folded subtree too %v", got, want)
 	}
 }
@@ -1322,7 +1355,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheTreeKill(t *testing.T) {
-	if f := footer(sized(120, 8)); !strings.Contains(f, "X kill tree") {
+	if f := footer(sized(160, 8)); !strings.Contains(f, "X kill tree") {
 		t.Errorf("footer = %q, want the tree kill advertised", f)
 	}
 }
@@ -1431,4 +1464,384 @@ func TestTheFooterNeverOutgrowsTheWindow(t *testing.T) {
 			t.Errorf("at width %d the footer is %d columns: %q", w, got, footer(sized(w, 10)))
 		}
 	}
+}
+
+// --- the folded run, and unfolding it ------------------------------------
+
+func TestTheDetailPaneNamesTheWholeRun(t *testing.T) {
+	// The shell that started this is not on screen anywhere else once the run
+	// is folded, so the detail pane is where it has to be said.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+		})
+	m.cursor = 1
+
+	r, _ := m.selected()
+	fs := procFields(r.node, r.run(), nil)
+
+	got, ok := fieldValue(fs, "run")
+	if !ok {
+		t.Fatalf("no run field: %+v", fs)
+	}
+	if got != "zsh 10 › nvim 20 › nvim 21" {
+		t.Errorf("run = %q, want the whole run oldest first", got)
+	}
+}
+
+func TestARowThatFoldedNothingHasNoRun(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+		})
+	m.cursor = 2 // nvim, which folded nothing because zsh branches
+
+	r, _ := m.selected()
+	if _, ok := fieldValue(procFields(r.node, r.run(), nil), "run"); ok {
+		t.Error("a row that stands for one process should not describe a run")
+	}
+}
+
+func TestDashShowsEveryProcess(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+		})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 21"})
+
+	m = press(m, "-")
+	wantRows(t, navColumn(m), []string{
+		"▸scrn", " └─ zsh 10", "   └─ nvim 20", "     └─ nvim 21",
+	})
+}
+
+func TestDashFoldsThemBackAgain(t *testing.T) {
+	m := press(press(nestedTree(12), "-"), "-")
+	if m.unfolded {
+		t.Error("- should toggle rather than only unfold")
+	}
+}
+
+func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+		})
+	m.cursor = 1 // the folded row, named for nvim 21
+
+	m = press(m, "-")
+	if r, _ := m.selected(); r.node.PID != 21 {
+		t.Errorf("selected pid %d, want to still be on nvim 21 after unfolding", r.node.PID)
+	}
+}
+
+func TestTheFooterSaysWhichWayTheFoldGoes(t *testing.T) {
+	m := sized(160, 8)
+	if f := footer(m); !strings.Contains(f, "- every process") {
+		t.Errorf("footer = %q, want it to offer the full tree", f)
+	}
+	m = press(m, "-")
+	if f := footer(m); !strings.Contains(f, "- fold runs") {
+		t.Errorf("footer = %q, want it to offer folding back", f)
+	}
+}
+
+// --- finding a project ---------------------------------------------------
+
+// manyProjects is a set wide enough that finding one matters, with nothing
+// running in any of them.
+func manyProjects(w, h int) model {
+	return withProcList(w, h, []Project{
+		{Name: "scrn", Path: "/p/w0zro/scrn"},
+		{Name: "hsg", Path: "/p/hsg/hsg"},
+		{Name: "brand", Path: "/p/hsg/brand"},
+		{Name: "tressle-api", Path: "/p/node/tressle-api"},
+		{Name: "flocking-pixi", Path: "/p/flocking-pixi"},
+	}, nil)
+}
+
+func TestSlashSearchesEveryProjectNotJustTheRunningOnes(t *testing.T) {
+	// The point of the filter is to reach a project you are not working in,
+	// so it looks past the narrowed view rather than within it.
+	m := narrowed(manyProjects(90, 14))
+	if len(m.rows) != 0 {
+		t.Fatalf("setup: rows = %d, want the narrowed view to be empty", len(m.rows))
+	}
+
+	m = press(m, "/")
+	m = typeFilter(m, "brand")
+
+	wantRows(t, navColumn(m), []string{"▸brand"})
+}
+
+// typeFilter sends each rune to the filter.
+func typeFilter(m model, s string) model {
+	for _, r := range s {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(model)
+	}
+	return m
+}
+
+func TestFilterMatchesThePathAsWellAsTheName(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "node")
+	wantRows(t, navColumn(m), []string{"▸tressle-api"})
+}
+
+func TestFilterIgnoresCase(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "SCRN")
+	wantRows(t, navColumn(m), []string{"▸scrn"})
+}
+
+func TestKeysGoToTheFilterWhileItIsBeingTyped(t *testing.T) {
+	// A project called "next" must be typeable without n opening a shell.
+	m := press(narrowed(manyProjects(90, 14)), "/")
+	m = typeFilter(m, "n")
+
+	if m.filter != "n" {
+		t.Errorf("filter = %q, want the keystroke to have gone into it", m.filter)
+	}
+	if len(m.terms) != 0 {
+		t.Error("n while typing a filter should not open a shell")
+	}
+}
+
+func TestBackspaceWidensTheFilter(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brandx")
+	if len(m.rows) != 0 {
+		t.Fatalf("setup: rows = %d, want no match", len(m.rows))
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	wantRows(t, navColumn(next.(model)), []string{"▸brand"})
+}
+
+func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
+	// Clearing it on accept would drop an idle project straight back out of
+	// the narrowed list, before anything could be started in it.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	if m.typing {
+		t.Error("enter should stop the typing")
+	}
+	if m.filter != "brand" {
+		t.Errorf("filter = %q, want it still applied", m.filter)
+	}
+	wantRows(t, navColumn(m), []string{"▸brand"})
+}
+
+func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	// n now means open a shell rather than a letter of the filter.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if got := next.(model); got.filter != "brand" {
+		t.Errorf("filter = %q, want n to have been taken as a key", got.filter)
+	}
+}
+
+func TestEscapeClearsTheFilterRatherThanQuitting(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Error("esc with a filter applied should clear it, not quit")
+	}
+	if got := next.(model); got.filter != "" {
+		t.Errorf("filter = %q, want it cleared", got.filter)
+	}
+}
+
+func TestEscapeStillQuitsWithNoFilter(t *testing.T) {
+	if _, cmd := manyProjects(90, 14).Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+		t.Error("esc should still quit when there is no filter to clear")
+	}
+}
+
+func TestEscapeWhileTypingAbandonsTheFilter(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+
+	if m.typing || m.filter != "" {
+		t.Errorf("typing=%v filter=%q, want the filter abandoned", m.typing, m.filter)
+	}
+}
+
+func TestAFilterThatMatchesNothingSaysSo(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "zzz")
+	wantRows(t, navColumn(m), []string{" no project matches"})
+}
+
+func TestTheFooterShowsWhatIsBeingTyped(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(160, 14)), "/"), "bra")
+	if f := footer(m); !strings.Contains(f, "/bra") {
+		t.Errorf("footer = %q, want it to show the filter being typed", f)
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if f := footer(next.(model)); !strings.Contains(f, "filter bra") {
+		t.Errorf("footer = %q, want it to show the filter still applied", f)
+	}
+}
+
+func TestTheEmptyListPointsAtTheFilter(t *testing.T) {
+	m := narrowed(manyProjects(90, 14))
+	if col := strings.Join(navColumn(m), "\n"); !strings.Contains(col, "/  find a project") {
+		t.Errorf("empty list = %q, want it to point at the way out", col)
+	}
+}
+
+func TestStartingSomethingClearsTheSearchThatFoundIt(t *testing.T) {
+	// Once there is work in the project it stays listed on its own merit, so
+	// the filter has nothing left to do.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	// A shell opened in it, and then the scan that finds it.
+	m.wantCursor = 700
+	next, _ = m.Update(procsMsg{procs: []Proc{
+		{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/hsg/brand"},
+	}})
+	m = next.(model)
+
+	if m.filter != "" {
+		t.Errorf("filter = %q, want it gone once the shell landed", m.filter)
+	}
+	// The cursor followed the shell it just started.
+	wantRows(t, navColumn(m), []string{" brand", "▸└─ zsh 700"})
+}
+
+func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
+	// Clearing on the keystroke would drop the project out of the list until
+	// the scan caught up, which is a flicker for no reason.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	m.wantCursor = 700 // asked for, not yet running
+
+	next, _ = m.Update(procsMsg{procs: nil})
+	m = next.(model)
+
+	if m.filter != "brand" {
+		t.Errorf("filter = %q, want it held until there is something to show", m.filter)
+	}
+	wantRows(t, navColumn(m), []string{"▸brand"})
+}
+
+func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
+	// Nothing has to be waited for: the project already holds the shell.
+	m := withProcList(90, 14,
+		[]Project{{Name: "brand", Path: "/p/hsg/brand"}, {Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/hsg/brand"}})
+	m = connected(t, m)
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/hsg/brand"}}
+	m.showAll = false
+	m.filter = "brand"
+	m.rebuild()
+	m.cursor = 1
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := next.(model); got.filter != "" {
+		t.Errorf("filter = %q, want stepping in to have finished the search", got.filter)
+	}
+}
+
+func TestKillingDoesNotClearTheSearch(t *testing.T) {
+	// Clearing out several projects is one job; the list should not move
+	// underneath it after each one.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	if got := next.(model); got.filter != "brand" {
+		t.Errorf("filter = %q, want a kill to leave the search alone", got.filter)
+	}
+}
+
+func TestSlashListsEveryProjectBeforeAnythingIsTyped(t *testing.T) {
+	// Half of looking a project up is remembering which ones there are.
+	m := narrowed(manyProjects(90, 14))
+	if len(m.rows) != 0 {
+		t.Fatalf("setup: rows = %d, want the narrowed view empty", len(m.rows))
+	}
+
+	m = press(m, "/")
+	wantRows(t, navColumn(m), []string{
+		"▸scrn", " hsg", " brand", " tressle-api", " flocking-pixi",
+	})
+}
+
+func TestThePickerShowsProjectsWithoutTheirProcesses(t *testing.T) {
+	// The names are what is being scanned; what is running would bury them.
+	m := withProcList(90, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}, {Name: "hsg", Path: "/p/hsg"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+		})
+
+	m = press(m, "/")
+	wantRows(t, navColumn(m), []string{"▸scrn", " hsg"})
+	if len(m.rows) != 2 {
+		t.Errorf("rows = %d, want only the two projects", len(m.rows))
+	}
+}
+
+func TestThePickerDimsEverythingButTheCursor(t *testing.T) {
+	m := press(narrowed(manyProjects(90, 14)), "/")
+
+	for i, r := range m.rows {
+		selected := i == m.cursor
+		if selected && dimmed(m, r, true) {
+			t.Error("the row under the cursor should stand out from the rest")
+		}
+		if !selected && !dimmed(m, r, false) {
+			t.Errorf("row %d is lit; nothing is chosen yet", i)
+		}
+	}
+}
+
+func TestTypingNarrowsThePicker(t *testing.T) {
+	m := press(narrowed(manyProjects(90, 14)), "/")
+	if len(m.rows) != 5 {
+		t.Fatalf("rows = %d, want every project to start", len(m.rows))
+	}
+
+	m = typeFilter(m, "h")
+	wantRows(t, navColumn(m), []string{"▸hsg", " brand"}) // both are under /p/hsg
+	m = typeFilter(m, "sg/h")
+	wantRows(t, navColumn(m), []string{"▸hsg"})
+}
+
+func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}})
+
+	m = press(m, "/")
+	wantRows(t, navColumn(m), []string{"▸scrn"})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh 10"})
 }

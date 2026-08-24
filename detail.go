@@ -38,9 +38,9 @@ func detailKey(r navRow) string {
 func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
 	key := detailKey(r)
 	if r.kind == rowProc {
-		node := r.node
+		node, run := r.node, r.run()
 		return func() tea.Msg {
-			return detailMsg{key: key, fields: procFields(node, sess)}
+			return detailMsg{key: key, fields: procFields(node, run, sess)}
 		}
 	}
 	p := r.project
@@ -161,10 +161,17 @@ func describeAheadBehind(path string) string {
 
 // procFields describes a running process: what it is, where it runs, and how
 // long it has been going.
-func procFields(n *ProcNode, sess *claudeSession) []field {
+func procFields(n *ProcNode, run []*ProcNode, sess *claudeSession) []field {
 	fs := []field{
 		{"command", n.Command},
 		{"pid", strconv.Itoa(n.PID)},
+	}
+
+	// The navigator folds a run that never branches into the one row, so the
+	// shell that started this and anything between them is not on screen
+	// anywhere else. This is where it is said.
+	if len(run) > 1 {
+		fs = append(fs, field{"run", describeRun(run)})
 	}
 
 	// What a Claude Code instance is doing outranks the process table: it is
@@ -202,6 +209,16 @@ func procFields(n *ProcNode, sess *claudeSession) []field {
 		fs = append(fs, field{"children", plural(kids, "process", "processes")})
 	}
 	return fs
+}
+
+// describeRun names every process in a folded run, oldest first, so the shell
+// the row was started from is the first thing in it.
+func describeRun(run []*ProcNode) string {
+	parts := make([]string, 0, len(run))
+	for _, n := range run {
+		parts = append(parts, procLabel(n))
+	}
+	return strings.Join(parts, " › ")
 }
 
 // describeState expands the leading character of a ps state code, which is the

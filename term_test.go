@@ -390,7 +390,7 @@ func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := footer(sized(120, 8)); !strings.Contains(f, "n shell") {
+	if f := footer(sized(160, 8)); !strings.Contains(f, "n shell") {
 		t.Errorf("footer = %q, want the one way to make a process advertised", f)
 	}
 }
@@ -451,7 +451,7 @@ func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheClaudeKey(t *testing.T) {
-	if f := footer(sized(120, 8)); !strings.Contains(f, "c claude") {
+	if f := footer(sized(160, 8)); !strings.Contains(f, "c claude") {
 		t.Errorf("footer = %q, want the claude key advertised", f)
 	}
 }
@@ -467,7 +467,10 @@ func insideShell(t *testing.T, shellPID int) model {
 		[]Proc{
 			{PID: shellPID, PPID: 1, Command: "zsh", Dir: "/tmp"},
 			{PID: shellPID + 1, PPID: shellPID, Command: "claude", Dir: "/tmp"},
+			// Two children, so the claude is a row of its own rather than
+			// folding into the one thing it started.
 			{PID: shellPID + 2, PPID: shellPID + 1, Command: "rg", Dir: "/tmp"},
+			{PID: shellPID + 3, PPID: shellPID + 1, Command: "sed", Dir: "/tmp"},
 		})
 	m.terms = map[int]*remoteTerm{shellPID: {pid: shellPID, dir: "/tmp"}}
 	m.rebuild()
@@ -488,7 +491,7 @@ func TestEnteringSomethingInsideAShellEntersTheShell(t *testing.T) {
 	// The claude is drawing on the shell's terminal, so that is what attaching
 	// to it means.
 	m := connected(t, insideShell(t, 500))
-	m.cursor = 2 // the claude row
+	m.cursor = 1 // the claude row: the shell folded into it
 
 	if r, _ := m.selected(); r.node.Command != "claude" {
 		t.Fatalf("setup: selected %+v, want the claude row", r)
@@ -502,7 +505,7 @@ func TestEnteringSomethingInsideAShellEntersTheShell(t *testing.T) {
 
 func TestEnteringAGrandchildStillFindsTheShell(t *testing.T) {
 	m := connected(t, insideShell(t, 500))
-	m.cursor = 3 // rg, under the claude, under the shell
+	m.cursor = 2 // rg, under the claude, under the shell
 
 	if r, _ := m.selected(); r.node.Command != "rg" {
 		t.Fatalf("setup: selected %+v, want the deepest row", r)
@@ -592,7 +595,7 @@ func TestAProcessInsideAnOwnedShellIsStillSignalled(t *testing.T) {
 	// scrn does not hold the claude, only the shell it runs in, so ending the
 	// claude alone is still a signal.
 	m := connected(t, insideShell(t, 500))
-	m.cursor = 2 // the claude row
+	m.cursor = 1 // the claude row
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)

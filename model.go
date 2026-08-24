@@ -63,10 +63,17 @@ const (
 )
 
 // navRow is one selectable line: a repository, or a process inside one.
+//
+// A run of processes that never branches is one row, because it is one thing
+// happening: a shell that started an editor is the editor, and an editor that
+// forked itself is still the editor. node is the process the row is named for,
+// the deepest of that run; chain is the top of it, which is what a tree kill
+// has to cover. For a row that folded nothing the two are the same.
 type navRow struct {
 	kind    rowKind
 	project Project
 	node    *ProcNode
+	chain   *ProcNode
 	prefix  string // tree rules of the ancestors already drawn
 	last    bool   // last child at its level, so it closes the branch
 }
@@ -85,6 +92,18 @@ type model struct {
 	procs  []Proc
 	byRepo map[string][]*ProcNode
 	parent map[int]int
+
+	// unfolded draws every process on a line of its own, including the ones a
+	// run would otherwise fold away. The folded view is the reading view; this
+	// is for when the shell in the middle is the thing you came to find.
+	unfolded bool
+
+	// filter narrows the navigator to the repositories whose name or path
+	// matches it, searching every one rather than only those with something
+	// running: the point of it is to reach a project you are not working in.
+	// typing says the keys are going into the filter rather than at the list.
+	filter string
+	typing bool
 
 	// showAll toggles the navigator between every repository and only those
 	// with a process running in them. It starts off: the repositories with
@@ -358,6 +377,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// The filter takes every key while it is being typed, so a repository
+		// called "next" can be typed without n opening a shell halfway through.
+		if m.typing {
+			return m, m.filterKey(msg)
+		}
+
 		// A pending kill takes the next key, whatever it is: no other binding
 		// should fire while a confirmation is on screen.
 		if m.pendingKill != nil {
@@ -375,6 +400,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.status = ""
 		switch msg.String() {
+		case "/":
+			// The list becomes every project straight away, before a single
+			// character is typed: half of looking one up is remembering which
+			// ones there are.
+			m.typing = true
+			m.rebuild()
+			m.cursor = 0
+			m.scrollToCursor()
+			return m, m.detailCmd()
 		case "enter":
 			return m, m.openShell()
 		case "n":
@@ -394,6 +428,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ", "space":
 			m.toggleCollapse()
 			return m, nil
+		case "-":
+			m.unfolded = !m.unfolded
+			m.rebuild()
+			return m, m.detailCmd()
 		case "a":
 			m.showAll = !m.showAll
 			m.rebuild()
@@ -402,11 +440,60 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(scanProcs, m.detailCmd())
 			}
 			return m, m.detailCmd()
-		case "q", "esc", "ctrl+c":
+		case "esc":
+			// A filter still applied is what esc is most likely about; only
+			// once there is none does it mean leave.
+			if m.filter != "" {
+				m.setFilter("")
+				return m, m.detailCmd()
+			}
+			return m, tea.Quit
+		case "q", "ctrl+c":
 			return m, tea.Quit
 		}
 	}
 	return m, nil
+}
+
+// filterKey handles a keystroke while the filter is being typed.
+func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.Type {
+	case tea.KeyEnter:
+		// Accepting leaves the filter applied rather than clearing it, so the
+		// repository just found does not drop back out of the list before
+		// there has been a chance to start anything in it.
+		m.typing = false
+		return m.detailCmd()
+	case tea.KeyEsc:
+		m.typing = false
+		m.setFilter("")
+		return m.detailCmd()
+	case tea.KeyBackspace:
+		if r := []rune(m.filter); len(r) > 0 {
+			m.setFilter(string(r[:len(r)-1]))
+		}
+		return m.detailCmd()
+	case tea.KeyRunes:
+		m.setFilter(m.filter + string(msg.Runes))
+		return m.detailCmd()
+	case tea.KeySpace:
+		m.setFilter(m.filter + " ")
+		return m.detailCmd()
+	case tea.KeyUp:
+		return m.move(-1)
+	case tea.KeyDown:
+		return m.move(1)
+	}
+	return nil
+}
+
+// setFilter narrows the list and starts again from the top, because the rows
+// under the cursor are not the ones that were there a keystroke ago.
+func (m *model) setFilter(s string) {
+	m.filter = s
+	m.rebuild()
+	m.cursor = 0
+	m.scrollToCursor()
 }
 
 // move steps the cursor, wrapping at both ends so the list cycles.
@@ -516,6 +603,10 @@ func (m *model) openShell() tea.Cmd {
 			return nil
 		}
 		m.focus = t.pid
+		// Stepping into something is acting on it, so a search that led here
+		// is finished. Nothing has to be waited for: the project already holds
+		// the shell being entered, so it stays listed without the filter.
+		m.setFilter("")
 		// The screen comes from the daemon, which is what makes a shell from
 		// an earlier window come back with what it had drawn still on it.
 		m.daemon.attach(t.pid, m.detailWidth(), m.bodyHeight())
@@ -580,9 +671,9 @@ func (m *model) askKill(tree bool) tea.Cmd {
 		return nil
 	}
 
-	// A leaf has nothing below it, so X on one is just a kill, and saying so
-	// would only make the confirmation harder to read.
-	nodes := subtree(r.node)
+	// A tree kill covers the whole run the row stands for, not just the part
+	// it is named after: the shell above an editor is part of that editor.
+	nodes := subtree(r.chain)
 	subject := procLabel(r.node)
 	if len(nodes) > 1 {
 		subject += " and " + strconv.Itoa(len(nodes)-1) + " under it"
@@ -748,6 +839,15 @@ func (m *model) rebuild() {
 		was = detailKey(r)
 	}
 
+	// A shell that was just started has landed. The filter has done its job:
+	// the project holds work now, so it stays in the list on its own merit and
+	// the search that found it can go. Clearing here rather than when the key
+	// was pressed is what stops the project blinking out and back while the
+	// scan catches up.
+	if m.wantCursor != 0 && m.running(m.wantCursor) {
+		m.filter = ""
+	}
+
 	m.groupProcs()
 	m.rows = m.flatten()
 
@@ -774,7 +874,9 @@ func (m *model) rebuild() {
 	// that leaving it leaves the cursor somewhere that makes sense.
 	if m.wantCursor != 0 {
 		for i, r := range m.rows {
-			if r.kind == rowProc && r.node.PID == m.wantCursor {
+			// The shell may have folded into whatever it started, so the row
+			// to land on is the one whose run begins with it.
+			if r.kind == rowProc && (r.node.PID == m.wantCursor || r.chain.PID == m.wantCursor) {
 				m.cursor, m.wantCursor = i, 0
 				break
 			}
@@ -784,6 +886,16 @@ func (m *model) rebuild() {
 	m.pruneDetails()
 	m.pruneDying()
 	m.scrollToCursor()
+}
+
+// running reports whether a pid is in the process list as it now stands.
+func (m model) running(pid int) bool {
+	for _, p := range m.procs {
+		if p.PID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 // pruneDetails drops cached inspections for rows that are no longer listed, so
@@ -840,7 +952,10 @@ func (m model) flatten() []navRow {
 	for _, p := range m.visible() {
 		row := navRow{kind: rowProject, project: p}
 		rows = append(rows, row)
-		if m.collapsed[detailKey(row)] {
+		// While a project is being looked up the list is of projects. What is
+		// running inside them is not what is being chosen between, and it
+		// would bury the names being scanned for.
+		if m.typing || m.collapsed[detailKey(row)] {
 			continue
 		}
 		roots := m.byRepo[p.Path]
@@ -852,7 +967,14 @@ func (m model) flatten() []navRow {
 }
 
 func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []navRow {
-	row := navRow{kind: rowProc, project: p, node: n, prefix: prefix, last: last}
+	// Walk down while there is nothing to choose between. The bound is for a
+	// process table that says a process started itself.
+	top := n
+	for i := 0; !m.unfolded && len(n.Children) == 1 && i < len(m.procs); i++ {
+		n = n.Children[0]
+	}
+
+	row := navRow{kind: rowProc, project: p, node: n, chain: top, prefix: prefix, last: last}
 	rows := []navRow{row}
 	if m.collapsed[detailKey(row)] {
 		return rows
@@ -870,6 +992,18 @@ func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []n
 
 // visible returns the repositories the navigator should list.
 func (m model) visible() []Project {
+	if m.typing || m.filter != "" {
+		// Every repository is searched, not just the ones already listed: a
+		// filter is for reaching the projects that are not on screen. An empty
+		// filter matches all of them, which is the list you get on pressing /.
+		var out []Project
+		for _, p := range m.projects {
+			if matchesFilter(p, m.filter) {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
 	if m.showAll {
 		return m.projects
 	}
@@ -880,6 +1014,18 @@ func (m model) visible() []Project {
 		}
 	}
 	return out
+}
+
+// matchesFilter reports whether a repository answers to what has been typed.
+// The path is searched as well as the name, so a directory that is only in the
+// name of a repository's parent still finds it.
+func matchesFilter(p Project, filter string) bool {
+	f := strings.ToLower(strings.TrimSpace(filter))
+	if f == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(p.Name), f) ||
+		strings.Contains(strings.ToLower(p.Path), f)
 }
 
 // selected returns the row under the cursor.
@@ -899,6 +1045,23 @@ func (m model) refreshDetailCmd() tea.Cmd {
 		return nil
 	}
 	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
+}
+
+// run lists the processes a row stands for, from the top of its folded run
+// down to the one it is named after. A row that folded nothing is just itself.
+func (r navRow) run() []*ProcNode {
+	if r.kind != rowProc {
+		return nil
+	}
+	var out []*ProcNode
+	for n := r.chain; n != nil; {
+		out = append(out, n)
+		if n == r.node || len(n.Children) != 1 {
+			break
+		}
+		n = n.Children[0]
+	}
+	return out
 }
 
 // claudeFor returns the Claude Code session a row is running, if it is one.
