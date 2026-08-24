@@ -159,6 +159,13 @@ type model struct {
 	daemon    *session
 	daemonErr string
 
+	// daemonStale is set when the daemon is older than the build talking to
+	// it and is being kept alive by the shells it holds. Those shells have to
+	// go for it to be replaced, so that takes asking. pendingReplace is the
+	// asking.
+	daemonStale    bool
+	pendingReplace bool
+
 	// wantCursor is a shell just opened, waiting for the scan that will put it
 	// in the tree. The cursor moves to it when it lands, so leaving the shell
 	// leaves the cursor on the row that shell belongs to.
@@ -242,6 +249,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, m.detailCmd()
 
+	case replacedMsg:
+		if msg.err != nil {
+			m.status, m.statusErr = msg.err.Error(), true
+			return m, connectDaemon()
+		}
+		return m, reconnect()
+
+	case reconnectMsg:
+		return m, connectDaemon()
+
 	case daemonReadyMsg:
 		if msg.err != nil {
 			m.daemonErr = msg.err.Error()
@@ -268,6 +285,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
 
 	case sessionsMsg:
+		// A daemon outlives the window that started it, which is the point of
+		// it — and means it also outlives rebuilds. One older than this build
+		// is running code this window does not have, and the difference is
+		// invisible until something it holds behaves the way it used to.
+		m.daemonStale = false
+		if stale(msg.since) {
+			if len(msg.sessions) == 0 {
+				// Holding nothing, so replacing it costs nothing.
+				m.daemon.standDown()
+				m.status, m.statusErr = "replacing a daemon older than this build", false
+				return m, tea.Batch(nextEvent(m.daemon), reconnect())
+			}
+			m.daemonStale = true
+			m.status, m.statusErr = "daemon predates this build; R replaces it, ending its "+
+				plural(len(msg.sessions), "shell", "shells"), true
+		}
+
 		// The daemon is the authority on what it holds, so the client takes
 		// the list rather than merging into what it thought it knew.
 		held := make(map[int]*remoteTerm, len(msg.sessions))
@@ -309,6 +343,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 0
 		}
 		m.rebuild()
+		// Asking again is what notices a daemon that has just become
+		// replaceable: the shell keeping an out-of-date one alive was this.
+		m.daemon.list()
 		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
 
 	case claudeMsg:
@@ -390,6 +427,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.filterKey(msg)
 		}
 
+		// Replacing the daemon ends the work it is holding, so it takes a
+		// second key like any other kill.
+		if m.pendingReplace {
+			m.pendingReplace = false
+			switch msg.String() {
+			case "R", "y", "enter":
+				old := m.daemon
+				m.terms, m.focus, m.daemonStale = map[int]*remoteTerm{}, 0, false
+				m.daemon, m.status, m.statusErr = nil, "replacing the daemon", false
+				return m, replaceDaemon(old)
+			}
+			m.status, m.statusErr = "left the daemon alone", false
+			return m, nil
+		}
+
 		// A pending kill takes the next key, whatever it is: no other binding
 		// should fire while a confirmation is on screen.
 		if m.pendingKill != nil {
@@ -407,6 +459,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.status = ""
 		switch msg.String() {
+		case "R":
+			return m, m.askReplace()
 		case "/":
 			// The list becomes every project straight away, before a single
 			// character is typed: half of looking one up is remembering which
@@ -641,6 +695,18 @@ func (m *model) runKill(req *killRequest) tea.Cmd {
 		signalled = append(signalled, n)
 	}
 	return killTree(&killRequest{subject: req.subject, nodes: signalled}, hungUp)
+}
+
+// askReplace arms the replacement of a daemon older than this build. It is
+// only offered when there is one, because ending shells to swap a daemon that
+// is already current would be destroying work for nothing.
+func (m *model) askReplace() tea.Cmd {
+	if !m.daemonStale {
+		m.status, m.statusErr = "the daemon is the one this build expects", false
+		return nil
+	}
+	m.pendingReplace = true
+	return nil
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the

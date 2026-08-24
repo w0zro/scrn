@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -51,8 +52,11 @@ type (
 	// termOpenedMsg is the shell this window just asked for.
 	termOpenedMsg struct{ pid int }
 
-	// sessionsMsg is the shells the daemon is holding.
-	sessionsMsg struct{ sessions []sessionInfo }
+	// sessionsMsg is the shells the daemon is holding, and when it started.
+	sessionsMsg struct {
+		sessions []sessionInfo
+		since    time.Time
+	}
 
 	// screenMsg is one shell's pane as it now stands.
 	screenMsg struct {
@@ -71,6 +75,22 @@ type (
 	// this window just cannot see them until it reconnects.
 	daemonLostMsg struct{ err error }
 )
+
+// reconnectMsg asks for another go at the daemon, once the last one has had a
+// moment to release the socket.
+type reconnectMsg struct{}
+
+// reconnect waits out the old daemon's exit and then connects again, which
+// starts a fresh one because nothing is listening any more.
+func reconnect() tea.Cmd {
+	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return reconnectMsg{} })
+}
+
+// stale reports whether a daemon started before this scrn was built.
+func stale(since time.Time) bool {
+	built := builtAt()
+	return !built.IsZero() && !since.IsZero() && built.After(since)
+}
 
 // connectDaemon reaches the daemon, starting one if none is listening.
 func connectDaemon() tea.Cmd {
@@ -150,7 +170,7 @@ func (s *session) receive() {
 		case kindOpened:
 			s.events <- termOpenedMsg{pid: m.PID}
 		case kindSessions:
-			s.events <- sessionsMsg{sessions: m.Sessions}
+			s.events <- sessionsMsg{sessions: m.Sessions, since: time.UnixMilli(m.Since)}
 		case kindScreen:
 			s.events <- screenMsg{
 				pid: m.PID, screen: m.Screen, curX: m.CursorX, curY: m.CursorY,
@@ -194,6 +214,77 @@ func (s *session) open(dir, run string, w, h int) {
 }
 
 func (s *session) list() { s.ask(message{Kind: kindList}) }
+
+// standDown asks a daemon older than this build to stop, which it will only
+// do if it is holding nothing.
+func (s *session) standDown() { s.ask(message{Kind: kindStand}) }
+
+// replace gets rid of a daemon and the shells keeping it alive.
+//
+// It asks first, which is how a daemon that understands the question goes: it
+// ends its own shells and releases the socket. But the daemons most in need of
+// replacing are the ones too old to have been taught the question, and they
+// ignore it — so if the socket is still answered a moment later, the process
+// holding it is signalled instead.
+func replaceDaemon(s *session) tea.Cmd {
+	if s != nil {
+		s.replace()
+	}
+	return func() tea.Msg {
+		if !answered(daemonStandDown) {
+			return reconnectMsg{}
+		}
+		return replacedMsg{err: signalDaemon()}
+	}
+}
+
+func (s *session) replace() { s.ask(message{Kind: kindStand, Force: true}) }
+
+// replacedMsg reports a daemon that had to be signalled rather than asked.
+type replacedMsg struct{ err error }
+
+// daemonStandDown is how long a daemon gets to act on being asked to go before
+// it is taken to be one that cannot.
+const daemonStandDown = 700 * time.Millisecond
+
+// answered reports whether anything is still listening after d.
+func answered(d time.Duration) bool {
+	time.Sleep(d)
+	c, err := dialDaemon()
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
+}
+
+// signalDaemon ends whatever is holding the socket. The shells go with it:
+// they are its children and it holds the other end of their terminals.
+func signalDaemon() error {
+	out, err := exec.Command("lsof", "-t", socketPath()).Output()
+	if err != nil {
+		return errors.New("could not find the daemon to end it")
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]))
+	if err != nil || pid <= 1 {
+		return errors.New("could not find the daemon to end it")
+	}
+	return syscall.Kill(pid, syscall.SIGTERM)
+}
+
+// builtAt is when this scrn was built. A daemon that started before its own
+// binary was built is running code the window talking to it does not have.
+func builtAt() time.Time {
+	exe, err := os.Executable()
+	if err != nil {
+		return time.Time{}
+	}
+	info, err := os.Stat(exe)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
 
 func (s *session) attach(pid, w, h int) {
 	s.ask(message{Kind: kindAttach, PID: pid, Width: w, Height: h})

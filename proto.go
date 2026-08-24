@@ -50,7 +50,17 @@ type message struct {
 	Progress string `json:"progress,omitempty"`
 
 	Sessions []sessionInfo `json:"sessions,omitempty"`
-	Err      string        `json:"err,omitempty"`
+
+	// Since is when the daemon started, so a client can tell whether it is
+	// older than the build asking. A daemon outlives the window that started
+	// it, which is the point of it, and it therefore also outlives rebuilds.
+	Since int64 `json:"since,omitempty"`
+
+	// Force turns a request to stand down into an instruction. A daemon holds
+	// work, so being asked twice is the difference between "if you can" and
+	// "and take what you are holding with you".
+	Force bool   `json:"force,omitempty"`
+	Err   string `json:"err,omitempty"`
 }
 
 // sessionInfo is a shell the daemon is holding.
@@ -62,13 +72,14 @@ type sessionInfo struct {
 // What each side can say.
 const (
 	// Client to daemon.
-	kindOpen   = "open"   // start a shell in Dir
-	kindList   = "list"   // what shells are there
-	kindAttach = "attach" // send me this shell's screen, and keep sending
-	kindDetach = "detach" // stop sending, but keep it running
-	kindInput  = "input"  // these keystrokes are for this shell
-	kindResize = "resize" // the pane changed shape
-	kindClose  = "close"  // end this shell
+	kindOpen   = "open"      // start a shell in Dir
+	kindList   = "list"      // what shells are there
+	kindAttach = "attach"    // send me this shell's screen, and keep sending
+	kindDetach = "detach"    // stop sending, but keep it running
+	kindInput  = "input"     // these keystrokes are for this shell
+	kindResize = "resize"    // the pane changed shape
+	kindClose  = "close"     // end this shell
+	kindStand  = "standdown" // stop, if you are holding nothing
 
 	// Daemon to client.
 	kindOpened   = "opened"   // the shell you just asked for, and its pid

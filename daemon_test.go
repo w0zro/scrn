@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -240,4 +241,104 @@ func TestClosingThroughTheDaemonEndsTheShell(t *testing.T) {
 
 	conn.write(message{Kind: kindClose, PID: pid})
 	waitFor(t, "the shell to go", func() bool { return d.session(pid) == nil })
+}
+
+func TestADaemonSaysWhenItStarted(t *testing.T) {
+	// A client cannot tell a daemon older than its own build from a current
+	// one without asking, and the difference is invisible until something it
+	// holds behaves the way it used to.
+	startDaemonFor(t)
+
+	c, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := newConn(c)
+	defer conn.close()
+
+	conn.write(message{Kind: kindList})
+	m, err := conn.readBy(time.Now().Add(5 * time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Since == 0 {
+		t.Fatalf("sessions = %+v, want it to say when the daemon started", m)
+	}
+	if since := time.UnixMilli(m.Since); time.Since(since) > time.Minute {
+		t.Errorf("started = %v, want roughly now", since)
+	}
+}
+
+func TestADaemonHoldingNothingStandsDown(t *testing.T) {
+	d := startDaemonFor(t)
+
+	c, _ := dialDaemon()
+	conn := newConn(c)
+	defer conn.close()
+
+	conn.write(message{Kind: kindStand})
+	waitFor(t, "the daemon to stop listening", func() bool {
+		_, err := dialDaemon()
+		return err != nil
+	})
+	_ = d
+}
+
+func TestADaemonHoldingShellsStaysUp(t *testing.T) {
+	// The work in it is the reason it exists; a newer build does not outrank
+	// a running shell.
+	d := startDaemonFor(t)
+
+	c, _ := dialDaemon()
+	conn := newConn(c)
+	defer conn.close()
+
+	conn.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+	waitFor(t, "the shell to open", func() bool { return len(d.list()) == 1 })
+
+	conn.write(message{Kind: kindStand})
+	time.Sleep(500 * time.Millisecond)
+
+	if _, err := dialDaemon(); err != nil {
+		t.Error("a daemon holding a shell should not stand down")
+	}
+}
+
+func TestStaleIsAboutTheBuildNotTheClock(t *testing.T) {
+	built := builtAt()
+	if built.IsZero() {
+		t.Skip("cannot tell when this binary was built")
+	}
+	if !stale(built.Add(-time.Hour)) {
+		t.Error("a daemon that started before this build is stale")
+	}
+	if stale(built.Add(time.Hour)) {
+		t.Error("a daemon started after this build is not stale")
+	}
+	if stale(time.Time{}) {
+		t.Error("a daemon that did not say should not be called stale")
+	}
+}
+
+func TestAToldDaemonGoesAndTakesItsShellsWithIt(t *testing.T) {
+	// Being asked twice is the difference between "if you can" and "and take
+	// what you are holding with you".
+	d := startDaemonFor(t)
+
+	c, _ := dialDaemon()
+	conn := newConn(c)
+	defer conn.close()
+
+	conn.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+	waitFor(t, "the shell to open", func() bool { return len(d.list()) == 1 })
+	pid := d.list()[0].PID
+
+	conn.write(message{Kind: kindStand, Force: true})
+	waitFor(t, "the daemon to stop listening", func() bool {
+		_, err := dialDaemon()
+		return err != nil
+	})
+	waitFor(t, "the shell to go with it", func() bool {
+		return syscall.Kill(pid, 0) != nil
+	})
 }

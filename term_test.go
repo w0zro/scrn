@@ -722,3 +722,79 @@ func TestTheProgressGoesOutAsItCameIn(t *testing.T) {
 		t.Errorf("requests = %q, want the payload passed through unchanged", got)
 	}
 }
+
+// --- replacing a daemon older than the build -----------------------------
+
+// staleDaemon is a model told it is talking to an out-of-date daemon holding
+// one shell, which is the only state R is offered in.
+func staleDaemon(t *testing.T) model {
+	t.Helper()
+	m := connected(t, repoModel())
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
+	m.daemonStale = true
+	return m
+}
+
+func TestRAsksBeforeEndingTheWorkItReplaces(t *testing.T) {
+	m := staleDaemon(t)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = next.(model)
+
+	if !m.pendingReplace {
+		t.Fatal("R should ask before ending the shells keeping a daemon alive")
+	}
+	if f := footer(m); !strings.Contains(f, "replace the daemon, ending 1 shell?") {
+		t.Errorf("footer = %q, want it to say what it is about to end", f)
+	}
+}
+
+func TestConfirmingReplacesTheDaemon(t *testing.T) {
+	m := staleDaemon(t)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, cmd := next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = next.(model)
+
+	if cmd == nil {
+		t.Error("confirming should reconnect once the old daemon has gone")
+	}
+	if len(m.terms) != 0 || m.focus != 0 {
+		t.Error("the shells went with the daemon; the window should not still hold them")
+	}
+	if m.daemonStale {
+		t.Error("the daemon being replaced is no longer the stale one")
+	}
+}
+
+func TestAnyOtherKeyLeavesTheDaemonAlone(t *testing.T) {
+	m := staleDaemon(t)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = next.(model)
+
+	if m.pendingReplace {
+		t.Error("the question should be over")
+	}
+	if len(m.terms) != 1 {
+		t.Error("cancelling should not have ended anything")
+	}
+	if !strings.Contains(footer(m), "left the daemon alone") {
+		t.Errorf("footer = %q, want it to say nothing happened", footer(m))
+	}
+}
+
+func TestROnACurrentDaemonDoesNothing(t *testing.T) {
+	// Ending shells to swap a daemon that is already the right one would be
+	// destroying work for nothing.
+	m := connected(t, repoModel())
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = next.(model)
+
+	if m.pendingReplace {
+		t.Error("R should only be offered when there is an out-of-date daemon")
+	}
+	if !strings.Contains(footer(m), "the one this build expects") {
+		t.Errorf("footer = %q, want it to say why nothing happened", footer(m))
+	}
+}

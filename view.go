@@ -184,6 +184,12 @@ func padTo(lines []string, n int) []string {
 // is about.
 func (m model) hintLines(width, rows int) []string {
 	switch {
+	case m.pendingReplace:
+		return append(
+			hintBlock("replace the daemon, ending "+
+				plural(len(m.terms), "shell", "shells")+"?", width, warnStyle),
+			hintBlock("R confirm · any other key cancels", width, hintStyle)...)
+
 	case m.pendingKill != nil:
 		return append(
 			hintBlock("kill "+m.pendingKill.subject+"?", width, warnStyle),

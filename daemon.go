@@ -22,6 +22,7 @@ type daemon struct {
 
 	listener net.Listener
 	path     string
+	started  time.Time
 	idleFrom time.Time
 }
 
@@ -74,6 +75,7 @@ func listenDaemon(path string) (*daemon, error) {
 		clients:  map[*client]bool{},
 		listener: l,
 		path:     path,
+		started:  time.Now(),
 		idleFrom: time.Now(),
 	}, nil
 }
@@ -94,8 +96,9 @@ func (d *daemon) accept() error {
 	}
 }
 
-// stop ends the daemon and every shell it holds. Only a test calls this: a
-// real daemon stops when it has nothing left, and its shells are the point.
+// stop ends the daemon and every shell it holds. Nothing reaches this by
+// accident: a daemon stops on its own only when it has nothing left, and a
+// client has to say outright that the work in it should go too.
 func (d *daemon) stop() {
 	d.listener.Close()
 
@@ -163,7 +166,7 @@ func (d *daemon) handle(cl *client, m message) {
 	case kindOpen:
 		d.open(cl, m)
 	case kindList:
-		cl.send(message{Kind: kindSessions, Sessions: d.list()})
+		cl.send(d.sessionsMsg())
 	case kindAttach:
 		d.attach(cl, m)
 	case kindDetach:
@@ -177,6 +180,21 @@ func (d *daemon) handle(cl *client, m message) {
 			t.resize(m.Width, m.Height)
 			cl.send(t.screenMsg())
 		}
+	case kindStand:
+		// A daemon holding nothing can be replaced for free. One holding
+		// shells goes only when told outright, because the work in it is why
+		// it exists and ending that is not the daemon's decision.
+		if m.Force {
+			go d.stop()
+			return
+		}
+		d.mu.Lock()
+		empty := len(d.sessions) == 0
+		d.mu.Unlock()
+		if empty {
+			d.listener.Close()
+		}
+
 	case kindClose:
 		// Off this goroutine: a shell is given a moment to act on the hangup,
 		// and this client has other things to say in the meantime.
@@ -203,7 +221,7 @@ func (d *daemon) open(cl *client, m message) {
 	// cannot tell from the list or the screen: by the time either arrives the
 	// shell is just another one the daemon is holding.
 	cl.send(message{Kind: kindOpened, PID: t.pid})
-	cl.send(message{Kind: kindSessions, Sessions: d.list()})
+	cl.send(d.sessionsMsg())
 	cl.send(t.screenMsg())
 }
 
@@ -246,6 +264,15 @@ func (d *daemon) session(pid int) *terminal {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.sessions[pid]
+}
+
+// sessionsMsg is what the daemon is holding, and when it started holding it.
+func (d *daemon) sessionsMsg() message {
+	return message{
+		Kind:     kindSessions,
+		Sessions: d.list(),
+		Since:    d.started.UnixMilli(),
+	}
 }
 
 func (d *daemon) list() []sessionInfo {
