@@ -112,6 +112,10 @@ func procLabel(n *ProcNode) string {
 	return n.Command + " " + strconv.Itoa(n.PID)
 }
 
+// errGone says the process was not there to signal. It is not a failure: a
+// kill asks for the process to be gone, and it is.
+var errGone = errors.New("already gone")
+
 // signal sends SIGTERM, translating the failures worth explaining.
 func signal(pid int) error {
 	switch {
@@ -124,7 +128,7 @@ func signal(pid int) error {
 	err := syscall.Kill(pid, syscall.SIGTERM)
 	switch {
 	case errors.Is(err, syscall.ESRCH):
-		return errors.New("already gone")
+		return errGone
 	case errors.Is(err, syscall.EPERM):
 		return errors.New("not permitted")
 	}

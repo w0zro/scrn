@@ -44,25 +44,26 @@ var (
 
 	cursorStyle = lipgloss.NewStyle().Reverse(true)
 
+	// headingStyle names what the detail pane is about, so that what a row is
+	// does not read at the same weight as its memory share.
+	headingStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#1F2328", Dark: "#E6E6E6"})
+
 	// offSelStyle marks the selected row when that row is one scrn cannot step
 	// into: bold enough to find, dim enough to still read as unavailable.
 	offSelStyle = faintStyle.Bold(true)
 )
 
-// claudeMark is the glyph beside a Claude instance: filled while it is
-// working, hollow while it is waiting on its user.
-func claudeMark(status string) string {
-	if status == "busy" {
-		return "●"
+// claudeMark is the glyph beside a Claude instance. A working one turns, so
+// that a glance tells you which instances are thinking and which are waiting
+// on you — the difference a still marker leaves you to guess at, and the one
+// worth crossing the room for.
+func (m model) claudeMark(status string) (string, lipgloss.Style) {
+	if status == busyStatus {
+		return spinFrames[m.frame%len(spinFrames)], busyStyle
 	}
-	return "○"
-}
-
-func claudeMarkStyle(status string) lipgloss.Style {
-	if status == "busy" {
-		return busyStyle
-	}
-	return faintStyle
+	return "○", faintStyle
 }
 
 // View lays the window out as two full-height columns.
@@ -217,6 +218,11 @@ func (m model) hintLines(width, rows int) []string {
 			hintBlock("filter "+m.filter, width, selStyle),
 			hintBlock("n shell · c claude · / edit · esc clear", width, hintStyle)...)
 	}
+	if !m.showHelp {
+		// One line to say the keys exist. The list of them is worth less to
+		// the reader, most of the time, than the rows it would cover up.
+		return []string{" " + hintStyle.Render("? keys")}
+	}
 	return m.keyLines(width, rows)
 }
 
@@ -334,7 +340,8 @@ func (m model) renderRow(r navRow, selected bool) string {
 	// repositories with work happening in them read at a glance.
 	mark, markStyle := "", faintStyle
 	if s := m.claudeFor(r); s != nil {
-		mark, markStyle = " "+claudeMark(s.Status), claudeMarkStyle(s.Status)
+		glyph, style := m.claudeMark(s.Status)
+		mark, markStyle = " "+glyph, style
 	}
 
 	spinner := ""
@@ -439,20 +446,68 @@ func (m model) detailLines(width, rows int) []string {
 		return []string{" " + faintStyle.Render("loading…")}
 	}
 
-	// The widest label sets the value column, so values line up.
-	labelW := 0
+	var lines []string
+	for _, block := range blocks(fields) {
+		drawn := renderBlock(block, width)
+		if len(drawn) == 0 {
+			continue
+		}
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, drawn...)
+	}
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	return lines
+}
+
+// blocks splits the fields at the breaks between groups. A group sets its own
+// value column, so one long label does not indent a pane that has nothing else
+// like it in it.
+func blocks(fields []field) [][]field {
+	var out [][]field
+	var cur []field
 	for _, f := range fields {
-		if n := len(f.label); n > labelW {
-			labelW = n
+		if f.kind == gapField {
+			out = append(out, cur)
+			cur = nil
+			continue
+		}
+		cur = append(cur, f)
+	}
+	return append(out, cur)
+}
+
+// renderBlock draws one group, preceded by the blank line that separates it
+// from the last. A group with nothing in it draws nothing at all, so a pane
+// that skipped a whole group does not leave a hole where it would have been.
+func renderBlock(block []field, width int) []string {
+	if len(block) == 0 {
+		return nil
+	}
+
+	// The widest label in this group sets its value column, so values line up.
+	labelW := 0
+	for _, f := range block {
+		if f.kind == pairField && len(f.label) > labelW {
+			labelW = len(f.label)
 		}
 	}
 
 	var lines []string
-	for _, f := range fields {
-		lines = append(lines, wrapField(f, labelW, width)...)
-	}
-	if len(lines) > rows {
-		lines = lines[:rows]
+	for _, f := range block {
+		switch f.kind {
+		case headingField:
+			lines = append(lines, " "+headingStyle.Render(f.value))
+		case noteField:
+			for _, c := range wrapValue(f.value, width-2) {
+				lines = append(lines, " "+faintStyle.Render(c))
+			}
+		default:
+			lines = append(lines, wrapField(f, labelW, width)...)
+		}
 	}
 	return lines
 }

@@ -233,7 +233,8 @@ func TestNavShowsEmptyProjectsDir(t *testing.T) {
 
 func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 	// A shell that started a claude that started a go build is one thing
-	// happening, and the row is named for what it ends in.
+	// happening, and the row is named for the claude: the shell is what got
+	// there and the go is what it reached for.
 	m := withProcList(80, 12,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{
@@ -242,10 +243,10 @@ func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ go 30"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
 
-	if r, _ := m.rows[1], 0; r.chain.PID != 10 {
-		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain.PID)
+	if r, _ := m.rows[1], 0; r.chain().PID != 10 {
+		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain().PID)
 	}
 }
 
@@ -259,7 +260,7 @@ func TestASameCommandForkingItselfIsStillOneRow(t *testing.T) {
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 21"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 20"})
 }
 
 func TestARunStopsFoldingWhereItBranches(t *testing.T) {
@@ -393,7 +394,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheToggle(t *testing.T) {
-	m := sized(160, 24)
+	m := press(sized(160, 24), "?")
 	if !strings.Contains(stripANSI(m.View()), "a all") {
 		t.Error("footer should offer to show all while narrowed, which is the default")
 	}
@@ -514,7 +515,7 @@ func TestScrollStopsAtTheLastRow(t *testing.T) {
 
 func TestDetailPaneDescribesTheSelectedRepo(t *testing.T) {
 	m := withProcList(80, 12, []Project{{Name: "alpha", Path: "/p/alpha"}}, nil)
-	m.details[detailKey(m.rows[0])] = []field{{"name", "alpha"}, {"path", "/p/alpha"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "alpha"}, {label: "path", value: "/p/alpha"}}
 
 	col := strings.Join(detailColumn(m), "\n")
 	if !strings.Contains(col, "alpha") || !strings.Contains(col, "/p/alpha") {
@@ -527,8 +528,8 @@ func TestDetailPaneFollowsTheCursor(t *testing.T) {
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}},
 	)
-	m.details[detailKey(m.rows[0])] = []field{{"name", "scrn"}}
-	m.details[detailKey(m.rows[1])] = []field{{"command", "zsh"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "scrn"}}
+	m.details[detailKey(m.rows[1])] = []field{{label: "command", value: "zsh"}}
 
 	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "scrn") {
 		t.Error("detail should describe the repo while the repo is selected")
@@ -556,7 +557,7 @@ func TestMovingRequestsDetailForTheNewRow(t *testing.T) {
 
 func TestDetailIsNotRefetchedWhenCached(t *testing.T) {
 	m := threeRepos(10)
-	m.details[detailKey(m.rows[1])] = []field{{"name", "b"}}
+	m.details[detailKey(m.rows[1])] = []field{{label: "name", value: "b"}}
 
 	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown}); cmd != nil {
 		t.Error("a row already inspected should not be inspected again")
@@ -565,7 +566,7 @@ func TestDetailIsNotRefetchedWhenCached(t *testing.T) {
 
 func TestStaleDetailKeysAreIgnored(t *testing.T) {
 	m := threeRepos(10)
-	next, _ := m.Update(detailMsg{key: "repo:/p/gone", fields: []field{{"name", "gone"}}})
+	next, _ := m.Update(detailMsg{key: "repo:/p/gone", fields: []field{{label: "name", value: "gone"}}})
 
 	if strings.Contains(strings.Join(detailColumn(next.(model)), "\n"), "gone") {
 		t.Error("a detail result for another row should not be shown for this one")
@@ -734,7 +735,7 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 }
 
 func TestFooterAdvertisesCollapse(t *testing.T) {
-	if !strings.Contains(stripANSI(sized(160, 24).View()), "space fold") {
+	if !strings.Contains(stripANSI(press(sized(160, 24), "?").View()), "space fold") {
 		t.Error("footer should mention the collapse key")
 	}
 }
@@ -752,6 +753,10 @@ func TestCollapsedRowStaysInItsColumn(t *testing.T) {
 }
 
 // --- killing --------------------------------------------------------------
+
+// keysOf opens the list of keys and returns it, since it is only a line until
+// somebody asks.
+func keysOf(m model) string { return footer(press(m, "?")) }
 
 // footer is scrn's own block at the foot of its column, flattened to one
 // string so a test can ask whether something is in it.
@@ -908,7 +913,7 @@ func TestStatusClearsOnTheNextKey(t *testing.T) {
 }
 
 func TestFooterAdvertisesKill(t *testing.T) {
-	if !strings.Contains(footer(sized(80, 24)), "x kill") {
+	if !strings.Contains(keysOf(sized(80, 24)), "x kill") {
 		t.Error("footer should mention the kill key")
 	}
 }
@@ -1005,7 +1010,7 @@ func TestCursorClampsWhenTheListShrinksPastIt(t *testing.T) {
 
 func TestRefreshKeepsTheVisibleDetailCurrent(t *testing.T) {
 	m := nestedTree(12)
-	m.details[detailKey(m.rows[0])] = []field{{"name", "stale"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "stale"}}
 
 	if cmd := m.refreshDetailCmd(); cmd == nil {
 		t.Error("the selected row should be re-inspected even when cached")
@@ -1014,7 +1019,7 @@ func TestRefreshKeepsTheVisibleDetailCurrent(t *testing.T) {
 
 func TestRefreshDoesNotBlankTheDetailPane(t *testing.T) {
 	m := nestedTree(12)
-	m.details[detailKey(m.rows[0])] = []field{{"name", "scrn"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "scrn"}}
 
 	next, _ := m.Update(tickMsg{})
 	if strings.Contains(strings.Join(detailColumn(next.(model)), "\n"), "loading") {
@@ -1024,7 +1029,7 @@ func TestRefreshDoesNotBlankTheDetailPane(t *testing.T) {
 
 func TestStaleDetailsArePruned(t *testing.T) {
 	m := nestedTree(12)
-	m.details["proc:99999"] = []field{{"command", "long gone"}}
+	m.details["proc:99999"] = []field{{label: "command", value: "long gone"}}
 	m.rebuild()
 
 	if _, ok := m.details["proc:99999"]; ok {
@@ -1388,7 +1393,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheTreeKill(t *testing.T) {
-	if f := footer(sized(160, 24)); !strings.Contains(f, "X kill tree") {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "X kill tree") {
 		t.Errorf("footer = %q, want the tree kill advertised", f)
 	}
 }
@@ -1417,14 +1422,70 @@ func withClaude(command string, sessions map[int]claudeSession) model {
 	return m
 }
 
-func TestABusyClaudeIsMarkedInTheNavigator(t *testing.T) {
+func TestABusyClaudeTurns(t *testing.T) {
+	// The difference between an instance thinking and one waiting on you is
+	// the thing worth crossing the room for, so it moves.
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+		700: {PID: 700, Name: "scrn-1f", Status: busyStatus},
 	})
 
-	row := navColumn(m)[1]
-	if !strings.Contains(row, "claude 700 ●") {
-		t.Errorf("row = %q, want a filled marker on a working instance", row)
+	first := navColumn(m)[1]
+	if !strings.Contains(first, "claude 700 "+spinFrames[m.frame%len(spinFrames)]) {
+		t.Fatalf("row = %q, want a turning marker on a working instance", first)
+	}
+
+	next, _ := m.Update(spinMsg{})
+	if second := navColumn(next.(model))[1]; second == first {
+		t.Errorf("the marker did not turn: %q twice", second)
+	}
+}
+
+func TestAWorkingInstanceSetsTheMarkersTurning(t *testing.T) {
+	m := withClaude("claude", nil)
+	if m.spinning {
+		t.Fatal("setup: nothing should be turning yet")
+	}
+
+	next, cmd := m.Update(claudeMsg{sessions: map[int]claudeSession{
+		700: {PID: 700, Status: busyStatus},
+	}})
+	if cmd == nil || !next.(model).spinning {
+		t.Error("an instance that has started working should set the markers turning")
+	}
+}
+
+func TestTheMarkersStopWhenNothingIsWorking(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{700: {PID: 700, Status: busyStatus}})
+	m.spinning = true
+
+	next, cmd := m.Update(claudeMsg{sessions: map[int]claudeSession{
+		700: {PID: 700, Status: "idle"},
+	}})
+	m = next.(model)
+
+	next, cmd = m.Update(spinMsg{})
+	if cmd != nil {
+		t.Error("the frame chain should stop once nothing is working")
+	}
+	if next.(model).spinning {
+		t.Error("spinning should be cleared so the next one can start it again")
+	}
+}
+
+func TestATurningMarkerDoesNotChaseTheProcessList(t *testing.T) {
+	// A kill needs the list re-read to notice the exit. A working instance is
+	// a session file the ordinary refresh already picks up, and an lsof sweep
+	// every few frames for the length of a Claude turn is not free.
+	m := withClaude("claude", map[int]claudeSession{700: {PID: 700, Status: busyStatus}})
+	m.spinning = true
+	m.frame = rescanFrames - 1
+
+	_, cmd := m.Update(spinMsg{})
+	if cmd == nil {
+		t.Fatal("the chain should keep running")
+	}
+	if _, batched := cmd().(tea.BatchMsg); batched {
+		t.Error("a turning marker should schedule the next frame and nothing else")
 	}
 }
 
@@ -1531,7 +1592,7 @@ func TestTheDetailPaneNamesTheWholeRun(t *testing.T) {
 	m.cursor = 1
 
 	r, _ := m.selected()
-	fs := procFields(r.node, r.run(), nil)
+	fs := procFields(r.node, r.run, nil)
 
 	got, ok := fieldValue(fs, "run")
 	if !ok {
@@ -1553,7 +1614,7 @@ func TestARowThatFoldedNothingHasNoRun(t *testing.T) {
 	m.cursor = 2 // nvim, which folded nothing because zsh branches
 
 	r, _ := m.selected()
-	if _, ok := fieldValue(procFields(r.node, r.run(), nil), "run"); ok {
+	if _, ok := fieldValue(procFields(r.node, r.run, nil), "run"); ok {
 		t.Error("a row that stands for one process should not describe a run")
 	}
 }
@@ -1566,7 +1627,7 @@ func TestDashShowsEveryProcess(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 21"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 20"})
 
 	m = press(m, "-")
 	wantRows(t, navColumn(m), []string{
@@ -1589,16 +1650,16 @@ func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		})
-	m.cursor = 1 // the folded row, named for nvim 21
+	m.cursor = 1 // the folded row, named for nvim 20
 
 	m = press(m, "-")
-	if r, _ := m.selected(); r.node.PID != 21 {
-		t.Errorf("selected pid %d, want to still be on nvim 21 after unfolding", r.node.PID)
+	if r, _ := m.selected(); r.node.PID != 20 {
+		t.Errorf("selected pid %d, want to still be on nvim 20 after unfolding", r.node.PID)
 	}
 }
 
 func TestTheFooterSaysWhichWayTheFoldGoes(t *testing.T) {
-	m := sized(160, 24)
+	m := press(sized(160, 24), "?")
 	if f := footer(m); !strings.Contains(f, "- unfold") {
 		t.Errorf("footer = %q, want it to offer the full tree", f)
 	}
@@ -1894,4 +1955,152 @@ func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh 10"})
+}
+
+func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
+	// claude keeps the machine awake while it works, so a caffeinate hangs
+	// below it. Naming the run after its deepest process would call this a
+	// caffeinate and hide the claude entirely.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
+			{PID: 30, PPID: 20, Command: "caffeinate", Dir: "/p/scrn"},
+		})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
+}
+
+func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
+	// A claude reaching for a tool and finishing with it should not rename the
+	// row it is on, twice, while you are looking at it.
+	procs := []Proc{
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+		{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
+	}
+	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, procs)
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
+
+	next, _ := m.Update(procsMsg{procs: append(procs,
+		Proc{PID: 40, PPID: 20, Command: "rg", Dir: "/p/scrn"})})
+	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ claude 20"})
+}
+
+func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
+	// That is the one you would be typing into.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "bash", Dir: "/p/scrn"},
+		})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ bash 20"})
+}
+
+func TestALoginShellIsStillAShell(t *testing.T) {
+	if !isShell("-zsh") {
+		t.Error("a login shell is written with a leading dash and is still a shell")
+	}
+	if isShell("claude") {
+		t.Error("claude is not a shell")
+	}
+}
+
+// --- the keys, on request ------------------------------------------------
+
+func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
+	m := manyProjects(90, 14)
+	if got := footer(m); got != "? keys" {
+		t.Errorf("footer = %q, want one line saying the keys exist", got)
+	}
+}
+
+func TestQuestionMarkSpellsThemOut(t *testing.T) {
+	m := press(manyProjects(160, 24), "?")
+	f := footer(m)
+	for _, key := range []string{"/ find", "n shell", "c claude", "x kill", "q quit"} {
+		if !strings.Contains(f, key) {
+			t.Errorf("footer = %q, want it to list %q", f, key)
+		}
+	}
+}
+
+func TestQuestionMarkPutsThemAwayAgain(t *testing.T) {
+	m := press(press(manyProjects(90, 14), "?"), "?")
+	if got := footer(m); got != "? keys" {
+		t.Errorf("footer = %q, want the keys folded away again", got)
+	}
+}
+
+func TestEscapeClosesTheKeysFirst(t *testing.T) {
+	// Whatever is open is what esc is most likely about.
+	m := press(manyProjects(90, 14), "?")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+
+	if cmd != nil {
+		t.Error("esc with the keys open should close them, not quit")
+	}
+	if m.showHelp {
+		t.Error("esc should close the keys")
+	}
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+		t.Error("esc should still quit once nothing is open")
+	}
+}
+
+func TestTheListGetsTheRoomTheKeysWereTaking(t *testing.T) {
+	m := manyProjects(90, 14)
+	closed := m.bodyHeight()
+	open := press(m, "?").bodyHeight()
+
+	if open >= closed {
+		t.Errorf("rows for the list: %d with the keys open, %d closed; closing should give the room back", open, closed)
+	}
+	if closed != m.height-2 {
+		t.Errorf("with the keys folded away the list has %d rows, want all but the name and the one line", closed)
+	}
+}
+
+func TestSomethingBeingSaidStillTakesTheFoot(t *testing.T) {
+	// A confirmation or a report is about the next keystroke, so it is shown
+	// whether or not the keys have been asked for.
+	m := press(nestedTree(24), "x") // a repo row, so it explains itself
+	if !strings.Contains(footer(m), "select a process") {
+		t.Errorf("footer = %q, want what was just said", footer(m))
+	}
+}
+
+func TestTheSessionsAreReadOnAChainOfTheirOwn(t *testing.T) {
+	// Reading them costs a few small files; the process scan costs an lsof
+	// sweep of the machine. Tying them together made a session that had just
+	// started working wait up to a process poll to say so.
+	m := nestedTree(12)
+	next, cmd := m.Update(claudeTickMsg{})
+	if cmd == nil {
+		t.Fatal("the session chain should schedule its own next read")
+	}
+	if _, ok := cmd().(tea.BatchMsg); !ok {
+		t.Error("a session tick should both read and schedule the next")
+	}
+	_ = next
+}
+
+func TestTheProcessTickNoLongerCarriesTheSessions(t *testing.T) {
+	// Two chains reading them would double the rate for no reason.
+	m := nestedTree(12)
+	_, cmd := m.Update(tickMsg{})
+	if cmd == nil {
+		t.Fatal("a tick should still refresh")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatal("a tick should schedule more than one thing")
+	}
+	// The process scan, the next tick, and re-inspecting the selected row.
+	// If this becomes four, check that the sessions have not been put back on
+	// this chain as well as their own.
+	if len(batch) != 3 {
+		t.Errorf("tick batched %d commands, want 3", len(batch))
+	}
 }

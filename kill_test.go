@@ -79,3 +79,18 @@ func asExitError(err error, target **exec.ExitError) bool {
 	}
 	return ok
 }
+
+func TestAProcessAlreadyGoneIsNotAFailure(t *testing.T) {
+	// Hanging up a shell can take what was running in it before the signal
+	// aimed at that process lands. The outcome asked for is what happened.
+	results := []killResult{
+		{command: "zsh", pid: 700, hungUp: true},
+		{command: "claude", pid: 701, err: errGone},
+	}
+	if got := describeFailures(results); got != "" {
+		t.Errorf("failures = %q, want a process that is already gone not counted", got)
+	}
+	if got := ended(results); got != "closed " {
+		t.Errorf("ended = %q, want the outcome read as done", got)
+	}
+}

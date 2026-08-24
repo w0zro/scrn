@@ -130,6 +130,15 @@ func sortNodes(ns []*ProcNode) {
 	}
 }
 
+// indexNodes files a tree by pid, so a process can be reached from anywhere
+// that knows only its number.
+func indexNodes(n *ProcNode, into map[int]*ProcNode) {
+	into[n.PID] = n
+	for _, c := range n.Children {
+		indexNodes(c, into)
+	}
+}
+
 // procDirs reduces a process list to the distinct directories they run in.
 func procDirs(procs []Proc) []string {
 	seen := map[string]bool{}

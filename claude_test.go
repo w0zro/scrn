@@ -237,11 +237,16 @@ func TestClaudeFieldsLeadWithTheSession(t *testing.T) {
 		Branch: "main", SessionID: "abc",
 	})
 
-	want := []string{"session", "status", "summary", "model", "context", "asked", "branch", "session id"}
+	// What it is, then what it is doing, then what it is doing it with.
+	pairs := pairsOf(fs)
+	want := []string{"session", "status", "branch", "summary", "asked", "model", "context", "session id"}
 	for i, label := range want {
-		if i >= len(fs) || fs[i].label != label {
-			t.Fatalf("field %d = %q, want %q\nall: %+v", i, labelAt(fs, i), label, fs)
+		if i >= len(pairs) || pairs[i].label != label {
+			t.Fatalf("field %d = %q, want %q\nall: %+v", i, labelAt(pairs, i), label, fs)
 		}
+	}
+	if len(blocks(fs)) < 3 {
+		t.Errorf("fields fall into %d groups, want them grouped rather than one list", len(blocks(fs)))
 	}
 	if v, _ := fieldValue(fs, "status"); v != "busy  (3m)" {
 		t.Errorf("status = %q, want it to say how long it has been that way", v)
@@ -252,7 +257,7 @@ func TestClaudeFieldsLeadWithTheSession(t *testing.T) {
 }
 
 func TestClaudeFieldsSkipWhatIsUnknown(t *testing.T) {
-	fs := claudeFields(claudeSession{Name: "scrn-1f", Status: "idle"})
+	fs := pairsOf(claudeFields(claudeSession{Name: "scrn-1f", Status: "idle"}))
 	for _, f := range fs {
 		if f.value == "" {
 			t.Errorf("field %q has no value; empty fields should be left out", f.label)

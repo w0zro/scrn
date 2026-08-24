@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -21,9 +22,25 @@ const navMin = 60
 // constantly, and an lsof sweep is cheap enough to repeat at this rate.
 const procPoll = 2 * time.Second
 
+// claudePoll is how often the Claude sessions are re-read. It is far shorter
+// than the process poll because it is a different kind of work: a handful of
+// small files rather than an lsof sweep of every process on the machine, which
+// is some three orders of magnitude apart. Tying the two together made a
+// session that had started working wait up to a process poll to say so, which
+// is exactly the moment the marker is for.
+const claudePoll = 150 * time.Millisecond
+
 // projectEvery is how many process polls pass between repository scans.
 // Repositories appear and disappear far more slowly than processes do.
 const projectEvery = 15
+
+// claudeTickMsg drives the Claude session refresh, on a chain of its own for
+// the same reason it has a rate of its own. Exactly one is in flight.
+type claudeTickMsg struct{}
+
+func claudeTick() tea.Cmd {
+	return tea.Tick(claudePoll, func(time.Time) tea.Msg { return claudeTickMsg{} })
+}
 
 // tickMsg drives the refresh loop. Exactly one tick is ever in flight: each
 // one schedules its successor, so a one-off rescan — after a kill, say — can
@@ -72,10 +89,27 @@ const (
 type navRow struct {
 	kind    rowKind
 	project Project
-	node    *ProcNode
-	chain   *ProcNode
-	prefix  string // tree rules of the ancestors already drawn
-	last    bool   // last child at its level, so it closes the branch
+	run     []*ProcNode // the whole folded run, oldest first
+	node    *ProcNode   // the one in it the row is named for
+	prefix  string      // tree rules of the ancestors already drawn
+	last    bool        // last child at its level, so it closes the branch
+}
+
+// chain is the top of the run, which is what a tree kill has to cover.
+func (r navRow) chain() *ProcNode {
+	if len(r.run) == 0 {
+		return r.node
+	}
+	return r.run[0]
+}
+
+// leaf is the bottom of the run. Anything below it branches, so that is where
+// the tree carries on.
+func (r navRow) leaf() *ProcNode {
+	if len(r.run) == 0 {
+		return r.node
+	}
+	return r.run[len(r.run)-1]
 }
 
 type model struct {
@@ -92,6 +126,12 @@ type model struct {
 	procs  []Proc
 	byRepo map[string][]*ProcNode
 	parent map[int]int
+	nodes  map[int]*ProcNode
+
+	// showHelp spells the keys out. They are worth a line to say they exist
+	// and six to list, and the list is worth more to the navigator most of the
+	// time than it is to the person reading it.
+	showHelp bool
 
 	// unfolded draws every process on a line of its own, including the ones a
 	// run would otherwise fold away. The folded view is the reading view; this
@@ -191,7 +231,8 @@ func newModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(scanProjects, scanProcs, scanClaude, connectDaemon(), tick(procPoll))
+	return tea.Batch(scanProjects, scanProcs, scanClaude, connectDaemon(),
+		tick(procPoll), claudeTick())
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -348,15 +389,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemon.list()
 		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
 
+	case claudeTickMsg:
+		return m, tea.Batch(scanClaude, claudeTick())
+
 	case claudeMsg:
 		m.claude = msg.sessions
+		// An instance that has started working sets the markers turning.
+		if !m.spinning && m.spinNeeded() {
+			m.spinning = true
+			return m, spin()
+		}
 
 	case detailMsg:
 		m.details[msg.key] = msg.fields
 
 	case tickMsg:
 		m.ticks++
-		cmds := []tea.Cmd{scanProcs, scanClaude, tick(procPoll)}
+		cmds := []tea.Cmd{scanProcs, tick(procPoll)}
 		if m.ticks%projectEvery == 0 {
 			cmds = append(cmds, scanProjects)
 		}
@@ -371,6 +420,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingKill = nil
 		signalled := 0
 		for _, r := range msg.results {
+			if errors.Is(r.err, errGone) {
+				// Not there to signal, which is what was being asked for.
+				// Nothing to mark: there is no row left to mark it on.
+				signalled++
+				continue
+			}
 			if r.err != nil {
 				continue
 			}
@@ -398,12 +453,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinMsg:
 		m.frame++
 		m.ageDying()
-		if len(m.dying) == 0 {
+		if !m.spinNeeded() {
 			m.spinning = false
 			return m, nil
 		}
 		cmds := []tea.Cmd{spin()}
-		if m.frame%rescanFrames == 0 {
+		// Only a kill needs the process list chased; a turning marker is
+		// about a session file that the ordinary refresh already re-reads.
+		if len(m.dying) > 0 && m.frame%rescanFrames == 0 {
 			cmds = append(cmds, scanProcs)
 		}
 		return m, tea.Batch(cmds...)
@@ -459,6 +516,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.status = ""
 		switch msg.String() {
+		case "?":
+			m.showHelp = !m.showHelp
+			m.scrollToCursor()
+			return m, nil
 		case "R":
 			return m, m.askReplace()
 		case "/":
@@ -502,8 +563,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.detailCmd()
 		case "esc":
-			// A filter still applied is what esc is most likely about; only
-			// once there is none does it mean leave.
+			// Whatever is open is what esc is most likely about, and only
+			// once nothing is does it mean leave.
+			if m.showHelp {
+				m.showHelp = false
+				m.scrollToCursor()
+				return m, nil
+			}
 			if m.filter != "" {
 				m.setFilter("")
 				return m, m.detailCmd()
@@ -697,6 +763,16 @@ func (m *model) runKill(req *killRequest) tea.Cmd {
 	return killTree(&killRequest{subject: req.subject, nodes: signalled}, hungUp)
 }
 
+// shellAround is the shell scrn holds that a process is running inside, if it
+// is not that shell itself.
+func (m model) shellAround(n *ProcNode) *ProcNode {
+	t := m.owningTerm(n.PID)
+	if t == nil || t.pid == n.PID {
+		return nil
+	}
+	return m.nodes[t.pid]
+}
+
 // askReplace arms the replacement of a daemon older than this build. It is
 // only offered when there is one, because ending shells to swap a daemon that
 // is already current would be destroying work for nothing.
@@ -740,13 +816,25 @@ func (m *model) askKill(tree bool) tea.Cmd {
 	}
 
 	if !tree {
-		m.pendingKill = &killRequest{subject: procLabel(r.node), nodes: []*ProcNode{r.node}}
+		nodes := []*ProcNode{r.node}
+		subject := procLabel(r.node)
+
+		// A process running in a shell scrn holds takes the shell with it.
+		// Quitting a Claude instance yourself leaves you at the prompt, which
+		// is what the shell is there for; killing it from here means being
+		// done with the whole thing, and leaving an empty shell behind would
+		// only be something else to tidy up.
+		if shell := m.shellAround(r.node); shell != nil {
+			nodes = append(nodes, shell)
+			subject += " and its shell"
+		}
+		m.pendingKill = &killRequest{subject: subject, nodes: nodes}
 		return nil
 	}
 
 	// A tree kill covers the whole run the row stands for, not just the part
 	// it is named after: the shell above an editor is part of that editor.
-	nodes := subtree(r.chain)
+	nodes := subtree(r.chain())
 	subject := procLabel(r.node)
 	if len(nodes) > 1 {
 		subject += " and " + strconv.Itoa(len(nodes)-1) + " under it"
@@ -761,6 +849,8 @@ func (m *model) askKill(tree bool) tea.Cmd {
 func ended(results []killResult) string {
 	var hungUp, signalled int
 	for _, r := range results {
+		// A process already gone was not signalled and was not hung up;
+		// nothing was done to it, so it names nothing.
 		if r.err != nil {
 			continue
 		}
@@ -787,7 +877,7 @@ func describeFailures(results []killResult) string {
 	var reasons []string
 	seen := map[string]bool{}
 	for _, r := range results {
-		if r.err == nil || seen[r.err.Error()] {
+		if r.err == nil || errors.Is(r.err, errGone) || seen[r.err.Error()] {
 			continue
 		}
 		seen[r.err.Error()] = true
@@ -827,7 +917,21 @@ func (m model) childCount(r navRow) int {
 		}
 		return total
 	}
-	return countTree(r.node) - 1
+	return countTree(r.leaf()) - 1
+}
+
+// spinNeeded reports whether anything on screen is moving: a process on its
+// way out, or a Claude instance at work.
+func (m model) spinNeeded() bool {
+	if len(m.dying) > 0 {
+		return true
+	}
+	for _, r := range m.rows {
+		if s := m.claudeFor(r); s != nil && s.Status == busyStatus {
+			return true
+		}
+	}
+	return false
 }
 
 // ageDying counts the frames each signalled process has lasted and gives up on
@@ -959,7 +1063,7 @@ func (m *model) rebuild() {
 		for i, r := range m.rows {
 			// The shell may have folded into whatever it started, so the row
 			// to land on is the one whose run begins with it.
-			if r.kind == rowProc && (r.node.PID == m.wantCursor || r.chain.PID == m.wantCursor) {
+			if r.kind == rowProc && r.holds(m.wantCursor) {
 				m.cursor, m.wantCursor = i, 0
 				break
 			}
@@ -1023,8 +1127,12 @@ func (m *model) groupProcs() {
 	}
 
 	m.byRepo = make(map[string][]*ProcNode, len(owner))
+	m.nodes = make(map[int]*ProcNode, len(m.procs))
 	for path, procs := range owner {
 		m.byRepo[path] = procForest(procs)
+		for _, root := range m.byRepo[path] {
+			indexNodes(root, m.nodes)
+		}
 	}
 }
 
@@ -1052,12 +1160,13 @@ func (m model) flatten() []navRow {
 func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []navRow {
 	// Walk down while there is nothing to choose between. The bound is for a
 	// process table that says a process started itself.
-	top := n
+	run := []*ProcNode{n}
 	for i := 0; !m.unfolded && len(n.Children) == 1 && i < len(m.procs); i++ {
 		n = n.Children[0]
+		run = append(run, n)
 	}
 
-	row := navRow{kind: rowProc, project: p, node: n, chain: top, prefix: prefix, last: last}
+	row := navRow{kind: rowProc, project: p, run: run, node: nameOf(run), prefix: prefix, last: last}
 	rows := []navRow{row}
 	if m.collapsed[detailKey(row)] {
 		return rows
@@ -1067,11 +1176,40 @@ func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []n
 	if last {
 		childPrefix = prefix + "  "
 	}
-	for i, c := range n.Children {
-		rows = append(rows, m.flattenProc(p, c, childPrefix, i == len(n.Children)-1)...)
+	for i, c := range row.leaf().Children {
+		rows = append(rows, m.flattenProc(p, c, childPrefix, i == len(row.leaf().Children)-1)...)
 	}
 	return rows
 }
+
+// nameOf picks the process a run is named for: the first in it that is not a
+// shell.
+//
+// The deepest is the wrong answer. A shell that started a claude that started
+// a caffeinate is a claude, not a caffeinate — the last process in a run is
+// as often something the interesting one reached for as it is the point of
+// the run. It also moves: naming a run after its deepest process renames the
+// row every time the process that matters starts a tool and finishes with it.
+//
+// A run that is shells all the way down is named for the last of them, which
+// is the shell you would be typing into.
+func nameOf(run []*ProcNode) *ProcNode {
+	for _, n := range run {
+		if !isShell(n.Command) {
+			return n
+		}
+	}
+	return run[len(run)-1]
+}
+
+// shells are the commands that stand in front of what was actually run.
+var shells = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "fish": true,
+	"dash": true, "ksh": true, "csh": true, "tcsh": true,
+	"login": true,
+}
+
+func isShell(command string) bool { return shells[strings.TrimPrefix(command, "-")] }
 
 // visible returns the repositories the navigator should list.
 func (m model) visible() []Project {
@@ -1130,21 +1268,14 @@ func (m model) refreshDetailCmd() tea.Cmd {
 	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
 }
 
-// run lists the processes a row stands for, from the top of its folded run
-// down to the one it is named after. A row that folded nothing is just itself.
-func (r navRow) run() []*ProcNode {
-	if r.kind != rowProc {
-		return nil
-	}
-	var out []*ProcNode
-	for n := r.chain; n != nil; {
-		out = append(out, n)
-		if n == r.node || len(n.Children) != 1 {
-			break
+// holds reports whether a pid is anywhere in the run this row stands for.
+func (r navRow) holds(pid int) bool {
+	for _, n := range r.run {
+		if n.PID == pid {
+			return true
 		}
-		n = n.Children[0]
 	}
-	return out
+	return false
 }
 
 // claudeFor returns the Claude Code session a row is running, if it is one.

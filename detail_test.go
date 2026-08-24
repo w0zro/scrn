@@ -103,7 +103,7 @@ func TestRepoFieldsDescribeARealRepo(t *testing.T) {
 func TestRepoFieldsSurviveANonRepo(t *testing.T) {
 	fs := repoFields(Project{Name: "nope", Path: t.TempDir()}, 0)
 
-	if v, ok := fieldValue(fs, "path"); !ok || v == "" {
+	if noteOf(fs) == "" {
 		t.Error("a non-repo should still report its path")
 	}
 	if _, ok := fieldValue(fs, "git"); !ok {
@@ -115,7 +115,15 @@ func TestProcFieldsDescribeThisProcess(t *testing.T) {
 	self := &ProcNode{Proc: Proc{PID: pidOfSelf(), PPID: 1, Command: "test", Dir: "/tmp"}}
 	fs := procFields(self, nil, nil)
 
-	for _, label := range []string{"command", "pid", "parent", "cwd", "argv", "uptime", "cpu"} {
+	// What it is and where it runs head the pane rather than sitting in the
+	// list, because they are what the pane is about.
+	if got := headingOf(fs); got != procLabel(self) {
+		t.Errorf("heading = %q, want %q", got, procLabel(self))
+	}
+	if got := noteOf(fs); got != "/tmp" {
+		t.Errorf("note = %q, want the working directory", got)
+	}
+	for _, label := range []string{"parent", "argv", "uptime", "cpu", "memory", "state"} {
 		if _, ok := fieldValue(fs, label); !ok {
 			t.Errorf("procFields is missing %q: %+v", label, fs)
 		}
@@ -161,5 +169,84 @@ func TestGitErrorsSayWhatGitSaid(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "repository") {
 		t.Errorf("error = %q, want it to mention the missing repository", err)
+	}
+}
+
+// headingOf and noteOf are the lines a pane leads with.
+func headingOf(fs []field) string { return firstOfKind(fs, headingField) }
+func noteOf(fs []field) string    { return firstOfKind(fs, noteField) }
+
+func firstOfKind(fs []field, kind fieldKind) string {
+	for _, f := range fs {
+		if f.kind == kind {
+			return f.value
+		}
+	}
+	return ""
+}
+
+// pairsOf is the labelled lines alone, without the breaks between groups.
+func pairsOf(fs []field) []field {
+	var out []field
+	for _, f := range fs {
+		if f.kind == pairField {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestAPaneLeadsWithWhatItIsAbout(t *testing.T) {
+	fs := repoFields(Project{Name: "alpha", Path: "/p/alpha"}, 0)
+	if got := headingOf(fs); got != "alpha" {
+		t.Errorf("heading = %q, want the repository's name", got)
+	}
+	if got := noteOf(fs); got != "/p/alpha" {
+		t.Errorf("note = %q, want its path", got)
+	}
+	for _, f := range pairsOf(fs) {
+		if f.label == "name" || f.label == "path" {
+			t.Errorf("%q is still in the list as well as at the top", f.label)
+		}
+	}
+}
+
+func TestEachGroupSetsItsOwnValueColumn(t *testing.T) {
+	// One long label should indent its own group and no others, or a single
+	// "session id" pushes the whole pane across.
+	fields := []field{
+		{label: "a", value: "1"},
+		gap(),
+		{label: "a-very-long-label", value: "2"},
+	}
+	lines := []string{}
+	for _, b := range blocks(fields) {
+		lines = append(lines, renderBlock(b, 60)...)
+	}
+
+	if got := stripANSI(lines[0]); got != " a 1" {
+		t.Errorf("first group = %q, want it tight to its own widest label", got)
+	}
+	if got := stripANSI(lines[1]); got != " a-very-long-label 2" {
+		t.Errorf("second group = %q, want its own column", got)
+	}
+}
+
+func TestAGroupWithNothingInItDrawsNothing(t *testing.T) {
+	// A pane that skipped a whole group should not leave a hole where it
+	// would have been.
+	fields := []field{{label: "a", value: "1"}, gap(), gap(), {label: "b", value: "2"}}
+
+	var lines []string
+	for _, b := range blocks(fields) {
+		if drawn := renderBlock(b, 60); len(drawn) > 0 {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, drawn...)
+		}
+	}
+	if len(lines) != 3 {
+		t.Errorf("lines = %q, want two groups and one break between them", lines)
 	}
 }

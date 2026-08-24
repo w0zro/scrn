@@ -42,6 +42,10 @@ type claudeSession struct {
 	Context int
 }
 
+// busyStatus is what Claude Code calls a session that is working. Anything
+// else is waiting on its user, whatever it is called.
+const busyStatus = "busy"
+
 // claudeCommand starts a Claude Code instance. It is run through a shell, so
 // this is the name on the PATH rather than a path scrn has to find.
 const claudeCommand = "claude"
@@ -306,34 +310,42 @@ func tailLines(path string, max int64) ([][]byte, error) {
 // claudeFields describes a Claude Code instance, most useful first: what the
 // session is called, whether it is working, and what it was last asked to do.
 func claudeFields(s claudeSession) []field {
-	fs := []field{}
-	if s.Name != "" {
-		fs = append(fs, field{"session", s.Name})
+	// What it is, then what it is doing, then what it is doing it with. The
+	// prose is given a group of its own because it is the part worth reading
+	// and the part that wraps.
+	var what, doing, with []field
+	add := func(fs *[]field, label, value string) {
+		if value != "" {
+			*fs = append(*fs, field{label: label, value: value})
+		}
 	}
+
+	add(&what, "session", s.Name)
 	if s.Status != "" {
 		status := s.Status
 		if s.StatusFor > 0 {
 			status += "  (" + shortDuration(s.StatusFor) + ")"
 		}
-		fs = append(fs, field{"status", status})
+		add(&what, "status", status)
 	}
-	if s.Summary != "" {
-		fs = append(fs, field{"summary", s.Summary})
-	}
-	if s.Model != "" {
-		fs = append(fs, field{"model", s.Model})
-	}
+	add(&what, "branch", s.Branch)
+
+	add(&doing, "summary", s.Summary)
+	add(&doing, "asked", s.Prompt)
+
+	add(&with, "model", s.Model)
 	if s.Context > 0 {
-		fs = append(fs, field{"context", shortTokens(s.Context) + " tokens"})
+		add(&with, "context", shortTokens(s.Context)+" tokens")
 	}
-	if s.Prompt != "" {
-		fs = append(fs, field{"asked", s.Prompt})
-	}
-	if s.Branch != "" {
-		fs = append(fs, field{"branch", s.Branch})
-	}
-	if s.SessionID != "" {
-		fs = append(fs, field{"session id", s.SessionID})
+	add(&with, "session id", s.SessionID)
+
+	var fs []field
+	for _, group := range [][]field{what, doing, with} {
+		if len(group) == 0 {
+			continue
+		}
+		fs = append(fs, gap())
+		fs = append(fs, group...)
 	}
 	return fs
 }

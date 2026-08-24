@@ -390,7 +390,7 @@ func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := footer(sized(160, 24)); !strings.Contains(f, "n shell") {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "n shell") {
 		t.Errorf("footer = %q, want the one way to make a process advertised", f)
 	}
 }
@@ -451,7 +451,7 @@ func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 }
 
 func TestFooterAdvertisesTheClaudeKey(t *testing.T) {
-	if f := footer(sized(160, 24)); !strings.Contains(f, "c claude") {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "c claude") {
 		t.Errorf("footer = %q, want the claude key advertised", f)
 	}
 }
@@ -591,26 +591,80 @@ func TestKillingAShellScrnHoldsGoesThroughTheDaemon(t *testing.T) {
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 0 }, 5*time.Second)
 }
 
-func TestAProcessInsideAnOwnedShellIsStillSignalled(t *testing.T) {
-	// scrn does not hold the claude, only the shell it runs in, so ending the
-	// claude alone is still a signal.
+func TestKillingSomethingInAShellTakesTheShellToo(t *testing.T) {
+	// Quitting a Claude instance yourself leaves you at the prompt, which is
+	// what the shell is there for. Killing it from here means being done with
+	// the whole thing.
 	m := connected(t, insideShell(t, 500))
-	m.cursor = 1 // the claude row
+	m.cursor = 1 // the claude row, which folded the shell into it
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)
-	if got := targets(m.pendingKill); !sameInts(got, []int{501}) {
-		t.Fatalf("targets = %v, want just the claude", got)
-	}
 
-	var hungUp []killResult
+	if got := targets(m.pendingKill); !sameInts(got, []int{501, 500}) {
+		t.Errorf("targets = %v, want the claude and the shell it runs in", got)
+	}
+	if f := footer(m); !strings.Contains(f, "kill claude 501 and its shell?") {
+		t.Errorf("footer = %q, want it to say the shell goes too", f)
+	}
+}
+
+func TestTheShellIsHungUpWhileTheProcessIsSignalled(t *testing.T) {
+	// scrn holds the shell, so it goes by having its terminal taken away. It
+	// does not hold the claude, so that is signalled.
+	m := connected(t, insideShell(t, 500))
+	m.cursor = 1
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(model)
+
+	var hungUp, signalled []int
 	for _, n := range m.pendingKill.nodes {
 		if _, mine := m.terms[n.PID]; mine {
-			hungUp = append(hungUp, killResult{pid: n.PID})
+			hungUp = append(hungUp, n.PID)
+			continue
 		}
+		signalled = append(signalled, n.PID)
 	}
-	if len(hungUp) != 0 {
-		t.Errorf("hungUp = %+v, want the claude signalled rather than hung up", hungUp)
+	if !sameInts(hungUp, []int{500}) {
+		t.Errorf("hung up %v, want the shell", hungUp)
+	}
+	if !sameInts(signalled, []int{501}) {
+		t.Errorf("signalled %v, want the claude", signalled)
+	}
+}
+
+func TestAProcessInNobodysShellIsJustItself(t *testing.T) {
+	// scrn cannot end a shell it does not hold, so there is nothing to take.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{
+			{PID: 800, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: 801, PPID: 800, Command: "vim", Dir: "/tmp"},
+		})
+	m.cursor = 1
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if got := targets(next.(model).pendingKill); !sameInts(got, []int{801}) {
+		t.Errorf("targets = %v, want just the process", got)
+	}
+}
+
+func TestAShellIsNotItsOwnShell(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
+	m.rebuild()
+	m.cursor = 1
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = next.(model)
+
+	if got := targets(m.pendingKill); !sameInts(got, []int{700}) {
+		t.Errorf("targets = %v, want the shell once", got)
+	}
+	if f := footer(m); strings.Contains(f, "and its shell") {
+		t.Errorf("footer = %q, want no mention of a shell around the shell", f)
 	}
 }
 

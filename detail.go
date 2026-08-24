@@ -10,11 +10,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// field is one labelled line in the detail pane.
+// field is one line in the detail pane. Most are a label and a value, but a
+// pane also needs to say what it is about and to group what it says: a flat
+// list gives the same weight to what a session is doing as to its memory
+// share, and leaves the reader to find the difference.
 type field struct {
 	label string
 	value string
+	kind  fieldKind
 }
+
+type fieldKind int
+
+const (
+	pairField    fieldKind = iota // a label and a value
+	headingField                  // what the pane is about
+	noteField                     // a quieter line under the heading
+	gapField                      // a break between groups
+)
+
+func heading(s string) field { return field{value: s, kind: headingField} }
+func note(s string) field    { return field{value: s, kind: noteField} }
+func gap() field             { return field{kind: gapField} }
 
 // detailMsg carries the inspection of whatever the cursor was on when it was
 // requested. The key identifies the subject so a slow lookup that lands after
@@ -38,7 +55,7 @@ func detailKey(r navRow) string {
 func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
 	key := detailKey(r)
 	if r.kind == rowProc {
-		node, run := r.node, r.run()
+		node, run := r.node, r.run
 		return func() tea.Msg {
 			return detailMsg{key: key, fields: procFields(node, run, sess)}
 		}
@@ -53,8 +70,9 @@ func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
 // in, and what is running in it.
 func repoFields(p Project, procCount int) []field {
 	fs := []field{
-		{"name", p.Name},
-		{"path", p.Path},
+		heading(p.Name),
+		note(p.Path),
+		gap(),
 	}
 
 	// "branch --show-current" rather than "rev-parse HEAD": a repository with
@@ -62,35 +80,36 @@ func repoFields(p Project, procCount int) []field {
 	branch, err := git(p.Path, "branch", "--show-current")
 	switch {
 	case err != nil:
-		fs = append(fs, field{"git", "unavailable: " + err.Error()})
+		fs = append(fs, field{label: "git", value: "unavailable: " + err.Error()})
 	case branch == "":
 		if sha, e := git(p.Path, "rev-parse", "--short", "HEAD"); e == nil {
-			fs = append(fs, field{"branch", "detached at " + sha})
+			fs = append(fs, field{label: "branch", value: "detached at " + sha})
 		}
 	default:
-		fs = append(fs, field{"branch", branch})
+		fs = append(fs, field{label: "branch", value: branch})
 	}
 
 	if status, err := git(p.Path, "status", "--porcelain"); err == nil {
-		fs = append(fs, field{"status", describeStatus(status)})
+		fs = append(fs, field{label: "status", value: describeStatus(status)})
 	}
 	if upstream, err := git(p.Path, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
-		fs = append(fs, field{"upstream", upstream + describeAheadBehind(p.Path)})
+		fs = append(fs, field{label: "upstream", value: upstream + describeAheadBehind(p.Path)})
 	}
+	fs = append(fs, gap())
 	if last, e := git(p.Path, "log", "-1", "--format=%h  %s"); e == nil {
-		fs = append(fs, field{"last commit", last})
+		fs = append(fs, field{label: "last commit", value: last})
 		if when, e := git(p.Path, "log", "-1", "--format=%cr  by %an"); e == nil {
-			fs = append(fs, field{"", when})
+			fs = append(fs, field{label: "", value: when})
 		}
 	} else if err == nil {
 		// A repository git could read, with a branch but nothing on it yet.
-		fs = append(fs, field{"last commit", "none yet"})
+		fs = append(fs, field{label: "last commit", value: "none yet"})
 	}
 	if origin, err := git(p.Path, "remote", "get-url", "origin"); err == nil {
-		fs = append(fs, field{"origin", origin})
+		fs = append(fs, field{label: "origin", value: origin})
 	}
 
-	fs = append(fs, field{"running", plural(procCount, "process", "processes")})
+	fs = append(fs, gap(), field{label: "running", value: plural(procCount, "process", "processes")})
 	return fs
 }
 
@@ -163,50 +182,48 @@ func describeAheadBehind(path string) string {
 // long it has been going.
 func procFields(n *ProcNode, run []*ProcNode, sess *claudeSession) []field {
 	fs := []field{
-		{"command", n.Command},
-		{"pid", strconv.Itoa(n.PID)},
-	}
-
-	// The navigator folds a run that never branches into the one row, so the
-	// shell that started this and anything between them is not on screen
-	// anywhere else. This is where it is said.
-	if len(run) > 1 {
-		fs = append(fs, field{"run", describeRun(run)})
+		heading(procLabel(n)),
+		note(n.Dir),
 	}
 
 	// What a Claude Code instance is doing outranks the process table: it is
-	// the reason the process is worth looking at.
+	// the reason the process is worth looking at, so it comes first.
 	if sess != nil {
 		readTranscript(transcriptPath(*sess), sess)
 		fs = append(fs, claudeFields(*sess)...)
 	}
 
-	fs = append(fs,
-		field{"parent", strconv.Itoa(n.PPID)},
-		field{"cwd", n.Dir},
-	)
+	fs = append(fs, gap())
+	// The navigator folds a run that never branches into the one row, so the
+	// shell that started this and anything between them is not on screen
+	// anywhere else. This is where it is said.
+	if len(run) > 1 {
+		fs = append(fs, field{label: "run", value: describeRun(run)})
+	}
+	fs = append(fs, field{label: "parent", value: strconv.Itoa(n.PPID)})
 
 	if argv, err := ps(n.PID, "command="); err == nil && argv != "" {
-		fs = append(fs, field{"argv", argv})
+		fs = append(fs, field{label: "argv", value: argv})
 	}
+	fs = append(fs, gap())
 	if stats, err := ps(n.PID, "etime=,%cpu=,%mem="); err == nil {
 		if f := strings.Fields(stats); len(f) == 3 {
 			fs = append(fs,
-				field{"uptime", f[0]},
-				field{"cpu", f[1] + "%"},
-				field{"memory", f[2] + "%"},
+				field{label: "uptime", value: f[0]},
+				field{label: "cpu", value: f[1] + "%"},
+				field{label: "memory", value: f[2] + "%"},
 			)
 		}
 	}
 	if started, err := ps(n.PID, "lstart="); err == nil && started != "" {
-		fs = append(fs, field{"started", started})
+		fs = append(fs, field{label: "started", value: started})
 	}
 	if state, err := ps(n.PID, "stat="); err == nil && state != "" {
-		fs = append(fs, field{"state", describeState(state)})
+		fs = append(fs, field{label: "state", value: describeState(state)})
 	}
 
 	if kids := countTree(n) - 1; kids > 0 {
-		fs = append(fs, field{"children", plural(kids, "process", "processes")})
+		fs = append(fs, field{label: "children", value: plural(kids, "process", "processes")})
 	}
 	return fs
 }
