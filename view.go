@@ -202,9 +202,21 @@ func (m model) hintLines(width, rows int) []string {
 			hintBlock("x confirm · any other key cancels", width, hintStyle)...)
 
 	case m.typing:
+		// The prompt stays, because the typing has not stopped. What was just
+		// reported takes the line under it: acting from the search is the
+		// point of it, and an action that says nothing looks like one that did
+		// nothing.
+		below := "^n ^p move · enter shell · ^u up · ^r claude · esc"
+		style := hintStyle
+		if m.status != "" {
+			below, style = m.status, itemStyle
+			if m.statusErr {
+				style = errStyle
+			}
+		}
 		return append(
 			hintBlock("/"+m.filter+"█", width, itemStyle),
-			hintBlock("enter keep · esc clear", width, hintStyle)...)
+			hintBlock(below, width, style)...)
 
 	case m.focused() != nil:
 		return append(

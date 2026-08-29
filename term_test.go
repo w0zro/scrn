@@ -1091,3 +1091,133 @@ func TestAShellOpenedByHandKeepsItsCommandName(t *testing.T) {
 		t.Errorf("row = %q, want the command when no project named it", got)
 	}
 }
+
+// --- acting on a project while still looking it up -----------------------
+
+// lookingUp is a model connected to a daemon, with a project being searched
+// for and found.
+func lookingUp(t *testing.T, filter string) model {
+	t.Helper()
+	dir := t.TempDir()
+	m := connected(t, withProcList(90, 20, []Project{
+		{Name: "alpha", Path: dir},
+		{Name: "beta", Path: t.TempDir()},
+	}, nil))
+	m.showAll = false
+	m = press(m, "/")
+	for _, r := range filter {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(model)
+	}
+	return m
+}
+
+func TestEnterOpensAShellInWhatTheFilterFound(t *testing.T) {
+	// Finding a project and starting work in it is one act, not two.
+	m := lookingUp(t, "alpha")
+	if len(m.rows) != 1 {
+		t.Fatalf("rows = %d, want the one match", len(m.rows))
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = pump(t, next.(model), hasShell, 5*time.Second)
+
+	if m.typing {
+		t.Error("the looking up should be over")
+	}
+	if len(m.terms) != 1 {
+		t.Errorf("terms = %d, want a shell in what was found", len(m.terms))
+	}
+}
+
+func TestCtrlRStartsAClaudeInWhatTheFilterFound(t *testing.T) {
+	m := lookingUp(t, "alpha")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	m = pump(t, next.(model), hasShell, 5*time.Second)
+
+	if len(m.terms) != 1 {
+		t.Errorf("terms = %d, want one started", len(m.terms))
+	}
+}
+
+func TestCtrlUStartsWhatAProjectNeedsWithoutLeavingTheSearch(t *testing.T) {
+	// The chord means what the letter means, and staying in the search is
+	// what makes bringing several projects up a single pass.
+	dir := t.TempDir()
+	if err := writeFile(filepath.Join(dir, planFile), "one: sleep 30\ntwo: sleep 30\n"); err != nil {
+		t.Fatal(err)
+	}
+	m := connected(t, withProcList(90, 20, []Project{{Name: "alpha", Path: dir}}, nil))
+	m.showAll = false
+	m = press(m, "/")
+	m = typeFilter(m, "alpha")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	names := map[string]bool{}
+	for _, term := range m.terms {
+		names[term.name] = true
+	}
+	if !names["one"] || !names["two"] {
+		t.Errorf("started %v, want everything the project needs", names)
+	}
+	if !m.typing || m.filter != "alpha" {
+		t.Errorf("typing=%v filter=%q, want the search where it was", m.typing, m.filter)
+	}
+}
+
+func TestCtrlUOnAProjectThatNeedsNothingSaysSo(t *testing.T) {
+	m := lookingUp(t, "alpha")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = next.(model)
+
+	if len(m.terms) != 0 {
+		t.Error("nothing should have been started")
+	}
+	if !m.typing {
+		t.Error("the search should still be where it was")
+	}
+	if !strings.Contains(footer(m), "does not say what it needs") {
+		t.Errorf("footer = %q, want it to explain why nothing happened", footer(m))
+	}
+}
+
+func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
+	// Acting from the search is the point of it, and an action that says
+	// nothing looks like one that did nothing.
+	dir := t.TempDir()
+	if err := writeFile(filepath.Join(dir, planFile), "one: sleep 30\n"); err != nil {
+		t.Fatal(err)
+	}
+	m := connected(t, withProcList(160, 24, []Project{{Name: "alpha", Path: dir}}, nil))
+	m.showAll = false
+	m = typeFilter(press(m, "/"), "alpha")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	f := footer(m)
+	if !strings.Contains(f, "started one") {
+		t.Errorf("footer = %q, want what it just did", f)
+	}
+	if !strings.Contains(f, "/alpha") {
+		t.Errorf("footer = %q, want the prompt still there: the typing has not stopped", f)
+	}
+}
+
+func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
+	m := lookingUp(t, "alpha")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU}) // reports that it needs nothing
+	m = next.(model)
+	if m.status == "" {
+		t.Fatal("setup: expected something to have been reported")
+	}
+
+	m = typeFilter(m, "x")
+	if m.status != "" {
+		t.Errorf("status = %q, want it cleared once the search moved on", m.status)
+	}
+}

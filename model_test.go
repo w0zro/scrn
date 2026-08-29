@@ -1808,9 +1808,11 @@ func TestTheFooterShowsWhatIsBeingTyped(t *testing.T) {
 		t.Errorf("footer = %q, want it to show the filter being typed", f)
 	}
 
+	// Enter opens a shell in what is under the cursor, so the filter is over
+	// and what it says next is about that rather than about the search.
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if f := footer(next.(model)); !strings.Contains(f, "filter bra") {
-		t.Errorf("footer = %q, want it to show the filter still applied", f)
+	if next.(model).typing {
+		t.Error("enter should finish the looking up")
 	}
 }
 
@@ -2199,6 +2201,65 @@ func TestTheKeysListTheEnds(t *testing.T) {
 	for _, key := range []string{"gg top", "G bottom"} {
 		if !strings.Contains(f, key) {
 			t.Errorf("keys = %q, want %q listed", f, key)
+		}
+	}
+}
+
+// --- acting on what the filter found -------------------------------------
+
+func TestCtrlNAndCtrlPMoveWhileTyping(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
+	if len(m.rows) < 2 {
+		t.Fatalf("setup: rows = %d, want a few matches", len(m.rows))
+	}
+	if m.cursor != 0 {
+		t.Fatal("setup: expected to start at the top")
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	m = next.(model)
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d, want ctrl+n to move down", m.cursor)
+	}
+	if !m.typing {
+		t.Error("moving should not end the looking up")
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if got := next.(model).cursor; got != 0 {
+		t.Errorf("cursor = %d, want ctrl+p to move back up", got)
+	}
+}
+
+func TestTypingStillNarrowsAfterMoving(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	m = typeFilter(next.(model), "crn")
+
+	if m.filter != "scrn" {
+		t.Errorf("filter = %q, want the letters to have gone on narrowing it", m.filter)
+	}
+	wantRows(t, navColumn(m), []string{"▸scrn"})
+}
+
+func TestLettersAreStillLettersWhileTyping(t *testing.T) {
+	// The actions are on chords because a project called "next" has to be
+	// typeable without n doing something.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "nucd")
+	if m.filter != "nucd" {
+		t.Errorf("filter = %q, want every letter typed into it", m.filter)
+	}
+	if len(m.terms) != 0 {
+		t.Error("no letter should have started anything")
+	}
+}
+
+func TestTheFilterHintNamesTheKeysThatWork(t *testing.T) {
+	m := typeFilter(press(narrowed(manyProjects(160, 24)), "/"), "b")
+	f := footer(m)
+	for _, want := range []string{"/b", "^n ^p move", "enter shell"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("footer = %q, want it to mention %q", f, want)
 		}
 	}
 }

@@ -623,15 +623,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filterKey handles a keystroke while the filter is being typed.
+// filterKey handles a keystroke while a project is being looked up.
+//
+// Looking one up is a way of getting somewhere, so the keys that get you
+// somewhere work while you are still typing: the list is narrowing under a
+// cursor you can move, and n or c or enter acts on whatever that cursor is on.
+// Having to accept the filter first made finding a project and doing something
+// in it two separate acts, when it is one.
 func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.Type {
 	case tea.KeyEnter:
-		// Accepting leaves the filter applied rather than clearing it, so the
-		// repository just found does not drop back out of the list before
-		// there has been a chance to start anything in it.
+		// Enter is the one key that means both things. On a repository it
+		// opens a shell, which is the point of having looked it up; the filter
+		// is finished either way.
+		m.typing = false
+		if r, ok := m.selected(); ok && r.kind == rowProject {
+			return m.openShell()
+		}
+		return m.detailCmd()
+
+	// Moving through what is left, without leaving the typing.
+	case tea.KeyUp, tea.KeyCtrlP:
+		return m.move(-1)
+	case tea.KeyDown, tea.KeyCtrlN:
+		return m.move(1)
+
+	case tea.KeyCtrlO:
+		// The one key a shell needs, so that stepping into one and back out
+		// does not depend on where the keys happened to be going.
 		m.typing = false
 		return m.detailCmd()
+
 	case tea.KeyEsc:
 		m.typing = false
 		m.setFilter("")
@@ -641,16 +663,25 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 			m.setFilter(string(r[:len(r)-1]))
 		}
 		return m.detailCmd()
-	case tea.KeyRunes:
-		m.setFilter(m.filter + string(msg.Runes))
-		return m.detailCmd()
 	case tea.KeySpace:
 		m.setFilter(m.filter + " ")
 		return m.detailCmd()
-	case tea.KeyUp:
-		return m.move(-1)
-	case tea.KeyDown:
-		return m.move(1)
+
+	case tea.KeyRunes:
+		// A letter is a letter: a project called "next" has to be typeable
+		// without n doing something. The actions are on the chords, which no
+		// name contains.
+		m.status = "" // whatever was reported was about the last project
+		m.setFilter(m.filter + string(msg.Runes))
+		return m.detailCmd()
+
+	// The chords mean what their letters mean. ctrl+u starts what a project
+	// needs and leaves the search where it was, which is what makes bringing
+	// several projects up a single pass.
+	case tea.KeyCtrlU:
+		return m.up()
+	case tea.KeyCtrlR:
+		return m.start(claudeCommand)
 	}
 	return nil
 }
