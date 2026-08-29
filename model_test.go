@@ -243,7 +243,7 @@ func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
 
 	if r, _ := m.rows[1], 0; r.chain().PID != 10 {
 		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain().PID)
@@ -260,7 +260,7 @@ func TestASameCommandForkingItselfIsStillOneRow(t *testing.T) {
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
 }
 
 func TestARunStopsFoldingWhereItBranches(t *testing.T) {
@@ -272,7 +272,7 @@ func TestARunStopsFoldingWhereItBranches(t *testing.T) {
 			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   ├─ nvim 20", "   └─ go 30"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh", "   ├─ nvim", "   └─ go"})
 }
 
 func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
@@ -287,7 +287,7 @@ func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ ├─ fmt 40", "   │ └─ lint 50", "   └─ go 30",
+		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ go",
 	})
 }
 
@@ -462,7 +462,7 @@ func TestCursorWalksProcessesToo(t *testing.T) {
 	if !ok || r.kind != rowProc || r.node.PID != 10 {
 		t.Errorf("selected = %+v, want the process row", r)
 	}
-	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10"})
+	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh"})
 }
 
 func TestCursorOnEmptyListDoesNotPanic(t *testing.T) {
@@ -646,13 +646,13 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh 10", "   ├─ vim 20", "   │ ├─ fmt 40", "   │ └─ lint 50", "   └─ go 30",
+		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ go",
 	})
 
 	// Move onto vim and fold it.
 	m = press(press(press(m, "down"), "down"), " ")
 	wantRows(t, navColumn(m), []string{
-		" scrn", " └─ zsh 10", "▸  ├─ vim 20 +2", "   └─ go 30",
+		" scrn", " └─ zsh", "▸  ├─ vim +2", "   └─ go",
 	})
 }
 
@@ -679,7 +679,7 @@ func TestSpaceUnfoldsAgain(t *testing.T) {
 func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 	// zsh hides vim, go and fmt.
 	m := press(press(nestedTree(12), "down"), " ")
-	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh 10 +4"})
+	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh +4"})
 }
 
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
@@ -970,7 +970,7 @@ func TestKilledProcessDisappearsOnTheNextScan(t *testing.T) {
 	}})
 
 	col := strings.Join(navColumn(next.(model)), "\n")
-	if strings.Contains(col, "fmt 40") {
+	if strings.Contains(col, "fmt") {
 		t.Errorf("an exited process should leave the tree:\n%s", col)
 	}
 }
@@ -1078,7 +1078,7 @@ func TestASignalledProcessKeepsItsRowAndIsMarked(t *testing.T) {
 	got := next.(model)
 
 	row := navColumn(got)[3]
-	if !strings.Contains(row, "fmt 40") {
+	if !strings.Contains(row, "fmt") {
 		t.Fatalf("row = %q, want the process still listed until it is seen gone", row)
 	}
 	if !strings.Contains(row, spinFrames[got.frame%len(spinFrames)]) {
@@ -1090,7 +1090,7 @@ func TestOnlyTheSignalledProcessIsMarked(t *testing.T) {
 	next, _ := nestedTree(12).Update(killed("fmt", 40))
 
 	for i, row := range navColumn(next.(model)) {
-		if strings.Contains(row, "fmt 40") {
+		if strings.Contains(row, "fmt") {
 			continue
 		}
 		for _, f := range spinFrames {
@@ -1132,7 +1132,7 @@ func TestTheMarkerGoesWhenTheProcessDoes(t *testing.T) {
 	}})
 	got := next.(model)
 
-	if col := strings.Join(navColumn(got), "\n"); strings.Contains(col, "fmt 40") {
+	if col := strings.Join(navColumn(got), "\n"); strings.Contains(col, "fmt") {
 		t.Errorf("an exited process should leave the tree:\n%s", col)
 	}
 	if len(got.dying) != 0 {
@@ -1233,7 +1233,7 @@ func TestAProcessThatIgnoresTheSignalIsGivenUpOn(t *testing.T) {
 	if f := footer(got); !strings.Contains(f, "fmt 40 did not exit") {
 		t.Errorf("footer = %q, want it to say the process did not go", f)
 	}
-	if col := strings.Join(navColumn(got), "\n"); !strings.Contains(col, "fmt 40") {
+	if col := strings.Join(navColumn(got), "\n"); !strings.Contains(col, "fmt") {
 		t.Errorf("the process is still running and should still be listed:\n%s", col)
 	}
 }
@@ -1430,7 +1430,7 @@ func TestABusyClaudeTurns(t *testing.T) {
 	})
 
 	first := navColumn(m)[1]
-	if !strings.Contains(first, "claude 700 "+spinFrames[m.frame%len(spinFrames)]) {
+	if !strings.Contains(first, "claude "+spinFrames[m.frame%len(spinFrames)]) {
 		t.Fatalf("row = %q, want a turning marker on a working instance", first)
 	}
 
@@ -1495,7 +1495,7 @@ func TestAWaitingClaudeIsMarkedDifferently(t *testing.T) {
 	})
 
 	row := navColumn(m)[1]
-	if !strings.Contains(row, "claude 700 ○") {
+	if !strings.Contains(row, "claude ○") {
 		t.Errorf("row = %q, want a hollow marker on an idle instance", row)
 	}
 }
@@ -1627,11 +1627,11 @@ func TestDashShowsEveryProcess(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
 
 	m = press(m, "-")
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh 10", "   └─ nvim 20", "     └─ nvim 21",
+		"▸scrn", " └─ zsh", "   └─ nvim", "     └─ nvim",
 	})
 }
 
@@ -1841,7 +1841,7 @@ func TestStartingSomethingClearsTheSearchThatFoundIt(t *testing.T) {
 		t.Errorf("filter = %q, want it gone once the shell landed", m.filter)
 	}
 	// The cursor followed the shell it just started.
-	wantRows(t, navColumn(m), []string{" brand", "▸└─ zsh 700"})
+	wantRows(t, navColumn(m), []string{" brand", "▸└─ zsh"})
 }
 
 func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
@@ -1956,7 +1956,7 @@ func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
 	wantRows(t, navColumn(m), []string{"▸scrn"})
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh 10"})
+	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh"})
 }
 
 func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
@@ -1970,7 +1970,7 @@ func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
 			{PID: 30, PPID: 20, Command: "caffeinate", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
 }
 
 func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
@@ -1981,11 +1981,11 @@ func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
 		{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
 	}
 	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, procs)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
 
 	next, _ := m.Update(procsMsg{procs: append(procs,
 		Proc{PID: 40, PPID: 20, Command: "rg", Dir: "/p/scrn"})})
-	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ claude 20"})
+	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ claude"})
 }
 
 func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
@@ -1996,7 +1996,7 @@ func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "bash", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ bash 20"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ bash"})
 }
 
 func TestALoginShellIsStillAShell(t *testing.T) {
@@ -2260,6 +2260,57 @@ func TestTheFilterHintNamesTheKeysThatWork(t *testing.T) {
 	for _, want := range []string{"/b", "^n ^p move", "enter shell"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("footer = %q, want it to mention %q", f, want)
+		}
+	}
+}
+
+// --- the pid, and where a process is listening ---------------------------
+
+func TestThePidIsOnlyShownWhenEveryProcessIs(t *testing.T) {
+	// Folded, the list is about what is happening and the pid is a number
+	// beside every row that never helps you read it.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+		})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
+
+	m = press(m, "-")
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   └─ nvim 20"})
+}
+
+func TestTwoOfTheSameCommandAreStillToldApartUnfolded(t *testing.T) {
+	// Which is the point of the pid: unfolded it is what tells them apart.
+	m := withProcList(80, 12,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 11, PPID: 1, Command: "nvim", Dir: "/p/scrn"},
+		})
+	m = press(m, "-")
+	wantRows(t, navColumn(m), []string{"▸scrn", " ├─ nvim 10", " └─ nvim 11"})
+}
+
+func TestAProcessListeningNowhereSaysNothingAboutPorts(t *testing.T) {
+	// Most processes are not listening on anything, and a line saying so on
+	// every one of them would be noise.
+	self := &ProcNode{Proc: Proc{PID: pidOfSelf(), PPID: 1, Command: "test", Dir: "/tmp"}}
+	for _, f := range procFields(self, nil, nil) {
+		if f.label == "listening" {
+			t.Errorf("this process is not a server, yet the pane says %q", f.value)
+		}
+	}
+}
+
+func TestPortsAreOrderedByNumber(t *testing.T) {
+	got := []string{"8080", "80", "443"}
+	sortPorts(got)
+	want := []string{"80", "443", "8080"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ports = %v, want %v", got, want)
 		}
 	}
 }

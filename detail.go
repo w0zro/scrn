@@ -240,10 +240,42 @@ func procFields(n *ProcNode, run []*ProcNode, sess *claudeSession) []field {
 		fs = append(fs, field{label: "state", value: describeState(state)})
 	}
 
+	// Where it is, for the ones that are anywhere: a dev server's row says
+	// what it is, and this says what to open.
+	//
+	// The whole run is asked, not just the process the row is named for. A
+	// dev server is a shell running an npm running a node, and it is the node
+	// at the bottom that holds the port — the one the fold exists to hide. The
+	// row stands for the run, so the run's ports are the row's.
+	if ports := runPorts(run, n); len(ports) > 0 {
+		fs = append(fs, field{label: "listening", value: strings.Join(ports, ", ")})
+	}
+
 	if kids := countTree(n) - 1; kids > 0 {
 		fs = append(fs, field{label: "children", value: plural(kids, "process", "processes")})
 	}
 	return fs
+}
+
+// runPorts is everything the processes a row stands for are listening on.
+func runPorts(run []*ProcNode, n *ProcNode) []string {
+	nodes := run
+	if len(nodes) == 0 {
+		nodes = []*ProcNode{n}
+	}
+
+	seen := map[string]bool{}
+	var ports []string
+	for _, node := range nodes {
+		for _, p := range listeningPorts(node.PID) {
+			if !seen[p] {
+				seen[p] = true
+				ports = append(ports, p)
+			}
+		}
+	}
+	sortPorts(ports)
+	return ports
 }
 
 // describeRun names every process in a folded run, oldest first, so the shell

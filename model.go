@@ -213,6 +213,10 @@ type model struct {
 	daemonStale    bool
 	pendingReplace bool
 
+	// wantProject is a project whose processes were just started, holding the
+	// cursor until they are in the tree.
+	wantProject string
+
 	// wantCursor is a shell just opened, waiting for the scan that will put it
 	// in the tree. The cursor moves to it when it lands, so leaving the shell
 	// leaves the cursor on the row that shell belongs to.
@@ -675,15 +679,35 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 		m.setFilter(m.filter + string(msg.Runes))
 		return m.detailCmd()
 
-	// The chords mean what their letters mean. ctrl+u starts what a project
-	// needs and leaves the search where it was, which is what makes bringing
-	// several projects up a single pass.
+	// The chords mean what their letters mean. Starting what a project needs
+	// is the end of looking for it, so the search closes and leaves the cursor
+	// on the project — which is where you would want to be watching it come
+	// up, and where the keys mean what they usually mean again.
 	case tea.KeyCtrlU:
+		// Starting what a project needs is the end of looking for it, so the
+		// typing stops. The filter itself is held until the processes land,
+		// the same way it is for a shell: dropping it now would take the
+		// project out of the narrowed list until the scan caught up, and the
+		// cursor with it.
+		m.typing = false
 		return m.up()
 	case tea.KeyCtrlR:
 		return m.start(claudeCommand)
 	}
 	return nil
+}
+
+// selectProject puts the cursor on a repository, wherever it has ended up in
+// the list. It is how an action that closes the search leaves you looking at
+// what you acted on rather than back at the top of everything.
+func (m *model) selectProject(path string) {
+	for i, r := range m.rows {
+		if r.kind == rowProject && r.project.Path == path {
+			m.cursor = i
+			m.scrollToCursor()
+			return
+		}
+	}
 }
 
 // setFilter narrows the list and starts again from the top, because the rows
@@ -903,6 +927,9 @@ func (m *model) up() tea.Cmd {
 	for _, e := range missing {
 		m.daemon.open(p.Path, e.Run, e.Name, m.detailWidth(), m.paneHeight())
 	}
+	// Several things are starting and none of them is the one you meant, so
+	// the cursor stays on the project rather than following any of them.
+	m.wantCursor, m.wantProject = 0, p.Path
 	// Started rather than entered: this is several things at once, and none of
 	// them is more the one you meant than the others.
 	m.status, m.statusErr = "started "+describeEntries(missing), false
@@ -1214,12 +1241,18 @@ func (m *model) rebuild() {
 		was = detailKey(r)
 	}
 
-	// A shell that was just started has landed. The filter has done its job:
-	// the project holds work now, so it stays in the list on its own merit and
-	// the search that found it can go. Clearing here rather than when the key
-	// was pressed is what stops the project blinking out and back while the
-	// scan catches up.
+	// What was just started has landed. The filter has done its job: the
+	// project holds work now, so it stays in the list on its own merit and the
+	// search that found it can go. Clearing here rather than when the key was
+	// pressed is what stops the project blinking out and back while the scan
+	// catches up.
 	if m.wantCursor != 0 && m.running(m.wantCursor) {
+		m.filter = ""
+	}
+	// The daemon holding them is enough to know they exist; waiting for the
+	// process scan as well would hold the search open for a poll longer, and
+	// the daemon is the thing that was actually asked.
+	if m.wantProject != "" && len(m.planned(m.wantProject)) > 0 {
 		m.filter = ""
 	}
 
@@ -1243,6 +1276,16 @@ func (m *model) rebuild() {
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
+	}
+
+	// A project whose processes were just started keeps the cursor, rather
+	// than following any one of the several things that started. It holds
+	// until the rows settle, then lets go.
+	if m.wantProject != "" {
+		m.selectProject(m.wantProject)
+		if m.filter == "" && len(m.byRepo[m.wantProject]) > 0 {
+			m.wantProject = ""
+		}
 	}
 
 	// A shell just opened takes the cursor as soon as it is in the tree, so
@@ -1418,7 +1461,10 @@ func (m model) visible() []Project {
 	}
 	out := make([]Project, 0, len(m.byRepo))
 	for _, p := range m.projects {
-		if len(m.byRepo[p.Path]) > 0 {
+		// A shell the daemon is holding counts even before the scan has seen
+		// it: it is running, and asking for it and then watching the project
+		// vanish for a poll would be a lie about what just happened.
+		if len(m.byRepo[p.Path]) > 0 || len(m.planned(p.Path)) > 0 {
 			out = append(out, p)
 		}
 	}

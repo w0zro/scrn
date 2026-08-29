@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -371,6 +372,10 @@ func (m model) renderRow(r navRow, selected bool) string {
 	}
 
 	rules := ""
+	// A repository is cut from the left and a command from the right, because
+	// what identifies each is at that end: the repo name after its parents,
+	// and the program before its arguments.
+	cut := truncate
 	label := r.project.Name
 	if r.kind == rowProc {
 		branch := "├─"
@@ -379,11 +384,12 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 		rules = r.prefix + branch + " "
 		label = m.rowLabel(r)
+		cut = truncateTail
 	}
 
 	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark)
-	return marker + faintStyle.Render(rules) + style.Render(truncate(label, room)) +
+	return marker + faintStyle.Render(rules) + style.Render(cut(label, room)) +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
@@ -394,13 +400,97 @@ func (m model) renderRow(r navRow, selected bool) string {
 // The name belongs to the shell, so it stands for whatever is running in it —
 // a run folded into one row is named for the shell that was asked for, not for
 // the command that shell happens to be running now.
+// The pid is only shown while every process is on a line of its own. Folded,
+// the list is about what is happening and the pid is a number beside every row
+// that never helps you read it; unfolded, it is what tells two nvim apart and
+// what you would type at another window.
 func (m model) rowLabel(r navRow) string {
+	name := commandOf(r.node)
+
+	// A shell a project asked for is called what the project calls it, unless
+	// what is running in it says more. "dev" is a fine name for a plan entry
+	// and a poor one for a row: "npm run dev" is the same thing said usefully,
+	// and it is what a shell started by hand would show. A shell sitting at a
+	// prompt has nothing better to offer, so there the name stands.
+	if planned := m.plannedName(r); planned != "" && !tellsMore(name, planned) {
+		name = planned
+	}
+
+	if m.unfolded {
+		return name + " " + strconv.Itoa(r.node.PID)
+	}
+	return name
+}
+
+// plannedName is what a project called the shell a row stands for.
+func (m model) plannedName(r navRow) string {
 	for _, n := range r.run {
 		if t, ok := m.terms[n.PID]; ok && t.name != "" {
-			return t.name + " " + strconv.Itoa(n.PID)
+			return t.name
 		}
 	}
-	return procLabel(r.node)
+	return ""
+}
+
+// tellsMore reports whether a command line says more than the name a plan gave
+// it. It does when it is more than the name over again: "npm run dev" against
+// "dev" is worth the width, "dev" against "dev" is not, and a bare shell is
+// the plan's entry doing nothing in particular.
+func tellsMore(command, planned string) bool {
+	if command == "" || command == planned {
+		return false
+	}
+	return !shells[strings.TrimPrefix(command, "-")]
+}
+
+// commandOf is what a process was run with, cut down to what identifies it.
+//
+// The name alone is often not the answer: "npm run dev" reports itself as a
+// node, and a row saying node tells you nothing you did not know. What was
+// typed is what you would call it.
+func commandOf(n *ProcNode) string {
+	if short := shortArgv(n.Argv); short != "" {
+		return short
+	}
+	return n.Command
+}
+
+// shortArgv trims a command line to the part that says what it is, or returns
+// nothing when the arguments would say less than the name alone.
+//
+// A path is cut to its last element, because /opt/homebrew/bin/npm and npm are
+// the same thing to read. The arguments are kept, since they are the whole
+// difference between one npm run and another.
+func shortArgv(argv string) string {
+	fields := strings.Fields(argv)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	// A command run through an interpreter names itself in its arguments, so
+	// the interpreter is worth dropping when something follows it.
+	first := filepath.Base(fields[0])
+	if len(fields) > 1 && interpreters[strings.TrimSuffix(first, ".exe")] {
+		if next := fields[1]; !strings.HasPrefix(next, "-") {
+			fields, first = fields[1:], filepath.Base(fields[1])
+		}
+	}
+
+	// A shell given a script to run is the wrong thing to name a row after.
+	// The script is somebody's idea of a command line, not a command: it is
+	// long, it starts with whatever setup it needs, and by the time it has
+	// been cut to fit, what is left is a fragment of a path. A bare shell says
+	// less but is at least true.
+	if shells[strings.TrimPrefix(first, "-")] {
+		return ""
+	}
+
+	return strings.Join(append([]string{first}, fields[1:]...), " ")
+}
+
+// interpreters run something else, which is the thing worth naming.
+var interpreters = map[string]bool{
+	"node": true, "python": true, "python3": true, "ruby": true, "perl": true,
 }
 
 // rowStyle decides how brightly a row is drawn. Brightness in this list means
@@ -634,6 +724,23 @@ func truncate(s string, width int) string {
 	}
 	if strings.Contains(s, "/") {
 		return "…" + string(r[len(r)-(width-1):])
+	}
+	return string(r[:width-1]) + "…"
+}
+
+// truncateTail cuts from the right, keeping the start. A command line says
+// what it is first and how it was run afterwards, so the front is the part
+// worth keeping — the opposite of a repository's name.
+func truncateTail(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
 	}
 	return string(r[:width-1]) + "…"
 }

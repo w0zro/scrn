@@ -1049,34 +1049,51 @@ func TestTheKeysListUpAndDown(t *testing.T) {
 	}
 }
 
-func TestAShellAProjectAskedForIsCalledWhatTheProjectCallsIt(t *testing.T) {
-	// "web" is what the project calls it and what you would say out loud;
-	// "sleep 35228" is only true.
+func TestAShellSittingAtAPromptIsCalledWhatTheProjectCallsIt(t *testing.T) {
+	// A shell running nothing in particular has nothing better to offer than
+	// the name its project gave it.
 	m := withProcList(90, 14,
 		[]Project{{Name: "proj", Path: "/p/proj"}},
-		[]Proc{{PID: 700, PPID: 1, Command: "sleep", Dir: "/p/proj"}})
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Argv: "/bin/zsh", Dir: "/p/proj"}})
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "web"}}
 	m.rebuild()
 
-	if got := navColumn(m)[1]; !strings.Contains(got, "web 700") {
+	if got := navColumn(m)[1]; !strings.Contains(got, "web") {
 		t.Errorf("row = %q, want it named for what the project calls it", got)
 	}
 }
 
-func TestTheNameStandsForWhateverIsRunningInIt(t *testing.T) {
-	// A run folded into one row is named for the shell that was asked for,
-	// not for whatever that shell is running at the moment.
+func TestWhatIsRunningWinsOverThePlansNameForIt(t *testing.T) {
+	// "dev" is a fine name for a plan entry and a poor one for a row: "npm run
+	// dev" is the same thing said usefully, and it is what the row would show
+	// had the shell been started by hand.
 	m := withProcList(90, 14,
 		[]Project{{Name: "proj", Path: "/p/proj"}},
 		[]Proc{
-			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/proj"},
-			{PID: 701, PPID: 700, Command: "node", Dir: "/p/proj"},
+			{PID: 700, PPID: 1, Command: "zsh", Argv: "/bin/zsh", Dir: "/p/proj"},
+			{PID: 701, PPID: 700, Command: "node", Argv: "node /opt/npm run dev", Dir: "/p/proj"},
 		})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "web"}}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "dev"}}
 	m.rebuild()
 
-	if got := navColumn(m)[1]; !strings.Contains(got, "web 700") {
-		t.Errorf("row = %q, want the shell's name rather than what it is running", got)
+	if got := navColumn(m)[1]; !strings.Contains(got, "npm run dev") {
+		t.Errorf("row = %q, want what is actually running", got)
+	}
+}
+
+func TestANameIsNotRepeatedBackAtYou(t *testing.T) {
+	// A plan entry whose command is its own name says nothing twice.
+	m := withProcList(90, 14,
+		[]Project{{Name: "proj", Path: "/p/proj"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Argv: "/bin/zsh", Dir: "/p/proj"},
+			{PID: 701, PPID: 700, Command: "claude", Argv: "claude", Dir: "/p/proj"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "claude"}}
+	m.rebuild()
+
+	if got := strings.TrimSpace(navColumn(m)[1]); got != "└─ claude" {
+		t.Errorf("row = %q, want the name once", got)
 	}
 }
 
@@ -1087,7 +1104,7 @@ func TestAShellOpenedByHandKeepsItsCommandName(t *testing.T) {
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj"}}
 	m.rebuild()
 
-	if got := navColumn(m)[1]; !strings.Contains(got, "zsh 700") {
+	if got := navColumn(m)[1]; !strings.Contains(got, "zsh") {
 		t.Errorf("row = %q, want the command when no project named it", got)
 	}
 }
@@ -1141,9 +1158,8 @@ func TestCtrlRStartsAClaudeInWhatTheFilterFound(t *testing.T) {
 	}
 }
 
-func TestCtrlUStartsWhatAProjectNeedsWithoutLeavingTheSearch(t *testing.T) {
-	// The chord means what the letter means, and staying in the search is
-	// what makes bringing several projects up a single pass.
+func TestCtrlUStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
+	// Starting what a project needs is the end of looking for it.
 	dir := t.TempDir()
 	if err := writeFile(filepath.Join(dir, planFile), "one: sleep 30\ntwo: sleep 30\n"); err != nil {
 		t.Fatal(err)
@@ -1163,8 +1179,14 @@ func TestCtrlUStartsWhatAProjectNeedsWithoutLeavingTheSearch(t *testing.T) {
 	if !names["one"] || !names["two"] {
 		t.Errorf("started %v, want everything the project needs", names)
 	}
-	if !m.typing || m.filter != "alpha" {
-		t.Errorf("typing=%v filter=%q, want the search where it was", m.typing, m.filter)
+	if m.typing {
+		t.Errorf("typing=%v, want the typing over", m.typing)
+	}
+	// The filter is held until the processes are in the tree, so that the
+	// project does not drop out of the narrowed list before they arrive.
+	m = pump(t, m, func(m model) bool { return m.filter == "" }, 5*time.Second)
+	if r, ok := m.selected(); !ok || r.project.Path != dir {
+		t.Errorf("selected %+v, want the cursor left on the project", r.project)
 	}
 }
 
@@ -1177,8 +1199,10 @@ func TestCtrlUOnAProjectThatNeedsNothingSaysSo(t *testing.T) {
 	if len(m.terms) != 0 {
 		t.Error("nothing should have been started")
 	}
-	if !m.typing {
-		t.Error("the search should still be where it was")
+	// The search still closes: it was answered, even if the answer was that
+	// there was nothing to do.
+	if m.typing {
+		t.Error("the search should be over")
 	}
 	if !strings.Contains(footer(m), "does not say what it needs") {
 		t.Errorf("footer = %q, want it to explain why nothing happened", footer(m))
@@ -1199,25 +1223,21 @@ func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
-	f := footer(m)
-	if !strings.Contains(f, "started one") {
+	if f := footer(m); !strings.Contains(f, "started one") {
 		t.Errorf("footer = %q, want what it just did", f)
-	}
-	if !strings.Contains(f, "/alpha") {
-		t.Errorf("footer = %q, want the prompt still there: the typing has not stopped", f)
 	}
 }
 
 func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
+	// ctrl+r reports and leaves the typing alone, so the search carries on.
 	m := lookingUp(t, "alpha")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU}) // reports that it needs nothing
-	m = next.(model)
-	if m.status == "" {
-		t.Fatal("setup: expected something to have been reported")
-	}
+	m.status, m.statusErr = "something about the last one", false
 
 	m = typeFilter(m, "x")
 	if m.status != "" {
 		t.Errorf("status = %q, want it cleared once the search moved on", m.status)
+	}
+	if !m.typing {
+		t.Error("typing a letter should not have ended the search")
 	}
 }

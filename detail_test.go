@@ -1,9 +1,11 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fieldValue(fs []field, label string) (string, bool) {
@@ -248,5 +250,36 @@ func TestAGroupWithNothingInItDrawsNothing(t *testing.T) {
 	}
 	if len(lines) != 3 {
 		t.Errorf("lines = %q, want two groups and one break between them", lines)
+	}
+}
+
+func TestTheRunsPortsAreTheRowsPorts(t *testing.T) {
+	// A dev server is a shell running an npm running a node, and it is the
+	// node at the bottom that holds the port — the one the fold exists to
+	// hide. Asking only the process the row is named for found nothing.
+	c := exec.Command("python3", "-m", "http.server", "8932")
+	c.Dir = "/tmp"
+	if err := c.Start(); err != nil {
+		t.Skip(err)
+	}
+	defer c.Process.Kill()
+	time.Sleep(1500 * time.Millisecond)
+
+	// The row is named for something above the listener, as a folded run is.
+	named := &ProcNode{Proc: Proc{PID: os.Getpid(), Command: "npm", Dir: "/tmp"}}
+	listener := &ProcNode{Proc: Proc{PID: c.Process.Pid, Command: "node", Dir: "/tmp"}}
+	run := []*ProcNode{named, listener}
+
+	got, ok := fieldValue(procFields(named, run, nil), "listening")
+	if !ok {
+		t.Fatalf("nothing reported, want the port the run is listening on")
+	}
+	if got != "8932" {
+		t.Errorf("listening = %q, want the port held further down the run", got)
+	}
+
+	// And with no run, the row still speaks for itself.
+	if _, ok := fieldValue(procFields(listener, nil, nil), "listening"); !ok {
+		t.Error("a row that folded nothing should still report its own port")
 	}
 }
