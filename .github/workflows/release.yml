@@ -1,0 +1,51 @@
+# Pushing a v* tag builds the release install.sh downloads from.
+#
+# The tests run on macOS because that is where scrn is developed and where it
+# reads the process list the way it does. The other builds are cross-compiled
+# from the same runner, which Go does without a toolchain for each one.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w" -o dist/scrn .
+            tar -czf "dist/scrn_${version}_${os}_${arch}.tar.gz" -C dist scrn
+            rm dist/scrn
+          done
+          cd dist && shasum -a 256 ./*.tar.gz | sed 's| \./| |' > checksums.txt
+          cat checksums.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*.tar.gz dist/checksums.txt
