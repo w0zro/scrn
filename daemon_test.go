@@ -177,7 +177,7 @@ func TestAnInteractiveShellIsHungUpRatherThanSignalled(t *testing.T) {
 	// zsh and bash ignore SIGTERM when interactive, by design. Ending one
 	// means taking its terminal away, which is what closing the pty does.
 	t.Setenv("SHELL", "/bin/zsh")
-	term, err := startTerm("/tmp", "", 40, 8)
+	term, err := startTerm("/tmp", "", "", 40, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestAnInteractiveShellIsHungUpRatherThanSignalled(t *testing.T) {
 func TestClosingAShellTwiceIsHarmless(t *testing.T) {
 	// A shell ended by hand is torn down again when its output stops.
 	t.Setenv("SHELL", "/bin/sh")
-	term, err := startTerm("/tmp", "", 40, 8)
+	term, err := startTerm("/tmp", "", "", 40, 8)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -78,7 +78,7 @@ func paneHas(text string) func(model) bool {
 func openShellIn(t *testing.T, m model, dir string) model {
 	t.Helper()
 	m = connected(t, m)
-	m.daemon.open(dir, "", 40, 8)
+	m.daemon.open(dir, "", "", 40, 8)
 	return pump(t, m, hasShell, 5*time.Second)
 }
 
@@ -240,7 +240,7 @@ func TestAShellThatExitsIsForgotten(t *testing.T) {
 func TestManyShellsCanRunInOneRepository(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	first := m.focus
-	m.daemon.open("/tmp", "", 40, 8)
+	m.daemon.open("/tmp", "", "", 40, 8)
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	if len(m.terms) != 2 {
@@ -411,7 +411,7 @@ func TestCStartsAClaudeInstanceScrnOwns(t *testing.T) {
 func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 	// A command that exits should leave the shell behind rather than taking
 	// the row with it, so a claude that quits does not close the pane.
-	term, err := startTerm("/tmp", "echo the-command-ran", 40, 8)
+	term, err := startTerm("/tmp", "echo the-command-ran", "", 40, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestAProcessTableThatLoopsDoesNotHangTheWalk(t *testing.T) {
 func TestKillingAShellScrnHoldsGoesThroughTheDaemon(t *testing.T) {
 	// Signalling it would do nothing: an interactive shell ignores SIGTERM.
 	m := connected(t, repoModel())
-	m.daemon.open("/tmp", "", 40, 8)
+	m.daemon.open("/tmp", "", "", 40, 8)
 	m = pump(t, m, hasShell, 5*time.Second)
 	pid := m.focus
 
@@ -696,7 +696,7 @@ func TestWhatTheProcessAsksOfTheWindowIsCarriedOut(t *testing.T) {
 	// A program addresses its title and progress to the terminal it believes
 	// it is in. That is scrn, and scrn is the one with a real window.
 	t.Setenv("SHELL", "/bin/sh")
-	term, err := startTerm("/tmp", "", 40, 8)
+	term, err := startTerm("/tmp", "", "", 40, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -850,5 +850,244 @@ func TestROnACurrentDaemonDoesNothing(t *testing.T) {
 	}
 	if !strings.Contains(footer(m), "the one this build expects") {
 		t.Errorf("footer = %q, want it to say why nothing happened", footer(m))
+	}
+}
+
+// --- starting what a project needs ---------------------------------------
+
+// projectNeeding is a model over a real directory whose plan says what it
+// needs, connected to a daemon of the test's own.
+func projectNeeding(t *testing.T, plan string) (model, string) {
+	t.Helper()
+	dir := t.TempDir()
+	if plan != "" {
+		if err := writeFile(filepath.Join(dir, planFile), plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := withProcList(90, 20, []Project{{Name: "proj", Path: dir}}, nil)
+	return connected(t, m), dir
+}
+
+func TestUStartsWhatTheProjectSaysItNeeds(t *testing.T) {
+	m, _ := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	got := map[string]bool{}
+	for _, t := range m.terms {
+		got[t.name] = true
+	}
+	if !got["one"] || !got["two"] {
+		t.Errorf("started %v, want both entries by name", got)
+	}
+	if !strings.Contains(footer(m), "started one, two") {
+		t.Errorf("footer = %q, want it to say what it started", footer(m))
+	}
+}
+
+func TestUStartsOnlyWhatIsMissing(t *testing.T) {
+	// It is a list to run, not a promise to keep, so running it again starts
+	// only what has since stopped.
+	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	// One of them stops, the way a dev server dies.
+	for pid, term := range m.terms {
+		if term.name == "one" {
+			next, _ := m.Update(termGoneMsg{pid: pid})
+			m = next.(model)
+			break
+		}
+	}
+	if len(m.terms) != 1 {
+		t.Fatalf("terms = %d, want the one that is left", len(m.terms))
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	names := map[string]int{}
+	for _, term := range m.terms {
+		names[term.name]++
+	}
+	if names["one"] != 1 || names["two"] != 1 {
+		t.Errorf("terms = %v, want one of each rather than a duplicate", names)
+		_ = dir
+	}
+}
+
+func TestUSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
+	m, _ := projectNeeding(t, "one: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = next.(model)
+	if !strings.Contains(footer(m), "everything proj needs is running") {
+		t.Errorf("footer = %q, want it to say there was nothing to do", footer(m))
+	}
+	if len(m.terms) != 1 {
+		t.Errorf("terms = %d, want nothing started twice", len(m.terms))
+	}
+}
+
+func TestUOnAProjectThatSaysNothingExplainsItself(t *testing.T) {
+	m, _ := projectNeeding(t, "")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = next.(model)
+
+	if len(m.terms) != 0 {
+		t.Error("nothing should have been started")
+	}
+	if !strings.Contains(footer(m), "does not say what it needs") {
+		t.Errorf("footer = %q, want it to explain why nothing happened", footer(m))
+	}
+}
+
+func TestDStopsOnlyWhatThePlanStarted(t *testing.T) {
+	// A shell opened by hand was not part of the list and is not swept up.
+	m, dir := projectNeeding(t, "one: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	m.daemon.open(dir, "", "", 40, 8) // by hand, so unnamed
+	m = pump(t, m, func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	// Opening one by hand steps into it, so come back out before pressing a
+	// key meant for the list.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = next.(model)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = next.(model)
+	if m.pendingDown == nil {
+		t.Fatal("d should ask before stopping")
+	}
+	if f := footer(m); !strings.Contains(f, "stop what proj started?") {
+		t.Errorf("footer = %q, want it to say what it is about to stop", f)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	for _, term := range m.terms {
+		if term.name != "" {
+			t.Errorf("term %q survived, want only the one opened by hand", term.name)
+		}
+	}
+}
+
+func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
+	m, _ := projectNeeding(t, "one: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = next.(model)
+
+	if len(m.terms) != 1 {
+		t.Error("cancelling should not have stopped anything")
+	}
+	if !strings.Contains(footer(m), "left them running") {
+		t.Errorf("footer = %q, want it to say nothing happened", footer(m))
+	}
+}
+
+func TestDOnAProjectWithNothingOfItsOwnSaysSo(t *testing.T) {
+	m, _ := projectNeeding(t, "one: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = next.(model)
+
+	if m.pendingDown != nil {
+		t.Error("there is nothing to stop, so nothing to confirm")
+	}
+	if !strings.Contains(footer(m), "nothing in proj was started from its plan") {
+		t.Errorf("footer = %q, want it to explain", footer(m))
+	}
+}
+
+func TestTheRepoPaneShowsThePlanAsAChecklist(t *testing.T) {
+	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
+
+	fs := repoFields(Project{Name: "proj", Path: dir}, 2, m.namesIn(dir))
+	var needs []string
+	for _, f := range fs {
+		if f.label == "needs" || (f.label == "" && strings.Contains(f.value, "two")) {
+			needs = append(needs, f.value)
+		}
+	}
+	if len(needs) != 2 {
+		t.Fatalf("needs = %v, want both entries listed", needs)
+	}
+	for _, n := range needs {
+		if !strings.HasPrefix(n, "● ") {
+			t.Errorf("entry %q should be marked as running", n)
+		}
+	}
+
+	// And unmarked when nothing is up.
+	fs = repoFields(Project{Name: "proj", Path: dir}, 0, nil)
+	for _, f := range fs {
+		if f.label == "needs" && !strings.HasPrefix(f.value, "○ ") {
+			t.Errorf("entry %q should be marked as not running", f.value)
+		}
+	}
+}
+
+func TestTheKeysListUpAndDown(t *testing.T) {
+	f := keysOf(sized(160, 24))
+	for _, key := range []string{"u up", "d down"} {
+		if !strings.Contains(f, key) {
+			t.Errorf("keys = %q, want %q listed", f, key)
+		}
+	}
+}
+
+func TestAShellAProjectAskedForIsCalledWhatTheProjectCallsIt(t *testing.T) {
+	// "web" is what the project calls it and what you would say out loud;
+	// "sleep 35228" is only true.
+	m := withProcList(90, 14,
+		[]Project{{Name: "proj", Path: "/p/proj"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "sleep", Dir: "/p/proj"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "web"}}
+	m.rebuild()
+
+	if got := navColumn(m)[1]; !strings.Contains(got, "web 700") {
+		t.Errorf("row = %q, want it named for what the project calls it", got)
+	}
+}
+
+func TestTheNameStandsForWhateverIsRunningInIt(t *testing.T) {
+	// A run folded into one row is named for the shell that was asked for,
+	// not for whatever that shell is running at the moment.
+	m := withProcList(90, 14,
+		[]Project{{Name: "proj", Path: "/p/proj"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/proj"},
+			{PID: 701, PPID: 700, Command: "node", Dir: "/p/proj"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "web"}}
+	m.rebuild()
+
+	if got := navColumn(m)[1]; !strings.Contains(got, "web 700") {
+		t.Errorf("row = %q, want the shell's name rather than what it is running", got)
+	}
+}
+
+func TestAShellOpenedByHandKeepsItsCommandName(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "proj", Path: "/p/proj"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/proj"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj"}}
+	m.rebuild()
+
+	if got := navColumn(m)[1]; !strings.Contains(got, "zsh 700") {
+		t.Errorf("row = %q, want the command when no project named it", got)
 	}
 }

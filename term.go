@@ -32,6 +32,7 @@ const termReadSize = 32 * 1024
 type terminal struct {
 	pid  int
 	repo string
+	name string // what the project calls it, if a project asked for it
 	cmd  *exec.Cmd
 	pty  *os.File
 	vt   *vt.SafeEmulator
@@ -84,7 +85,7 @@ const (
 
 // startTerm runs command in dir on a pty of its own. An empty command means
 // the user's shell, which is what most of them are.
-func startTerm(dir, command string, width, height int) (*terminal, error) {
+func startTerm(dir, command, name string, width, height int) (*terminal, error) {
 	if width <= 0 {
 		width = termMinWidth
 	}
@@ -113,6 +114,7 @@ func startTerm(dir, command string, width, height int) (*terminal, error) {
 	t := &terminal{
 		pid:    c.Process.Pid,
 		repo:   dir,
+		name:   name,
 		cmd:    c,
 		pty:    f,
 		vt:     vt.NewSafeEmulator(width, height),

@@ -52,7 +52,7 @@ func detailKey(r navRow) string {
 
 // loadDetail inspects the selected row off the render path. Git and ps are
 // fast, but they are still processes, and the UI should not wait on them.
-func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
+func loadDetail(r navRow, procCount int, sess *claudeSession, running map[string]bool) tea.Cmd {
 	key := detailKey(r)
 	if r.kind == rowProc {
 		node, run := r.node, r.run
@@ -62,13 +62,13 @@ func loadDetail(r navRow, procCount int, sess *claudeSession) tea.Cmd {
 	}
 	p := r.project
 	return func() tea.Msg {
-		return detailMsg{key: key, fields: repoFields(p, procCount)}
+		return detailMsg{key: key, fields: repoFields(p, procCount, running)}
 	}
 }
 
 // repoFields describes a repository: where it is, what state its checkout is
 // in, and what is running in it.
-func repoFields(p Project, procCount int) []field {
+func repoFields(p Project, procCount int, running map[string]bool) []field {
 	fs := []field{
 		heading(p.Name),
 		note(p.Path),
@@ -110,6 +110,24 @@ func repoFields(p Project, procCount int) []field {
 	}
 
 	fs = append(fs, gap(), field{label: "running", value: plural(procCount, "process", "processes")})
+
+	// What the project says it needs, and which of those are up. It is the
+	// list u works from, so showing it is showing what u would do.
+	if plan := readPlan(p.Path); len(plan.Entries) > 0 {
+		fs = append(fs, gap())
+		for i, e := range plan.Entries {
+			label := "needs"
+			if i > 0 {
+				label = "" // the rest line up under the first
+			}
+			mark := "○ "
+			if running[e.Name] {
+				mark = "● "
+			}
+			fs = append(fs, field{label: label, value: mark + e.Name + "  " + e.Run})
+		}
+		fs = append(fs, field{label: "from", value: plan.Source})
+	}
 	return fs
 }
 

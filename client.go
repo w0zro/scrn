@@ -25,6 +25,7 @@ const daemonStartWait = 3 * time.Second
 type remoteTerm struct {
 	pid    int
 	dir    string
+	name   string // what the project calls it, if a project asked for it
 	screen string
 	curX   int
 	curY   int
@@ -50,7 +51,11 @@ type (
 	}
 
 	// termOpenedMsg is the shell this window just asked for.
-	termOpenedMsg struct{ pid int }
+	termOpenedMsg struct {
+		pid  int
+		dir  string
+		name string
+	}
 
 	// sessionsMsg is the shells the daemon is holding, and when it started.
 	sessionsMsg struct {
@@ -168,7 +173,7 @@ func (s *session) receive() {
 		}
 		switch m.Kind {
 		case kindOpened:
-			s.events <- termOpenedMsg{pid: m.PID}
+			s.events <- termOpenedMsg{pid: m.PID, dir: m.Dir, name: m.Name}
 		case kindSessions:
 			s.events <- sessionsMsg{sessions: m.Sessions, since: time.UnixMilli(m.Since)}
 		case kindScreen:
@@ -209,8 +214,8 @@ func (s *session) ask(m message) {
 	_ = s.conn.write(m)
 }
 
-func (s *session) open(dir, run string, w, h int) {
-	s.ask(message{Kind: kindOpen, Dir: dir, Run: run, Width: w, Height: h})
+func (s *session) open(dir, run, name string, w, h int) {
+	s.ask(message{Kind: kindOpen, Dir: dir, Run: run, Name: name, Width: w, Height: h})
 }
 
 func (s *session) list() { s.ask(message{Kind: kindList}) }

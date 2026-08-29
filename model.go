@@ -167,6 +167,10 @@ type model struct {
 	// pendingG is a g waiting for the g that makes it mean the top.
 	pendingG bool
 
+	// pendingDown is the project whose processes are to be stopped, waiting
+	// for the key that confirms it. Stopping is a kill like any other.
+	pendingDown *Project
+
 	// dying holds the processes that have been signalled and are still listed.
 	// They keep their place, marked, until a rescan finds them gone: a row that
 	// vanished on the keystroke would claim an exit scrn has not seen yet.
@@ -320,12 +324,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case termOpenedMsg:
-		// A shell this window opened takes the keys, and the cursor once the
-		// scan puts it in the tree.
 		if _, ok := m.terms[msg.pid]; !ok {
-			m.terms[msg.pid] = &remoteTerm{pid: msg.pid}
+			m.terms[msg.pid] = &remoteTerm{pid: msg.pid, dir: msg.dir, name: msg.name}
 		}
-		m.focus, m.wantCursor = msg.pid, msg.pid
+		// A shell asked for by name is one of several a project needed, and
+		// none of them is more the one you meant than the others. Only a shell
+		// opened on its own takes the keys and the cursor.
+		if msg.name == "" {
+			m.focus, m.wantCursor = msg.pid, msg.pid
+		}
 		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
 
 	case sessionsMsg:
@@ -354,7 +361,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				held[s.PID] = was
 				continue
 			}
-			held[s.PID] = &remoteTerm{pid: s.PID, dir: s.Dir}
+			held[s.PID] = &remoteTerm{pid: s.PID, dir: s.Dir, name: s.Name}
 		}
 		m.terms = held
 		if _, ok := m.terms[m.focus]; !ok {
@@ -487,6 +494,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.filterKey(msg)
 		}
 
+		// Stopping a project's processes ends work, so it takes a second key.
+		if p := m.pendingDown; p != nil {
+			m.pendingDown = nil
+			switch msg.String() {
+			case "d", "y", "enter":
+				return m, m.down(*p)
+			}
+			m.status, m.statusErr = "left them running", false
+			return m, nil
+		}
+
 		// Replacing the daemon ends the work it is holding, so it takes a
 		// second key like any other kill.
 		if m.pendingReplace {
@@ -547,6 +565,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.detailCmd()
 		case "enter":
 			return m, m.openShell()
+		case "u":
+			return m, m.up()
+		case "d":
+			return m, m.askDown()
 		case "n":
 			return m, m.start("")
 		case "c":
@@ -734,7 +756,7 @@ func (m *model) start(command string) tea.Cmd {
 		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
 		return nil
 	}
-	m.daemon.open(m.shellDir(r), command, m.detailWidth(), m.paneHeight())
+	m.daemon.open(m.shellDir(r), command, "", m.detailWidth(), m.paneHeight())
 	return nil
 }
 
@@ -819,6 +841,105 @@ func (m *model) askReplace() tea.Cmd {
 	}
 	m.pendingReplace = true
 	return nil
+}
+
+// up starts what the project the cursor is in says it needs, and is not
+// already running. It is a list to run rather than a promise to keep, so
+// running it again starts only what has since stopped.
+func (m *model) up() tea.Cmd {
+	r, ok := m.selected()
+	if !ok {
+		return nil
+	}
+	if m.daemon == nil {
+		m.status, m.statusErr = "no daemon to hold them: "+m.daemonErr, true
+		return nil
+	}
+
+	p := r.project
+	plan := readPlan(p.Path)
+	if len(plan.Entries) == 0 {
+		m.status, m.statusErr = p.Name+" does not say what it needs", true
+		return nil
+	}
+
+	missing := plan.missing(m.namesIn(p.Path))
+	if len(missing) == 0 {
+		m.status, m.statusErr = "everything "+p.Name+" needs is running", false
+		return nil
+	}
+
+	for _, e := range missing {
+		m.daemon.open(p.Path, e.Run, e.Name, m.detailWidth(), m.paneHeight())
+	}
+	// Started rather than entered: this is several things at once, and none of
+	// them is more the one you meant than the others.
+	m.status, m.statusErr = "started "+describeEntries(missing), false
+	return scanProcs
+}
+
+// askDown arms the stopping of what a project's plan started.
+func (m *model) askDown() tea.Cmd {
+	r, ok := m.selected()
+	if !ok {
+		return nil
+	}
+
+	p := r.project
+	if len(m.planned(p.Path)) == 0 {
+		m.status, m.statusErr = "nothing in "+p.Name+" was started from its plan", false
+		return nil
+	}
+	m.pendingDown = &p
+	return nil
+}
+
+// down stops the shells a project's plan started, and only those: a shell
+// opened by hand was not part of the list and is not swept up by it.
+func (m *model) down(p Project) tea.Cmd {
+	planned := m.planned(p.Path)
+	if len(planned) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(planned))
+	for _, t := range planned {
+		m.daemon.closeTerm(t.pid)
+		names = append(names, t.name)
+	}
+	m.status, m.statusErr = "stopped "+strings.Join(names, ", "), false
+	return scanProcs
+}
+
+// planned are the shells in a project that a plan started, which are the ones
+// carrying the name the plan gave them.
+func (m model) planned(path string) []*remoteTerm {
+	var out []*remoteTerm
+	for _, t := range m.terms {
+		if t.name != "" && t.dir == path {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+// namesIn is what a project already has running, by the names its plan uses.
+func (m model) namesIn(path string) map[string]bool {
+	running := map[string]bool{}
+	for _, t := range m.planned(path) {
+		running[t.name] = true
+	}
+	return running
+}
+
+// describeEntries names what was just started.
+func describeEntries(entries []entry) string {
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the
@@ -1301,7 +1422,7 @@ func (m model) refreshDetailCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
+	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r), m.namesIn(r.project.Path))
 }
 
 // holds reports whether a pid is anywhere in the run this row stands for.
@@ -1338,5 +1459,5 @@ func (m model) detailCmd() tea.Cmd {
 	if _, cached := m.details[detailKey(r)]; cached {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r))
+	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r), m.namesIn(r.project.Path))
 }

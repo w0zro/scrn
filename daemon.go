@@ -205,7 +205,7 @@ func (d *daemon) handle(cl *client, m message) {
 }
 
 func (d *daemon) open(cl *client, m message) {
-	t, err := startTerm(m.Dir, m.Run, m.Width, m.Height)
+	t, err := startTerm(m.Dir, m.Run, m.Name, m.Width, m.Height)
 	if err != nil {
 		cl.send(message{Kind: kindError, Err: err.Error()})
 		return
@@ -220,7 +220,7 @@ func (d *daemon) open(cl *client, m message) {
 	// The client that asked is told which shell is the one it asked for. It
 	// cannot tell from the list or the screen: by the time either arrives the
 	// shell is just another one the daemon is holding.
-	cl.send(message{Kind: kindOpened, PID: t.pid})
+	cl.send(message{Kind: kindOpened, PID: t.pid, Name: t.name, Dir: t.repo})
 	cl.send(d.sessionsMsg())
 	cl.send(t.screenMsg())
 }
@@ -281,7 +281,7 @@ func (d *daemon) list() []sessionInfo {
 
 	out := make([]sessionInfo, 0, len(d.sessions))
 	for pid, t := range d.sessions {
-		out = append(out, sessionInfo{PID: pid, Dir: t.repo})
+		out = append(out, sessionInfo{PID: pid, Dir: t.repo, Name: t.name})
 	}
 	return out
 }

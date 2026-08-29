@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -122,9 +123,11 @@ func TestCollidingNamesGrowUntilUnique(t *testing.T) {
 	)
 
 	got, _ := discoverProjects(root)
+	// The second will not fit, so its parents are squeezed to initials. They
+	// still tell the two apart, which is all the parents were ever for.
 	want := []string{
 		"archive/checklists.org/api",
-		"w0zro/archive/checklists.org/api",
+		"w/a/c/api",
 	}
 	if !equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
@@ -189,5 +192,72 @@ func TestProcessesUnderASymlinkedRootAreAttributed(t *testing.T) {
 
 	if !under(resolved, projects[0].Path) {
 		t.Errorf("a process in %q was not attributed to the repo at %q", resolved, projects[0].Path)
+	}
+}
+
+func TestALongNameKeepsTheRepositoryAndSqueezesTheParents(t *testing.T) {
+	// Cutting the name itself is what leaves two rows reading the same.
+	root := tree(t, "archive/TressleAI/tressle-app/.git")
+
+	got, _ := discoverProjects(root)
+	if len(got) != 1 || got[0].Name != "tressle-app" {
+		t.Fatalf("names = %v, want the repository alone when nothing collides", names(got))
+	}
+}
+
+func TestSqueezedNamesStillTellRepositoriesApart(t *testing.T) {
+	// These are the two that rendered identically before: qualifying them was
+	// the whole point, and truncation threw away the part that did it.
+	root := tree(t,
+		"archive/checklists.org/checklists-web/.git",
+		"checklists.org/checklists-web/.git",
+	)
+
+	got, _ := discoverProjects(root)
+	seen := map[string]bool{}
+	for _, p := range got {
+		if len([]rune(p.Name)) > nameRoom {
+			t.Errorf("name %q is %d columns, wider than the %d it has", p.Name, len([]rune(p.Name)), nameRoom)
+		}
+		if seen[p.Name] {
+			t.Errorf("two repositories are both shown as %q", p.Name)
+		}
+		seen[p.Name] = true
+	}
+}
+
+func TestParentsGrowBackWhenInitialsWouldCollide(t *testing.T) {
+	// Squeezed to one letter these would both be "a/x/api", so they are given
+	// back exactly as much as it takes to differ.
+	root := tree(t,
+		"alpha/checklists.org/some-long-repository-name/.git",
+		"apple/checklists.org/some-long-repository-name/.git",
+	)
+
+	got, _ := discoverProjects(root)
+	if len(got) != 2 {
+		t.Fatalf("projects = %v", names(got))
+	}
+	if got[0].Name == got[1].Name {
+		t.Fatalf("both shown as %q", got[0].Name)
+	}
+	for _, p := range got {
+		if !strings.HasSuffix(p.Name, "some-long-repository-name") {
+			t.Errorf("name = %q, want the repository's own name kept whole", p.Name)
+		}
+	}
+}
+
+func TestAShortNameIsLeftAlone(t *testing.T) {
+	root := tree(t, "hsg/brand/.git", "other/brand/.git")
+
+	got, _ := discoverProjects(root)
+	for _, p := range got {
+		if !strings.Contains(p.Name, "/") || strings.Contains(p.Name, "//") {
+			t.Errorf("name = %q, want it qualified but not squeezed", p.Name)
+		}
+	}
+	if names(got)[0] != "hsg/brand" {
+		t.Errorf("names = %v, want the parents whole when they fit", names(got))
 	}
 }

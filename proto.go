@@ -30,7 +30,8 @@ type message struct {
 
 	PID    int    `json:"pid,omitempty"`
 	Dir    string `json:"dir,omitempty"`
-	Run    string `json:"run,omitempty"` // what to run instead of a shell
+	Run    string `json:"run,omitempty"`  // what to run instead of a shell
+	Name   string `json:"name,omitempty"` // what the project calls it
 	Width  int    `json:"w,omitempty"`
 	Height int    `json:"h,omitempty"`
 
@@ -64,9 +65,14 @@ type message struct {
 }
 
 // sessionInfo is a shell the daemon is holding.
+//
+// Name is what the project that asked for it calls it, and empty for a shell
+// opened by hand. It is what lets scrn tell whether a project already has its
+// web running without guessing from the command line of a process.
 type sessionInfo struct {
-	PID int    `json:"pid"`
-	Dir string `json:"dir"`
+	PID  int    `json:"pid"`
+	Dir  string `json:"dir"`
+	Name string `json:"name,omitempty"`
 }
 
 // What each side can say.

@@ -185,6 +185,11 @@ func padTo(lines []string, n int) []string {
 // is about.
 func (m model) hintLines(width, rows int) []string {
 	switch {
+	case m.pendingDown != nil:
+		return append(
+			hintBlock("stop what "+m.pendingDown.Name+" started?", width, warnStyle),
+			hintBlock("d confirm · any other key cancels", width, hintStyle)...)
+
 	case m.pendingReplace:
 		return append(
 			hintBlock("replace the daemon, ending "+
@@ -241,6 +246,7 @@ func (m model) keyLines(width, rows int) []string {
 		{"↑↓ move", "gg top"},
 		{"G bottom", "/ find"},
 		{"n shell", "c claude"},
+		{"u up", "d down"},
 		{"enter open", "space fold"},
 		{folds, all},
 		{"x kill", "X kill tree"},
@@ -360,13 +366,29 @@ func (m model) renderRow(r navRow, selected bool) string {
 			branch = "└─"
 		}
 		rules = r.prefix + branch + " "
-		label = procLabel(r.node)
+		label = m.rowLabel(r)
 	}
 
 	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark)
 	return marker + faintStyle.Render(rules) + style.Render(truncate(label, room)) +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
+}
+
+// rowLabel names a process row. A shell a project asked for by name is called
+// that: "web" is what the project calls it and what you would say out loud,
+// where "sleep 35228" is only true.
+//
+// The name belongs to the shell, so it stands for whatever is running in it —
+// a run folded into one row is named for the shell that was asked for, not for
+// the command that shell happens to be running now.
+func (m model) rowLabel(r navRow) string {
+	for _, n := range r.run {
+		if t, ok := m.terms[n.PID]; ok && t.name != "" {
+			return t.name + " " + strconv.Itoa(n.PID)
+		}
+	}
+	return procLabel(r.node)
 }
 
 // rowStyle decides how brightly a row is drawn. Brightness in this list means

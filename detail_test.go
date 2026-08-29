@@ -84,7 +84,7 @@ func TestRepoFieldsDescribeARealRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := repoFields(Project{Name: "demo", Path: dir}, 2)
+	fs := repoFields(Project{Name: "demo", Path: dir}, 2, nil)
 
 	if v, ok := fieldValue(fs, "branch"); !ok || v != "main" {
 		t.Errorf("branch = %q (present=%v), want main", v, ok)
@@ -101,7 +101,7 @@ func TestRepoFieldsDescribeARealRepo(t *testing.T) {
 }
 
 func TestRepoFieldsSurviveANonRepo(t *testing.T) {
-	fs := repoFields(Project{Name: "nope", Path: t.TempDir()}, 0)
+	fs := repoFields(Project{Name: "nope", Path: t.TempDir()}, 0, nil)
 
 	if noteOf(fs) == "" {
 		t.Error("a non-repo should still report its path")
@@ -146,7 +146,7 @@ func TestRepoFieldsHandleARepoWithNoCommits(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 
-	fs := repoFields(Project{Name: "fresh", Path: dir}, 0)
+	fs := repoFields(Project{Name: "fresh", Path: dir}, 0, nil)
 
 	if v, ok := fieldValue(fs, "branch"); !ok || v != "main" {
 		t.Errorf("branch = %q (present=%v), want main; a fresh repo still has one", v, ok)
@@ -197,7 +197,7 @@ func pairsOf(fs []field) []field {
 }
 
 func TestAPaneLeadsWithWhatItIsAbout(t *testing.T) {
-	fs := repoFields(Project{Name: "alpha", Path: "/p/alpha"}, 0)
+	fs := repoFields(Project{Name: "alpha", Path: "/p/alpha"}, 0, nil)
 	if got := headingOf(fs); got != "alpha" {
 		t.Errorf("heading = %q, want the repository's name", got)
 	}
