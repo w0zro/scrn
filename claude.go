@@ -34,6 +34,11 @@ type claudeSession struct {
 	Cwd       string
 	Version   string
 
+	// Agents are the subagents this session has started and not yet heard back
+	// from. A subagent is not a process — it runs inside the instance that
+	// started it — so the transcript is the only place it shows at all.
+	Agents []agentRun
+
 	// Filled in from the transcript, which is only read for the selected row.
 	Model   string
 	Branch  string
@@ -49,6 +54,19 @@ const busyStatus = "busy"
 // claudeCommand starts a Claude Code instance. It is run through a shell, so
 // this is the name on the PATH rather than a path scrn has to find.
 const claudeCommand = "claude"
+
+// agentRun is one subagent, as its parent described it when starting it.
+type agentRun struct {
+	Description string
+	Type        string
+}
+
+func (a agentRun) String() string {
+	if a.Type == "" {
+		return a.Description
+	}
+	return a.Description + "  (" + a.Type + ")"
+}
 
 // claudeDir is where Claude Code keeps its state.
 func claudeDir() string {
@@ -167,6 +185,74 @@ const (
 	summaryLimit = 240
 )
 
+// A subagent is not a process and has no session file, but it is not hidden
+// either: it gets a transcript of its own beside its parent's, and a small
+// file saying what it was started to do.
+//
+//	projects/<encoded cwd>/<session id>/subagents/agent-<id>.jsonl
+//	                                             agent-<id>.meta.json
+//
+// The meta file says what an agent is. Whether it is still going is only in
+// the parent's transcript: a foreground agent is finished when its tool call
+// is answered, and a background one is answered the moment it starts, so that
+// one is finished when its completion is recorded instead. Both are keyed by
+// the tool call that started them, which the meta file names.
+
+// agentTool is the tool that starts a subagent.
+const agentTool = "Agent"
+
+// agentMeta is what Claude Code writes beside a subagent's transcript.
+type agentMeta struct {
+	Type        string `json:"agentType"`
+	Description string `json:"description"`
+	ToolUseID   string `json:"toolUseId"`
+}
+
+// contentBlock is a piece of a message, which is where a tool call and its
+// answer are recorded.
+type contentBlock struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ToolUseID string `json:"tool_use_id"`
+	Input     struct {
+		RunInBackground bool `json:"run_in_background"`
+	} `json:"input"`
+}
+
+// agentProgress is what the parent's transcript says about the calls that
+// started its subagents. Which of these means finished depends on the call: a
+// foreground agent is waited for, so its result arriving is the end of it,
+// while a background one is answered the moment it starts and its finishing is
+// recorded on its own.
+type agentProgress struct {
+	answered   map[string]bool // a result came back
+	completed  map[string]bool // a finish was recorded
+	background map[string]bool // the call did not wait
+}
+
+func newAgentProgress() *agentProgress {
+	return &agentProgress{
+		answered:   map[string]bool{},
+		completed:  map[string]bool{},
+		background: map[string]bool{},
+	}
+}
+
+// done reports whether the agent started by a call has finished.
+func (p *agentProgress) done(toolUseID string) bool {
+	if p.completed[toolUseID] {
+		return true
+	}
+	return !p.background[toolUseID] && p.answered[toolUseID]
+}
+
+// agentStale is how long after a subagent last wrote anything it stops being
+// treated as one that might still be going. The parent's transcript is only
+// read in a window, so a completion old enough to have fallen out of it would
+// otherwise leave the agent listed forever.
+const agentStale = 10 * time.Minute
+
 // transcriptLine is the part of a transcript record scrn reads.
 type transcriptLine struct {
 	Type        string `json:"type"`
@@ -205,6 +291,12 @@ func readTranscript(path string, s *claudeSession) {
 		return
 	}
 
+	// What the transcript says about the subagents is gathered as it goes, and
+	// weighed once the whole window has been read: which record means finished
+	// depends on how the agent was started, and that is said by the call
+	// itself, which is older than everything answering it.
+	progress := newAgentProgress()
+
 	for i := len(lines) - 1; i >= 0; i-- {
 		var rec transcriptLine
 		if err := json.Unmarshal(lines[i], &rec); err != nil {
@@ -214,6 +306,7 @@ func readTranscript(path string, s *claudeSession) {
 		if rec.IsSidechain {
 			continue
 		}
+		progress.read(lines[i], rec)
 		if s.Branch == "" {
 			s.Branch = rec.GitBranch
 		}
@@ -235,9 +328,66 @@ func readTranscript(path string, s *claudeSession) {
 		if s.Prompt == "" && rec.Type == "user" && !rec.IsMeta {
 			s.Prompt = userPrompt(rec.Message.Content)
 		}
-		if s.Branch != "" && s.Model != "" && s.Context != 0 && s.Prompt != "" && s.Summary != "" {
-			return
+	}
+	readAgents(s, progress)
+}
+
+// read notes what one record says about the calls that started subagents.
+func (p *agentProgress) read(line []byte, rec transcriptLine) {
+	var blocks []contentBlock
+	if err := json.Unmarshal(rec.Message.Content, &blocks); err == nil {
+		for _, b := range blocks {
+			switch {
+			case b.Type == "tool_result" && b.ToolUseID != "":
+				p.answered[b.ToolUseID] = true
+			case b.Type == "tool_use" && b.Name == agentTool && b.ID != "":
+				p.background[b.ID] = b.Input.RunInBackground
+			}
 		}
+	}
+
+	// A finish is not a message, so it is read from the line rather than
+	// through the message shape.
+	if bytes.Contains(line, []byte("<status>completed</status>")) {
+		for _, m := range toolUseID.FindAllSubmatch(line, -1) {
+			p.completed[string(m[1])] = true
+		}
+	}
+}
+
+// toolUseID pulls the tool calls a completion record refers to.
+var toolUseID = regexp.MustCompile(`<tool-use-id>([^<]+)</tool-use-id>`)
+
+// readAgents lists the subagents of a session that have not finished.
+func readAgents(s *claudeSession, progress *agentProgress) {
+	dir := filepath.Join(strings.TrimSuffix(transcriptPath(*s), ".jsonl"), "subagents")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".meta.json") {
+			continue
+		}
+
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		var meta agentMeta
+		if err := json.Unmarshal(b, &meta); err != nil || progress.done(meta.ToolUseID) {
+			continue
+		}
+
+		// An agent that stopped writing long ago finished long ago, whether
+		// or not the saying so is still in the window.
+		body := filepath.Join(dir, strings.TrimSuffix(name, ".meta.json")+".jsonl")
+		if info, err := os.Stat(body); err != nil || time.Since(info.ModTime()) > agentStale {
+			continue
+		}
+		s.Agents = append(s.Agents, agentRun{Description: meta.Description, Type: meta.Type})
 	}
 }
 
@@ -332,6 +482,13 @@ func claudeFields(s claudeSession) []field {
 
 	add(&doing, "summary", s.Summary)
 	add(&doing, "asked", s.Prompt)
+	for i, a := range s.Agents {
+		label := "agents"
+		if i > 0 {
+			label = "" // the rest line up under the first
+		}
+		add(&doing, label, a.String())
+	}
 
 	add(&with, "model", s.Model)
 	if s.Context > 0 {

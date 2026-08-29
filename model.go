@@ -164,6 +164,9 @@ type model struct {
 	// Killing cannot be undone, so it takes a second key.
 	pendingKill *killRequest
 
+	// pendingG is a g waiting for the g that makes it mean the top.
+	pendingG bool
+
 	// dying holds the processes that have been signalled and are still listed.
 	// They keep their place, marked, until a rescan finds them gone: a row that
 	// vanished on the keystroke would claim an exit scrn has not seen yet.
@@ -499,6 +502,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// gg is a pair, so the first g waits for the second. Anything else
+		// cancels it and is swallowed, rather than being acted on as though
+		// the g had not been typed.
+		if m.pendingG {
+			m.pendingG = false
+			if msg.String() == "g" {
+				return m, m.jump(0)
+			}
+			return m, nil
+		}
+
 		// A pending kill takes the next key, whatever it is: no other binding
 		// should fire while a confirmation is on screen.
 		if m.pendingKill != nil {
@@ -543,6 +557,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.askKill(false)
 		case "X":
 			return m, m.askKill(true)
+		case "g":
+			m.pendingG = true
+			return m, nil
+		case "G":
+			return m, m.jump(len(m.rows) - 1)
 		case "down", "j", "tab":
 			return m, m.move(1)
 		case "up", "k", "shift+tab":
@@ -621,6 +640,23 @@ func (m *model) setFilter(s string) {
 	m.rebuild()
 	m.cursor = 0
 	m.scrollToCursor()
+}
+
+// jump puts the cursor on a row and brings it into view. Out of range means
+// the nearest end, so the top of an empty list is not a special case.
+func (m *model) jump(i int) tea.Cmd {
+	if len(m.rows) == 0 {
+		return nil
+	}
+	switch {
+	case i < 0:
+		i = 0
+	case i >= len(m.rows):
+		i = len(m.rows) - 1
+	}
+	m.cursor = i
+	m.scrollToCursor()
+	return m.detailCmd()
 }
 
 // move steps the cursor, wrapping at both ends so the list cycles.

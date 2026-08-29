@@ -2104,3 +2104,101 @@ func TestTheProcessTickNoLongerCarriesTheSessions(t *testing.T) {
 		t.Errorf("tick batched %d commands, want 3", len(batch))
 	}
 }
+
+// --- the ends of the list ------------------------------------------------
+
+func TestGGoesToTheBottom(t *testing.T) {
+	m := nestedTree(24)
+	m = press(m, "G")
+
+	if got, want := m.cursor, len(m.rows)-1; got != want {
+		t.Errorf("cursor = %d, want the last row %d", got, want)
+	}
+}
+
+func TestGGGoesToTheTop(t *testing.T) {
+	m := press(nestedTree(24), "G")
+	if m.cursor == 0 {
+		t.Fatal("setup: expected to be somewhere other than the top")
+	}
+
+	m = press(m, "g")
+	if m.cursor == 0 {
+		t.Error("one g should wait for the second rather than moving")
+	}
+	m = press(m, "g")
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d, want the top", m.cursor)
+	}
+}
+
+func TestOneGFollowedByAnythingElseDoesNothing(t *testing.T) {
+	m := press(nestedTree(24), "G")
+	at := m.cursor
+
+	m = press(press(m, "g"), "j")
+	if m.cursor != at {
+		t.Errorf("cursor = %d, want %d: the key that cancels a g should not also move", m.cursor, at)
+	}
+	if m.pendingG {
+		t.Error("the g should be over")
+	}
+}
+
+func TestTheEndsScrollTheWindow(t *testing.T) {
+	// A list longer than the window has to be scrolled to, not just pointed at.
+	m := nestedTree(6)
+	m = press(m, "G")
+
+	if m.cursor < m.offset || m.cursor >= m.offset+m.bodyHeight() {
+		t.Errorf("cursor %d is outside the window at %d..%d", m.cursor, m.offset, m.offset+m.bodyHeight())
+	}
+	m = press(press(m, "g"), "g")
+	if m.offset != 0 {
+		t.Errorf("offset = %d, want the window back at the top", m.offset)
+	}
+}
+
+func TestTheEndsOfAnEmptyListAreHarmless(t *testing.T) {
+	m := narrowed(withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil))
+	if len(m.rows) != 0 {
+		t.Fatalf("setup: rows = %d, want none", len(m.rows))
+	}
+	press(press(press(m, "G"), "g"), "g")
+}
+
+func TestTheEndsWorkWithinAFilter(t *testing.T) {
+	// The list they move through is the one on screen.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if len(m.rows) < 2 {
+		t.Fatalf("setup: rows = %d, want a few matches", len(m.rows))
+	}
+
+	m = press(m, "G")
+	if m.cursor != len(m.rows)-1 {
+		t.Errorf("cursor = %d, want the last match", m.cursor)
+	}
+}
+
+func TestGIsALetterWhileAFilterIsBeingTyped(t *testing.T) {
+	m := press(narrowed(manyProjects(90, 14)), "/")
+	m = typeFilter(m, "g")
+
+	if m.filter != "g" {
+		t.Errorf("filter = %q, want the g typed into it", m.filter)
+	}
+	if m.pendingG {
+		t.Error("a g in a filter is a letter, not the start of a motion")
+	}
+}
+
+func TestTheKeysListTheEnds(t *testing.T) {
+	f := keysOf(sized(160, 24))
+	for _, key := range []string{"gg top", "G bottom"} {
+		if !strings.Contains(f, key) {
+			t.Errorf("keys = %q, want %q listed", f, key)
+		}
+	}
+}

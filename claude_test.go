@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -356,5 +357,122 @@ func TestALongSummaryIsCutDown(t *testing.T) {
 
 	if n := len([]rune(s.Summary)); n > summaryLimit+1 {
 		t.Errorf("summary is %d runes, want it cut to about %d", n, summaryLimit)
+	}
+}
+
+// --- subagents -----------------------------------------------------------
+
+// withAgent writes a subagent the way Claude Code does: a transcript of its
+// own and a small file saying what it was started to do.
+func withAgent(t *testing.T, dir, cwd, session, id, desc, kind string, age time.Duration) {
+	t.Helper()
+	sub := filepath.Join(dir, "projects", encodePath(cwd), session, "subagents")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta := fmt.Sprintf(`{"agentType":%q,"description":%q,"toolUseId":%q,"spawnDepth":1}`,
+		kind, desc, "toolu_"+id)
+	if err := writeFile(filepath.Join(sub, "agent-"+id+".meta.json"), meta); err != nil {
+		t.Fatal(err)
+	}
+	body := filepath.Join(sub, "agent-"+id+".jsonl")
+	if err := writeFile(body, "{}\n"); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(body, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func agentsFor(t *testing.T, dir string, records ...string) []agentRun {
+	t.Helper()
+	writeTranscript(t, dir, "/p/scrn", "sess", records...)
+	s := claudeSession{SessionID: "sess", Cwd: "/p/scrn"}
+	readTranscript(transcriptPath(s), &s)
+	return s.Agents
+}
+
+const (
+	fgCall  = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_fg","name":"Agent","input":{"description":"a","subagent_type":"Explore"}}]}}`
+	fgDone  = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_fg"}]}}`
+	bgCall  = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_bg","name":"Agent","input":{"description":"b","subagent_type":"general-purpose","run_in_background":true}}]}}`
+	bgStart = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bg"}]}}`
+	bgDone  = `{"type":"queue-operation","content":"<task-notification><tool-use-id>toolu_bg</tool-use-id><status>completed</status></task-notification>"}`
+)
+
+func TestAWaitedForAgentIsRunningUntilItAnswers(t *testing.T) {
+	dir := claudeHome(t)
+	withAgent(t, dir, "/p/scrn", "sess", "fg", "a", "Explore", 0)
+
+	if got := agentsFor(t, dir, fgCall); len(got) != 1 || got[0].Description != "a" {
+		t.Errorf("agents = %+v, want the one still being waited for", got)
+	}
+	if got := agentsFor(t, dir, fgCall, fgDone); len(got) != 0 {
+		t.Errorf("agents = %+v, want none once its result came back", got)
+	}
+}
+
+func TestABackgroundAgentIsNotFinishedByBeingStarted(t *testing.T) {
+	// It is answered the moment it starts, so its result says nothing about
+	// whether it is done. Reading that as finished hid every one of them.
+	dir := claudeHome(t)
+	withAgent(t, dir, "/p/scrn", "sess", "bg", "b", "general-purpose", 0)
+
+	if got := agentsFor(t, dir, bgCall, bgStart); len(got) != 1 || got[0].Description != "b" {
+		t.Errorf("agents = %+v, want it still running after being launched", got)
+	}
+	if got := agentsFor(t, dir, bgCall, bgStart, bgDone); len(got) != 0 {
+		t.Errorf("agents = %+v, want none once its finishing was recorded", got)
+	}
+}
+
+func TestAnAgentThatStoppedWritingLongAgoIsNotRunning(t *testing.T) {
+	// The transcript is only read in a window, so a finish old enough to have
+	// fallen out of it would otherwise leave the agent listed for good.
+	dir := claudeHome(t)
+	withAgent(t, dir, "/p/scrn", "sess", "old", "c", "Explore", 2*agentStale)
+
+	if got := agentsFor(t, dir, `{"type":"assistant","message":{"content":[]}}`); len(got) != 0 {
+		t.Errorf("agents = %+v, want nothing that went quiet long ago", got)
+	}
+}
+
+func TestASessionWithNoSubagentsSaysNothingAboutThem(t *testing.T) {
+	dir := claudeHome(t)
+	if got := agentsFor(t, dir, asstRec); len(got) != 0 {
+		t.Errorf("agents = %+v, want none", got)
+	}
+	fs := claudeFields(claudeSession{Name: "x", Status: "idle"})
+	for _, f := range fs {
+		if f.label == "agents" {
+			t.Error("a session with no subagents should not have a line about them")
+		}
+	}
+}
+
+func TestTheAgentsAreListedUnderOneLabel(t *testing.T) {
+	fs := claudeFields(claudeSession{
+		Name: "x",
+		Agents: []agentRun{
+			{Description: "first", Type: "Explore"},
+			{Description: "second", Type: "general-purpose"},
+		},
+	})
+	var labels, values []string
+	for _, f := range pairsOf(fs) {
+		if f.label == "agents" || (f.label == "" && strings.Contains(f.value, "second")) {
+			labels = append(labels, f.label)
+			values = append(values, f.value)
+		}
+	}
+	if len(values) != 2 {
+		t.Fatalf("values = %v, want both agents listed", values)
+	}
+	if labels[0] != "agents" || labels[1] != "" {
+		t.Errorf("labels = %v, want the rest to line up under the first", labels)
+	}
+	if !strings.Contains(values[0], "first  (Explore)") {
+		t.Errorf("value = %q, want the description and what kind it is", values[0])
 	}
 }

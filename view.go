@@ -238,7 +238,8 @@ func (m model) keyLines(width, rows int) []string {
 	}
 
 	pairs := [][2]string{
-		{"↑↓ move", "/ find"},
+		{"↑↓ move", "gg top"},
+		{"G bottom", "/ find"},
 		{"n shell", "c claude"},
 		{"enter open", "space fold"},
 		{folds, all},
