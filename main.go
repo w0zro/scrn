@@ -34,13 +34,14 @@ const usage = `scrn is a terminal UI for working on projects at the command line
 
 usage:
   scrn             open the window
+  scrn ls          list the held shells: pid, directory, name
   scrn daemon      run the daemon that holds the shells (started for you)
   scrn -h, --help  show this
   scrn --version   report the version
 
 files:
   ~/.config/scrn/config.json  configuration
-  ~/.local/state/scrn/        the daemon's socket
+  ~/.local/state/scrn/        the daemon's socket and log
 
 environment:
   SCRN_SOCKET  where the daemon listens, instead of the state directory
@@ -63,6 +64,12 @@ func main() {
 			return
 		case "--version", "version":
 			fmt.Println(versionString())
+			return
+		case "ls":
+			if err := runLS(os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		// Anything else is refused rather than shrugged off: a mistyped
 		// argument that silently opened the window would look like it worked.

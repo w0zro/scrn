@@ -7,6 +7,8 @@ scrn \- a terminal UI for working on projects at the command line
 .SH SYNOPSIS
 .B scrn
 .br
+.B scrn ls
+.br
 .B scrn daemon
 .br
 .B scrn
@@ -41,6 +43,12 @@ not
 .BR node .
 Dim rows are processes started outside scrn: listed and killable, but
 with no shell to step into.
+.PP
+.B scrn ls
+is the same daemon's state for a reader that is not a person: the held
+shells, one per line on stdout \(em pid, directory and name,
+tab\-separated, the name empty for a shell opened by hand. No daemon
+listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
 shows this list inside scrn.
@@ -209,6 +217,10 @@ configuration; see
 .I ~/.local/state/scrn/scrnd\-<uid>.sock
 the daemon's socket
 .TP
+.I ~/.local/state/scrn/scrnd.log
+the daemon's stderr: its last words, if it died with any, and nothing
+else. Truncated when a fresh daemon starts.
+.TP
 .I .scrn
 a project's plan; see
 .B PLANS
@@ -221,8 +233,23 @@ where the daemon listens, instead of the state directory
 where the config lives, instead of
 .I ~/.config
 .TP
+.B XDG_STATE_HOME
+where the daemon's socket and log live, instead of
+.I ~/.local/state
+.TP
 .B SHELL
 the shell opened in each pane
+.TP
+.B NO_COLOR
+set, scrn draws without color, as
+.UR https://no\-color.org
+the convention
+.UE
+asks.
+.B CLICOLOR_FORCE
+and
+.B TERM=dumb
+are honored too.
 .TP
 .B CLAUDE_CONFIG_DIR
 where Claude Code's session files are read from, instead of

@@ -1561,9 +1561,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 
 	// The chord counts it among the waiting, unlike an instance merely idle
 	// since launch.
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	if got := next.(model).status; got == "no agent is waiting" {
+	if got := chordKey(m, tea.KeyEnter).status; got == "no agent is waiting" {
 		t.Error("the chord passed over a blocked instance")
 	}
 }
@@ -1581,9 +1579,7 @@ func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
 		t.Errorf("row = %q, want a hollow marker on an instance idle since launch", row)
 	}
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	if got := next.(model).status; got != "no agent is waiting" {
+	if got := chordKey(m, tea.KeyEnter).status; got != "no agent is waiting" {
 		t.Errorf("status = %q, want the chord to find nothing owed", got)
 	}
 }
@@ -1606,9 +1602,9 @@ func TestARecycledPidDoesNotInheritAFinishedTurn(t *testing.T) {
 	}
 }
 
-func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
-	// ctrl+space ctrl+space is the summons: of everything waiting on its
-	// user, the one waiting longest is the answer owed first.
+func TestPrefixEnterCyclesTheWaitingAgents(t *testing.T) {
+	// ctrl+space enter is the summons: it goes to the next agent waiting on
+	// its user, and pressing it again continues around them in turn.
 	m := withProcList(96, 14,
 		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
 		[]Proc{
@@ -1621,13 +1617,19 @@ func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
 	})
 	m.worked = map[int]bool{700: true, 701: true}
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
+		t.Errorf("cursor on %+v, want the first waiting agent, pid 700", r)
+	}
 
-	r, ok := m.selected()
-	if !ok || r.kind != rowProc || r.node.PID != 701 {
-		t.Errorf("cursor on %+v, want the instance waiting an hour, pid 701", r)
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 701 {
+		t.Errorf("cursor on %+v, want the next waiting agent, pid 701", r)
+	}
+
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
+		t.Errorf("cursor on %+v, want the cycle to wrap back to pid 700", r)
 	}
 }
 
@@ -1641,9 +1643,7 @@ func TestPrefixReachesOutOfAFocusedShell(t *testing.T) {
 	m.terms = map[int]*remoteTerm{900: {pid: 900}}
 	m.focus = 900
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chordKey(m, tea.KeyEnter)
 
 	if m.focus != 0 {
 		t.Error("the chord should leave the shell for the navigator")
@@ -1675,6 +1675,20 @@ func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
 func chord(m model, key string) model {
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	next, _ = next.(model).Update(typed(key))
+	return next.(model)
+}
+
+// chordKey presses the prefix and then one non-printable key.
+func chordKey(m model, code rune) model {
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: code})
+	return next.(model)
+}
+
+// chordPrefix presses the prefix twice.
+func chordPrefix(m model) model {
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	return next.(model)
 }
 
@@ -1845,17 +1859,47 @@ func TestPrefixSlashOpensTheFilterFromAShell(t *testing.T) {
 	}
 }
 
-func TestPrefixWithNothingWaitingSaysSo(t *testing.T) {
+func TestPrefixEnterWithNothingWaitingSaysSo(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{
 		700: {PID: 700, Status: busyStatus},
 	})
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
-
-	if m.status != "no agent is waiting" {
+	if m = chordKey(m, tea.KeyEnter); m.status != "no agent is waiting" {
 		t.Errorf("status = %q, want it to say nothing is waiting", m.status)
+	}
+}
+
+func TestPrefixPrefixTogglesBetweenTheLastTwoShells(t *testing.T) {
+	m := chord(twoShells(700), "j") // over to 701; 700 is now the one before
+
+	if m = chordPrefix(m); m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle back to 700", m.focus)
+	}
+	if m = chordPrefix(m); m.focus != 701 {
+		t.Errorf("focus = %d, want the toggle forth to 701", m.focus)
+	}
+}
+
+func TestTheToggleResumesAShellLeftWithCtrlO(t *testing.T) {
+	next, _ := twoShells(700).Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m := next.(model)
+	if m.focus != 0 {
+		t.Fatalf("focus = %d, want ctrl+o to step out first", m.focus)
+	}
+
+	if m = chordPrefix(m); m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle to resume the shell just left", m.focus)
+	}
+}
+
+func TestTheToggleWithNothingBeforeSaysSo(t *testing.T) {
+	m := chordPrefix(twoShells(700))
+
+	if m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle to stay put with nowhere to go", m.focus)
+	}
+	if m.status != "no shell to step back into" {
+		t.Errorf("status = %q, want it to explain", m.status)
 	}
 }
 
@@ -2480,7 +2524,7 @@ func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
 func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 	m := press(manyProjects(160, 24), "?")
 	view := stripANSI(m.View().Content)
-	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the waiting agent", "quit"} {
+	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the next waiting agent", "quit"} {
 		if !strings.Contains(view, key) {
 			t.Errorf("view does not show %q with the modal open", key)
 		}

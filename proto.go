@@ -167,13 +167,24 @@ const (
 )
 
 // socketPath is where the daemon listens. It is per user and outside the
-// project, because one daemon holds the shells for every repository.
+// project, because one daemon holds the shells for every repository. It
+// honors XDG_STATE_HOME the way the config honors XDG_CONFIG_HOME.
 func socketPath() string {
 	if p := os.Getenv("SCRN_SOCKET"); p != "" {
 		return p
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "scrn", "scrnd-"+strconv.Itoa(os.Getuid())+".sock")
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, _ := os.UserHomeDir()
+		state = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(state, "scrn", "scrnd-"+strconv.Itoa(os.Getuid())+".sock")
+}
+
+// daemonLogPath is where the daemon's stderr lands, beside the socket. It
+// holds the daemon's last words and nothing else.
+func daemonLogPath() string {
+	return filepath.Join(filepath.Dir(socketPath()), "scrnd.log")
 }
 
 // dialDaemon connects to a daemon that is already running.

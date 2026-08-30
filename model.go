@@ -286,6 +286,10 @@ type model struct {
 	// cursor is on, so that typing never goes somewhere you cannot see.
 	focus int
 
+	// lastFocus is the shell the keys were in before this one, which is what
+	// ctrl+space ctrl+space steps back to.
+	lastFocus int
+
 	// windowTitle is what the window's tab should say: the last title a
 	// focused shell asked for. It rides out on every view, because a title is
 	// a standing fact about the window rather than a one-time ask.
@@ -460,7 +464,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case daemonLostMsg:
 		m.daemon, m.daemonErr = nil, msg.err.Error()
-		m.terms, m.focus = map[int]*remoteTerm{}, 0
+		m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
 		if m.upgradeAsked {
 			// An upgrading daemon drops every connection on its way through
 			// the exec. That is it working, not it going away, so the window
@@ -481,7 +485,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// none of them is more the one you meant than the others. Only a shell
 		// opened on its own takes the keys and the cursor.
 		if msg.name == "" {
-			m.focus, m.wantCursor = msg.pid, msg.pid
+			m.setFocus(msg.pid)
+			m.wantCursor = msg.pid
 		}
 		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
@@ -775,19 +780,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ctrl+space is scrn's prefix, and it is taken everywhere — over the
 		// navigator, the filter, a focused shell — because its point is to
 		// reach scrn from wherever the keys are currently going. The chords
-		// keep their letters' meanings: another ctrl+space goes to the agent
-		// that has been waiting on its user longest, / finds, j and k step
-		// through the shells scrn holds, s a r act where the keys are,
-		// ? shows the keys. Anything unbound cancels it and is swallowed,
-		// the way a half-finished gg swallows.
+		// keep their letters' meanings: another ctrl+space toggles between
+		// this shell and the one viewed before it, enter goes to the next
+		// agent waiting on its user, / finds, j and k step through the
+		// shells scrn holds, s a r act where the keys are, ? shows the keys.
+		// Anything unbound cancels it and is swallowed, the way a
+		// half-finished gg swallows.
 		if m.pendingPrefix {
 			m.pendingPrefix = false
 			if isPrefix(msg) {
-				return m, m.jumpWaiting()
+				return m, m.toggleFocus()
 			}
 			switch msg.String() {
 			case "?":
 				m.showHelp = true
+			case "enter":
+				return m, m.jumpWaiting()
 			case "/":
 				return m, m.openFilter()
 			case "j":
@@ -820,7 +828,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is running in the shell, not to scrn.
 		if t := m.focused(); t != nil {
 			if msg.String() == "ctrl+o" {
-				m.focus = 0
+				m.setFocus(0)
 				return m, m.detailCmd()
 			}
 			m.daemon.key(t.pid, keyEvent(msg))
@@ -840,7 +848,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "R", "y", "enter":
 				old := m.daemon
-				m.terms, m.focus, m.daemonStale = map[int]*remoteTerm{}, 0, false
+				m.terms, m.focus, m.lastFocus, m.daemonStale = map[int]*remoteTerm{}, 0, 0, false
 				m.daemon, m.status, m.statusErr = nil, "replacing the daemon", false
 				return m, replaceDaemon(old)
 			}
@@ -1068,26 +1076,77 @@ func (m *model) jump(i int) tea.Cmd {
 	return m.detailCmd()
 }
 
-// jumpWaiting puts the cursor on the agent that has been waiting on its user
-// the longest — the answer owed first. It leaves a focused shell and an open
-// transcript behind, because the point of the chord is to be taken to the
-// agent from wherever you were.
+// jumpWaiting goes to the next agent waiting on its user, in row order from
+// where the keys are, wrapping. Going to an agent scrn holds means stepping
+// into its shell; one it can only watch gets the cursor instead, which is as
+// far as enter could take it either.
 func (m *model) jumpWaiting() tea.Cmd {
-	best, at := time.Duration(-1), -1
-	for i, r := range m.rows {
-		if a := m.awaiting(r); a != nil && a.waitingFor() > best {
-			best, at = a.waitingFor(), i
+	at := m.cursor
+	if t := m.focused(); t != nil {
+		for i, r := range m.rows {
+			if r.kind == rowProc && m.owningTerm(r.node.PID) == t {
+				at = i
+				break
+			}
 		}
 	}
-	if at < 0 {
-		m.status, m.statusErr = "no agent is waiting", false
+	for step := 1; step <= len(m.rows); step++ {
+		i := (at + step) % len(m.rows)
+		r := m.rows[i]
+		if m.awaiting(r) == nil {
+			continue
+		}
+		if t := m.owningTerm(r.node.PID); t != nil {
+			m.attachTo(t)
+			return nil
+		}
+		m.scroll = nil
+		m.setFocus(0)
+		m.cursor = i
+		m.scrollToCursor()
+		return m.detailCmd()
+	}
+	m.status, m.statusErr = "no agent is waiting", false
+	return nil
+}
+
+// toggleFocus steps between the shell being viewed and the one viewed before
+// it: from inside a shell it is the other of the pair, from the navigator it
+// is back into the one just left.
+func (m *model) toggleFocus() tea.Cmd {
+	t := m.terms[m.lastFocus]
+	if t == nil {
+		m.status, m.statusErr = "no shell to step back into", false
 		return nil
 	}
-	m.focus = 0
+	m.attachTo(t)
+	return nil
+}
+
+// setFocus moves the keys, remembering the shell they leave so the toggle
+// can step back to it.
+func (m *model) setFocus(pid int) {
+	if m.focus != 0 && m.focus != pid {
+		m.lastFocus = m.focus
+	}
+	m.focus = pid
+}
+
+// attachTo steps into a shell from anywhere: the keys go to the shell, the
+// cursor to its row, and a filter that led here is finished, like enter's.
+func (m *model) attachTo(t *remoteTerm) {
 	m.scroll = nil
-	m.cursor = at
-	m.scrollToCursor()
-	return m.detailCmd()
+	m.typing = false
+	m.setFocus(t.pid)
+	m.setFilter("")
+	for i, r := range m.rows {
+		if r.kind == rowProc && m.owningTerm(r.node.PID) == t {
+			m.cursor = i
+			m.scrollToCursor()
+			break
+		}
+	}
+	m.daemon.attach(t.pid, m.detailWidth(), m.paneHeight())
 }
 
 // openFilter starts typing a filter. The list becomes every project straight
@@ -1095,7 +1154,7 @@ func (m *model) jumpWaiting() tea.Cmd {
 // remembering which ones there are. As a chord it can arrive from inside a
 // shell or a transcript, which it leaves the way jumpWaiting does.
 func (m *model) openFilter() tea.Cmd {
-	m.focus = 0
+	m.setFocus(0)
 	m.scroll = nil
 	m.typing = true
 	m.rebuild()
@@ -1129,12 +1188,7 @@ func (m *model) attachStep(delta int) tea.Cmd {
 		if t == nil || t.pid == m.focus {
 			continue
 		}
-		m.scroll = nil
-		m.cursor = i
-		m.focus = t.pid
-		m.typing = false
-		m.setFilter("")
-		m.daemon.attach(t.pid, m.detailWidth(), m.paneHeight())
+		m.attachTo(t)
 		return nil
 	}
 	m.status, m.statusErr = "nothing else to attach to", false
@@ -1317,7 +1371,7 @@ func (m *model) openShell() tea.Cmd {
 			m.status, m.statusErr = "scrn did not start "+procLabel(r.node), false
 			return nil
 		}
-		m.focus = t.pid
+		m.setFocus(t.pid)
 		// Stepping into something is acting on it, so a search that led here
 		// is finished. Nothing has to be waited for: the project already holds
 		// the shell being entered, so it stays listed without the filter.
@@ -1771,7 +1825,7 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Out means all the way out: the reading ends and so does being in
 		// the shell.
 		m.scroll = nil
-		m.focus = 0
+		m.setFocus(0)
 		return m.detailCmd()
 	case "up", "k":
 		m.scrollBy(1)
