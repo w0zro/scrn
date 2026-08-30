@@ -167,10 +167,6 @@ type model struct {
 	// pendingG is a g waiting for the g that makes it mean the top.
 	pendingG bool
 
-	// pendingDown is the project whose processes are to be stopped, waiting
-	// for the key that confirms it. Stopping is a kill like any other.
-	pendingDown *Project
-
 	// scroll is the focused pane's transcript being read back through, and
 	// nil while the pane is live.
 	scroll *scrollView
@@ -577,17 +573,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// called "scrn" can be typed without s opening a shell halfway through.
 		if m.typing {
 			return m, m.filterKey(msg)
-		}
-
-		// Stopping a project's processes ends work, so it takes a second key.
-		if p := m.pendingDown; p != nil {
-			m.pendingDown = nil
-			switch msg.String() {
-			case "x", "y", "enter":
-				return m, m.down(*p)
-			}
-			m.status, m.statusErr = "left them running", false
-			return m, nil
 		}
 
 		// Replacing the daemon ends the work it is holding, so it takes a
@@ -1034,23 +1019,6 @@ func (m *model) run() tea.Cmd {
 	return scanProcs
 }
 
-// down stops the shells a project's plan started, and only those: a shell
-// opened by hand was not part of the list and is not swept up by it.
-func (m *model) down(p Project) tea.Cmd {
-	planned := m.planned(p.Path)
-	if len(planned) == 0 {
-		return nil
-	}
-
-	names := make([]string, 0, len(planned))
-	for _, t := range planned {
-		m.daemon.closeTerm(t.pid)
-		names = append(names, t.name)
-	}
-	m.status, m.statusErr = "stopped "+strings.Join(names, ", "), false
-	return scanProcs
-}
-
 // planned are the shells in a project that a plan started, which are the ones
 // carrying the name the plan gave them.
 func (m model) planned(path string) []*remoteTerm {
@@ -1083,9 +1051,10 @@ func describeEntries(entries []entry) string {
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the
-// one selected process — or, on a repository row, the shells its plan started;
-// a tree kill takes everything below it too, which for a repository row means
-// everything running in that repository.
+// one selected process; a tree kill takes everything below it too. On a
+// repository row the two widths are the same width — everything running in
+// it: a narrow kill that stopped only what the plan had started read as x
+// ignoring half of what was on screen.
 func (m *model) askKill(tree bool) tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
@@ -1093,21 +1062,6 @@ func (m *model) askKill(tree bool) tea.Cmd {
 	}
 
 	if r.kind == rowProject {
-		// On a repository the narrow kill is what its plan started, and the
-		// wide one is everything running in it: the same verb at two widths,
-		// told apart the way x and X are on a process.
-		if !tree {
-			p := r.project
-			if len(m.planned(p.Path)) == 0 {
-				m.status, m.statusErr = "nothing in "+p.Name+" was started from its plan", false
-				if len(m.byRepo[p.Path]) > 0 {
-					m.status += ", or X for the whole repository"
-				}
-				return nil
-			}
-			m.pendingDown = &p
-			return nil
-		}
 		var nodes []*ProcNode
 		for _, root := range m.byRepo[r.project.Path] {
 			nodes = append(nodes, subtree(root)...)

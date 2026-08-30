@@ -988,8 +988,9 @@ func TestROnAProjectThatSaysNothingExplainsItself(t *testing.T) {
 	}
 }
 
-func TestXOnARepoStopsOnlyWhatThePlanStarted(t *testing.T) {
-	// A shell opened by hand was not part of the list and is not swept up.
+func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
+	// The shell opened by hand goes too: x on a repository means being done
+	// with the repository, not with the part of it a plan happened to start.
 	m, dir := projectNeeding(t, "one: sleep 30\n")
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
@@ -1002,29 +1003,40 @@ func TestXOnARepoStopsOnlyWhatThePlanStarted(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	m = next.(model)
 
+	// The kill covers what the scan has seen, so let it see both shells.
+	procs := make([]Proc, 0, 2)
+	for pid := range m.terms {
+		procs = append(procs, Proc{PID: pid, PPID: 1, Command: "zsh", Dir: dir})
+	}
+	next, _ = m.Update(procsMsg{procs: procs})
+	m = next.(model)
+	m.cursor = 0 // back onto the repo row
+
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)
-	if m.pendingDown == nil {
-		t.Fatal("x should ask before stopping")
+	if m.pendingKill == nil {
+		t.Fatal("x should ask before killing")
 	}
-	if f := footer(m); !strings.Contains(f, "stop what proj started?") {
-		t.Errorf("footer = %q, want it to say what it is about to stop", f)
+	if f := footer(m); !strings.Contains(f, "kill 2 processes in proj?") {
+		t.Errorf("footer = %q, want it to say what it is about to clear out", f)
 	}
 
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
-
-	for _, term := range m.terms {
-		if term.name != "" {
-			t.Errorf("term %q survived, want only the one opened by hand", term.name)
-		}
-	}
+	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 0 }, 5*time.Second)
 }
 
 func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
-	m, _ := projectNeeding(t, "one: sleep 30\n")
+	m, dir := projectNeeding(t, "one: sleep 30\n")
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
+
+	procs := make([]Proc, 0, 1)
+	for pid := range m.terms {
+		procs = append(procs, Proc{PID: pid, PPID: 1, Command: "zsh", Dir: dir})
+	}
+	next, _ = m.Update(procsMsg{procs: procs})
+	m = next.(model)
+	m.cursor = 0
 
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
@@ -1033,20 +1045,22 @@ func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
 	if len(m.terms) != 1 {
 		t.Error("cancelling should not have stopped anything")
 	}
-	if !strings.Contains(footer(m), "left them running") {
+	if !strings.Contains(footer(m), "cancelled") {
 		t.Errorf("footer = %q, want it to say nothing happened", footer(m))
 	}
 }
 
-func TestXOnAProjectWithNothingOfItsOwnSaysSo(t *testing.T) {
+func TestXOnAProjectWithNothingRunningSaysSo(t *testing.T) {
+	// A plan is a list to run, not something running: until r is pressed
+	// there is nothing for a kill to act on.
 	m, _ := projectNeeding(t, "one: sleep 30\n")
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)
 
-	if m.pendingDown != nil {
-		t.Error("there is nothing to stop, so nothing to confirm")
+	if m.pendingKill != nil {
+		t.Error("there is nothing to kill, so nothing to confirm")
 	}
-	if !strings.Contains(footer(m), "nothing in proj was started from its plan") {
+	if !strings.Contains(footer(m), "nothing running in proj") {
 		t.Errorf("footer = %q, want it to explain", footer(m))
 	}
 }

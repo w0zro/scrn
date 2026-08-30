@@ -861,17 +861,6 @@ func TestQuitStillWorksWhileArmed(t *testing.T) {
 	}
 }
 
-func TestXOnARepoWithNoPlanExplainsItself(t *testing.T) {
-	m := press(nestedTree(12), "x") // cursor is on the repo row
-
-	if m.pendingKill != nil || m.pendingDown != nil {
-		t.Error("a repository whose plan started nothing should not arm anything")
-	}
-	if f := footer(m); !strings.Contains(f, "was started from its plan") {
-		t.Errorf("footer = %q, want it to explain why nothing happened", f)
-	}
-}
-
 func TestKillFailureIsReported(t *testing.T) {
 	m := nestedTree(12)
 	next, cmd := m.Update(killFailed("zsh", 10, errors.New("not permitted")))
@@ -901,13 +890,13 @@ func TestKillSuccessStartsTheMarker(t *testing.T) {
 }
 
 func TestStatusClearsOnTheNextKey(t *testing.T) {
-	m := press(nestedTree(12), "x") // leaves the status about the plan
-	if !strings.Contains(footer(m), "was started from its plan") {
+	m := press(nestedTree(12), "r") // leaves a status about the missing daemon
+	if !strings.Contains(footer(m), "no daemon") {
 		t.Fatal("expected a status to clear")
 	}
 
 	m = press(m, "down")
-	if strings.Contains(footer(m), "was started from its plan") {
+	if strings.Contains(footer(m), "no daemon") {
 		t.Errorf("status should clear once the cursor moves, footer = %q", footer(m))
 	}
 }
@@ -1289,21 +1278,28 @@ func TestXOnARepoTakesEverythingInIt(t *testing.T) {
 	}
 }
 
-func TestXOnAnIdleRepoSaysThereIsNothingToKill(t *testing.T) {
-	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
-	m = press(m, "X")
+func TestLowercaseXOnARepoTakesEverythingInItToo(t *testing.T) {
+	// On a repository both widths are the same width. A narrow kill that
+	// stopped only what the plan had started read as x ignoring half of what
+	// was on screen.
+	m := press(nestedTree(12), "x") // cursor is on the repo row
 
-	if m.pendingKill != nil {
-		t.Error("an idle repository should not arm a kill")
-	}
-	if f := footer(m); !strings.Contains(f, "nothing running in scrn") {
-		t.Errorf("footer = %q, want it to explain why nothing happened", f)
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
+		t.Errorf("targets = %v, want every process in the repo %v", got, want)
 	}
 }
 
-func TestXOnARepoPointsAtTheTreeKill(t *testing.T) {
-	if f := footer(press(nestedTree(12), "x")); !strings.Contains(f, "X for the whole repository") {
-		t.Errorf("footer = %q, want it to point at the key that does work here", f)
+func TestXOnAnIdleRepoSaysThereIsNothingToKill(t *testing.T) {
+	for _, key := range []string{"x", "X"} {
+		m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+		m = press(m, key)
+
+		if m.pendingKill != nil {
+			t.Errorf("%q on an idle repository should not arm a kill", key)
+		}
+		if f := footer(m); !strings.Contains(f, "nothing running in scrn") {
+			t.Errorf("%q footer = %q, want it to explain why nothing happened", key, f)
+		}
 	}
 }
 
@@ -2067,8 +2063,8 @@ func TestTheListGetsTheRoomTheKeysWereTaking(t *testing.T) {
 func TestSomethingBeingSaidStillTakesTheFoot(t *testing.T) {
 	// A confirmation or a report is about the next keystroke, so it is shown
 	// whether or not the keys have been asked for.
-	m := press(nestedTree(24), "x") // a repo row, so it explains itself
-	if !strings.Contains(footer(m), "was started from its plan") {
+	m := press(nestedTree(24), "r") // no daemon, so it explains itself
+	if !strings.Contains(footer(m), "no daemon") {
 		t.Errorf("footer = %q, want what was just said", footer(m))
 	}
 }
