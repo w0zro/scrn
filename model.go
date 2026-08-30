@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // navWidth is the column the navigator occupies, divider excluded. The
@@ -153,9 +153,9 @@ type model struct {
 	groups  []Project
 	grouped map[string][]Project
 
-	// showHelp spells the keys out. They are worth a line to say they exist
-	// and six to list, and the list is worth more to the navigator most of the
-	// time than it is to the person reading it.
+	// showHelp puts the keys modal over the window. The keys are worth a foot
+	// line to say they exist and a modal to spell out; the next keystroke,
+	// whatever it is, puts the modal away.
 	showHelp bool
 
 	// unfolded draws every process on a line of its own, including the ones a
@@ -286,6 +286,11 @@ type model struct {
 	// cursor is on, so that typing never goes somewhere you cannot see.
 	focus int
 
+	// windowTitle is what the window's tab should say: the last title a
+	// focused shell asked for. It rides out on every view, because a title is
+	// a standing fact about the window rather than a one-time ask.
+	windowTitle string
+
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
 	details map[string][]field
@@ -305,7 +310,10 @@ func newModel() model {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(scanProjects, scanProcs, scanAgents, connectDaemon(),
-		tick(procPoll), agentTick())
+		tick(procPoll), agentTick(),
+		// The styles depend on the terminal's background, which lipgloss no
+		// longer guesses at: scrn asks, and rebuilds them on the answer.
+		func() tea.Msg { return tea.RequestBackgroundColor() })
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -548,7 +556,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only the shell being looked at speaks for the window. Another one
 		// finishing a build should not retitle a tab showing something else.
 		if m.focus == msg.pid && t.title != "" {
-			return m, tea.Batch(nextEvent(m.daemon), tea.SetWindowTitle(oscTitleText(t.title)))
+			m.windowTitle = oscTitleText(t.title)
 		}
 		return m, nextEvent(m.daemon)
 
@@ -710,26 +718,66 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemon.mouse(t.pid, ev)
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		// The answer to Init's ask: now the styles can pick their side.
+		applyBackground(msg.IsDark())
+		return m, nil
+
+	case tea.PasteMsg:
+		// A paste while the keys modal is up dismisses it, the way any
+		// keystroke does, and goes no further.
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+		// Reading the transcript swallows it: the reader is looking, and
+		// typing lands nowhere.
+		if m.scroll != nil {
+			return m, nil
+		}
+		// Pasted text goes to a focused shell as a paste rather than as the
+		// keystrokes it would have taken to type, so a program that asked for
+		// bracketed paste is told where it starts and stops.
+		if t := m.focused(); t != nil {
+			m.daemon.paste(t.pid, msg.Content)
+			return m, nil
+		}
+		// Into the filter it is just more of the query.
+		if m.typing {
+			m.status = ""
+			m.setFilter(m.filter + msg.Content)
+			return m, m.detailCmd()
+		}
+		return m, nil
+
+	case tea.KeyPressMsg:
+		// The keys modal takes the next key, whatever it is: it was asked for
+		// with a keystroke and leaves on one, and nothing under it should act
+		// while it covers the window.
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		// ctrl+space is scrn's prefix, and it is taken everywhere — over the
 		// navigator, the filter, a focused shell — because its point is to
-		// reach scrn from wherever the keys are currently going. It carries
-		// one chord for now: another ctrl+space goes to the agent that has
-		// been waiting on its user longest. Anything unbound cancels it and
-		// is swallowed, the way a half-finished gg swallows. The terminal
-		// sends ctrl+space as NUL, which Bubble Tea names ctrl+@.
-		if !msg.Paste {
-			if m.pendingPrefix {
-				m.pendingPrefix = false
-				if msg.Type == tea.KeyCtrlAt {
-					return m, m.jumpWaiting()
-				}
-				return m, nil
+		// reach scrn from wherever the keys are currently going. Another
+		// ctrl+space goes to the agent that has been waiting on its user
+		// longest; ? shows the keys. Anything unbound cancels it and is
+		// swallowed, the way a half-finished gg swallows.
+		if m.pendingPrefix {
+			m.pendingPrefix = false
+			if isPrefix(msg) {
+				return m, m.jumpWaiting()
 			}
-			if msg.Type == tea.KeyCtrlAt {
-				m.pendingPrefix = true
-				return m, nil
+			if msg.String() == "?" {
+				m.showHelp = true
 			}
+			return m, nil
+		}
+		if isPrefix(msg) {
+			m.pendingPrefix = true
+			return m, nil
 		}
 
 		// Reading the transcript takes every key: the reader is looking, not
@@ -743,20 +791,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// That has to come before everything else: ctrl+c belongs to whatever
 		// is running in the shell, not to scrn.
 		if t := m.focused(); t != nil {
-			if msg.Type == tea.KeyCtrlO {
+			if msg.String() == "ctrl+o" {
 				m.focus = 0
 				return m, m.detailCmd()
 			}
-			// Pasted text goes as a paste rather than as the keystrokes it
-			// would have taken to type, so a program that asked for bracketed
-			// paste is told where it starts and stops.
-			if msg.Paste {
-				m.daemon.paste(t.pid, string(msg.Runes))
-				return m, nil
-			}
-			for _, k := range keyEvents(msg) {
-				m.daemon.key(t.pid, k)
-			}
+			m.daemon.key(t.pid, keyEvent(msg))
 			return m, nil
 		}
 
@@ -810,8 +849,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		switch msg.String() {
 		case "?":
-			m.showHelp = !m.showHelp
-			m.scrollToCursor()
+			m.showHelp = true
 			return m, nil
 		case "R":
 			return m, m.askReplace()
@@ -867,11 +905,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Whatever is open is what esc is most likely about, and only
 			// once nothing is does it mean leave.
-			if m.showHelp {
-				m.showHelp = false
-				m.scrollToCursor()
-				return m, nil
-			}
 			if m.filter != "" {
 				m.setFilter("")
 				return m, m.detailCmd()
@@ -891,9 +924,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // cursor you can move, and n or c or enter acts on whatever that cursor is on.
 // Having to accept the filter first made finding a project and doing something
 // in it two separate acts, when it is one.
-func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
-	case tea.KeyEnter:
+func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "enter":
 		// Enter is the one key that means both things. On a repository or a
 		// sub-project it opens a shell there, which is the point of having
 		// looked it up; the filter is finished either way.
@@ -904,48 +937,40 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 		return m.detailCmd()
 
 	// Moving through what is left, without leaving the typing.
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		return m.move(-1)
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		return m.move(1)
 
-	case tea.KeyCtrlO:
+	case "ctrl+o":
 		// The one key a shell needs, so that stepping into one and back out
 		// does not depend on where the keys happened to be going.
 		m.typing = false
 		return m.detailCmd()
 
-	case tea.KeyEsc:
+	case "esc":
 		m.typing = false
 		m.setFilter("")
 		return m.detailCmd()
-	case tea.KeyBackspace:
+	case "backspace":
 		if r := []rune(m.filter); len(r) > 0 {
 			m.setFilter(string(r[:len(r)-1]))
 		}
 		return m.detailCmd()
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		// The query is a line being typed, and ctrl+u is what clears a line
 		// everywhere else a line is typed. The typing itself goes on.
 		m.setFilter("")
 		return m.detailCmd()
-	case tea.KeySpace:
+	case "space":
 		m.setFilter(m.filter + " ")
-		return m.detailCmd()
-
-	case tea.KeyRunes:
-		// A letter is a letter: a project called "scrn" has to be typeable
-		// without s doing something. The actions are on the chords, which no
-		// name contains.
-		m.status = "" // whatever was reported was about the last project
-		m.setFilter(m.filter + string(msg.Runes))
 		return m.detailCmd()
 
 	// The chords mean what their letters mean. Starting what a project needs
 	// is the end of looking for it, so the search closes and leaves the cursor
 	// on the project — which is where you would want to be watching it come
 	// up, and where the keys mean what they usually mean again.
-	case tea.KeyCtrlR:
+	case "ctrl+r":
 		// Starting what a project needs is the end of looking for it, so the
 		// typing stops. The filter itself is held until the processes land,
 		// the same way it is for a shell: dropping it now would take the
@@ -953,8 +978,17 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 		// cursor with it.
 		m.typing = false
 		return m.run()
-	case tea.KeyCtrlA:
+	case "ctrl+a":
 		return m.start(agentKinds[0].run)
+	}
+
+	// A letter is a letter: a project called "scrn" has to be typeable
+	// without s doing something. The actions are on the chords, which no
+	// name contains.
+	if msg.Text != "" {
+		m.status = "" // whatever was reported was about the last project
+		m.setFilter(m.filter + msg.Text)
+		return m.detailCmd()
 	}
 	return nil
 }
@@ -1052,6 +1086,10 @@ func (m model) focused() *remoteTerm {
 
 // paneTerm is the shell the pane should be showing: the focused one, or the
 // one belonging to the row under the cursor.
+//
+// A folded run is rarely a shell itself — the row is named for what the shell
+// started — so the run is walked for the shell scrn holds in it. That shell's
+// pane is where the thing the row is named for is drawing.
 func (m model) paneTerm() *remoteTerm {
 	if t := m.focused(); t != nil {
 		return t
@@ -1060,7 +1098,15 @@ func (m model) paneTerm() *remoteTerm {
 	if !ok || r.kind != rowProc {
 		return nil
 	}
-	return m.terms[r.node.PID]
+	if t := m.terms[r.node.PID]; t != nil {
+		return t
+	}
+	for _, n := range r.run {
+		if t := m.terms[n.PID]; t != nil {
+			return t
+		}
+	}
+	return nil
 }
 
 // attachable reports whether enter takes you somewhere. A repository opens a
@@ -1529,13 +1575,14 @@ const wheelLines = 3
 // wheelDelta is how far a mouse event asks the transcript to move: up for
 // positive, and nothing for anything that is not a turn of the wheel.
 func wheelDelta(msg tea.MouseMsg) int {
-	if msg.Action != tea.MouseActionPress {
+	wheel, ok := msg.(tea.MouseWheelMsg)
+	if !ok {
 		return 0
 	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch wheel.Button {
+	case tea.MouseWheelUp:
 		return wheelLines
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		return -wheelLines
 	}
 	return 0
@@ -1570,7 +1617,7 @@ func (m *model) scrollMax() int {
 
 // scrollKey is a keystroke while the transcript is being read: vim's motions,
 // the ends, and the ways out.
-func (m *model) scrollKey(msg tea.KeyMsg) tea.Cmd {
+func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 	page := m.paneHeight()
 	switch msg.String() {
 	case "esc", "q", "G":
@@ -1875,7 +1922,7 @@ func (m model) flatten() []navRow {
 		// comes before the repositories it sits beside.
 		roots := m.byPlace[top.project.Path]
 		for i, n := range roots {
-			rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1 && len(repos) == 0)...)
+			rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1)...)
 		}
 		for _, p := range repos {
 			rows = append(rows, m.flattenRepo(p, "  ")...)
@@ -1990,27 +2037,35 @@ func (m model) flattenRepo(p Project, indent string) []navRow {
 	// is running inside them is not what is being chosen between, and it
 	// would bury the names being scanned for.
 	if m.typing {
-		for _, sp := range subs {
-			rows = append(rows, navRow{kind: rowSub, project: sp, prefix: indent + "  "})
+		for i, sp := range subs {
+			rows = append(rows, navRow{kind: rowSub, project: sp, prefix: indent,
+				last: i == len(subs)-1})
 		}
 		return rows
 	}
 	if m.collapsed[detailKey(row)] {
 		return rows
 	}
+	// Processes and sub-projects hang off the repository as one family of
+	// siblings: a sub-project takes a branch the way a process does, and the
+	// rail runs on past the last process when one is still to come.
 	roots := m.byPlace[p.Path]
 	for i, n := range roots {
 		rows = append(rows, m.flattenProc(p, n, indent, i == len(roots)-1 && len(subs) == 0)...)
 	}
-	for _, sp := range subs {
-		srow := navRow{kind: rowSub, project: sp, prefix: indent + "  "}
+	for i, sp := range subs {
+		srow := navRow{kind: rowSub, project: sp, prefix: indent, last: i == len(subs)-1}
 		rows = append(rows, srow)
 		if m.collapsed[detailKey(srow)] {
 			continue
 		}
+		rail := indent + "│ "
+		if srow.last {
+			rail = indent + "  "
+		}
 		sroots := m.byPlace[sp.Path]
 		for i, n := range sroots {
-			rows = append(rows, m.flattenProc(sp, n, indent+"  ", i == len(sroots)-1)...)
+			rows = append(rows, m.flattenProc(sp, n, rail, i == len(sroots)-1)...)
 		}
 	}
 	return rows

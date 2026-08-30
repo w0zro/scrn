@@ -233,7 +233,7 @@ func (d *daemon) handle(cl *client, m message) {
 	case kindUpgrade:
 		// Exec never returns when it works, so reaching the send means it did
 		// not: the daemon is whole, and says what went wrong.
-		if err := d.execSelf(); err != nil {
+		if err := d.execSelf(m.Exe); err != nil {
 			cl.send(message{Kind: kindError, Err: "upgrade: " + err.Error()})
 		}
 

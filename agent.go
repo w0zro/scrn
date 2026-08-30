@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // An agent is an AI assistant working in a repository: a process like any

@@ -4,17 +4,16 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
 
-// bytesFor runs a keystroke the whole way: through the translation the window
-// does, into an emulator in whatever modes are given, and out as the bytes a
-// shell would receive. Those bytes are the thing worth asserting — the
-// translation on its own has no answer, which is the reason it stopped trying
-// to have one.
-func bytesFor(t *testing.T, msg tea.KeyMsg, modes ...string) string {
+// bytesFor runs a keystroke the whole way: through the window's restatement,
+// into an emulator in whatever modes are given, and out as the bytes a shell
+// would receive. Those bytes are the thing worth asserting — the keystroke on
+// its own has no answer, which is the reason nothing here writes bytes.
+func bytesFor(t *testing.T, msg tea.KeyPressMsg, modes ...string) string {
 	t.Helper()
 
 	e := vt.NewSafeEmulator(80, 24)
@@ -41,9 +40,6 @@ func bytesFor(t *testing.T, msg tea.KeyMsg, modes ...string) string {
 	}
 
 	k := keyEvent(msg)
-	if k == nil {
-		return ""
-	}
 	e.SendKey(uv.KeyPressEvent{Code: k.Code, Text: k.Text, Mod: uv.KeyMod(k.Mod)})
 
 	select {
@@ -57,22 +53,22 @@ func bytesFor(t *testing.T, msg tea.KeyMsg, modes ...string) string {
 func TestAKeystrokeReachesTheShellAsTheRightBytes(t *testing.T) {
 	cases := []struct {
 		name string
-		msg  tea.KeyMsg
+		msg  tea.KeyPressMsg
 		want string
 	}{
-		{"letters", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")}, "l"},
-		{"utf-8 survives", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")}, "é"},
-		{"enter is a carriage return", tea.KeyMsg{Type: tea.KeyEnter}, "\r"},
-		{"tab", tea.KeyMsg{Type: tea.KeyTab}, "\t"},
-		{"backspace", tea.KeyMsg{Type: tea.KeyBackspace}, "\x7f"},
-		{"ctrl+c interrupts", tea.KeyMsg{Type: tea.KeyCtrlC}, "\x03"},
-		{"ctrl+d ends input", tea.KeyMsg{Type: tea.KeyCtrlD}, "\x04"},
-		{"esc", tea.KeyMsg{Type: tea.KeyEsc}, "\x1b"},
-		{"up", tea.KeyMsg{Type: tea.KeyUp}, "\x1b[A"},
-		{"left", tea.KeyMsg{Type: tea.KeyLeft}, "\x1b[D"},
-		{"delete", tea.KeyMsg{Type: tea.KeyDelete}, "\x1b[3~"},
-		{"space", tea.KeyMsg{Type: tea.KeySpace}, " "},
-		{"alt is an escape prefix", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b"), Alt: true}, "\x1bb"},
+		{"letters", tea.KeyPressMsg{Code: 'l', Text: "l"}, "l"},
+		{"utf-8 survives", tea.KeyPressMsg{Code: 'é', Text: "é"}, "é"},
+		{"enter is a carriage return", tea.KeyPressMsg{Code: tea.KeyEnter}, "\r"},
+		{"tab", tea.KeyPressMsg{Code: tea.KeyTab}, "\t"},
+		{"backspace", tea.KeyPressMsg{Code: tea.KeyBackspace}, "\x7f"},
+		{"ctrl+c interrupts", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, "\x03"},
+		{"ctrl+d ends input", tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}, "\x04"},
+		{"esc", tea.KeyPressMsg{Code: tea.KeyEscape}, "\x1b"},
+		{"up", tea.KeyPressMsg{Code: tea.KeyUp}, "\x1b[A"},
+		{"left", tea.KeyPressMsg{Code: tea.KeyLeft}, "\x1b[D"},
+		{"delete", tea.KeyPressMsg{Code: tea.KeyDelete}, "\x1b[3~"},
+		{"space", tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, " "},
+		{"alt is an escape prefix", tea.KeyPressMsg{Code: 'b', Mod: tea.ModAlt}, "\x1bb"},
 	}
 	for _, c := range cases {
 		if got := bytesFor(t, c.msg); got != c.want {
@@ -89,8 +85,8 @@ func TestAnArrowFollowsTheModeTheProgramAskedFor(t *testing.T) {
 	// and it was wrong in the one that matters.
 	const applicationCursorKeys = "\x1b[?1h"
 
-	normal := bytesFor(t, tea.KeyMsg{Type: tea.KeyUp})
-	application := bytesFor(t, tea.KeyMsg{Type: tea.KeyUp}, applicationCursorKeys)
+	normal := bytesFor(t, tea.KeyPressMsg{Code: tea.KeyUp})
+	application := bytesFor(t, tea.KeyPressMsg{Code: tea.KeyUp}, applicationCursorKeys)
 
 	if normal != "\x1b[A" {
 		t.Errorf("up in normal mode = %q, want %q", normal, "\x1b[A")
@@ -106,10 +102,20 @@ func TestAnArrowFollowsTheModeTheProgramAskedFor(t *testing.T) {
 func TestCtrlOIsNotSentOnToTheShell(t *testing.T) {
 	// It is scrn's one reserved key, so the shell must never see it.
 	m := openShellIn(t, repoModel(), "/tmp")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 
 	if next.(model).focused() != nil {
 		t.Error("ctrl+o should be taken by scrn rather than passed through")
+	}
+}
+
+func TestAKeystrokeCrossesTheWireUnchanged(t *testing.T) {
+	// Bubble Tea and the emulator share ultraviolet's vocabulary, so the wire
+	// event is the keystroke restated, not translated: same code, same text,
+	// same modifier bits.
+	k := keyEvent(tea.KeyPressMsg{Code: 'g', Text: "g", Mod: tea.ModAlt})
+	if k.Code != 'g' || k.Text != "g" || k.Mod != int(uv.ModAlt) {
+		t.Errorf("event = %+v, want the keystroke as it was", k)
 	}
 }
 
@@ -117,7 +123,7 @@ func TestAMouseEventArrivesInThePanesOwnCoordinates(t *testing.T) {
 	// The program in the pane believes it is drawing on a terminal that starts
 	// at its own top left, so what it is told about has to be measured from
 	// there rather than from the window's corner.
-	click := tea.MouseMsg{X: navWidth + 1 + 4, Y: 7, Button: tea.MouseButtonLeft}
+	click := tea.MouseClickMsg{X: navWidth + 1 + 4, Y: 7, Button: tea.MouseLeft}
 	got := mouseEvent(click, navWidth+1, 0)
 	if got == nil {
 		t.Fatal("a click inside the pane was dropped")
@@ -127,31 +133,20 @@ func TestAMouseEventArrivesInThePanesOwnCoordinates(t *testing.T) {
 	}
 
 	// A click in the navigator is not the pane's to hear about.
-	if got := mouseEvent(tea.MouseMsg{X: 3, Y: 2}, navWidth+1, 0); got != nil {
+	if got := mouseEvent(tea.MouseClickMsg{X: 3, Y: 2}, navWidth+1, 0); got != nil {
 		t.Errorf("a click in the navigator reached the pane as %+v", got)
 	}
 }
 
-func TestABurstOfTypedRunesIsEveryOneOfThem(t *testing.T) {
-	// Input arriving faster than it is read comes as one message with all the
-	// runes in it, and "seq" typed quickly must not reach the shell as "s".
-	keys := keyEvents(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("seq")})
-	if len(keys) != 3 {
-		t.Fatalf("events = %d, want one per rune", len(keys))
+func TestAWheelTurnAndAReleaseKeepTheirActions(t *testing.T) {
+	// The emulator reports a wheel turn onward as a press of a wheel button,
+	// and a release as a release: the action has to survive the crossing.
+	wheel := mouseEvent(tea.MouseWheelMsg{X: navWidth + 2, Y: 1, Button: tea.MouseWheelUp}, navWidth+1, 0)
+	if wheel == nil || wheel.Action != actPress || wheel.Button != int(tea.MouseWheelUp) {
+		t.Errorf("wheel = %+v, want a press of the wheel button", wheel)
 	}
-	for i, want := range []rune("seq") {
-		if keys[i].Code != want || keys[i].Text != string(want) {
-			t.Errorf("event %d = %+v, want the rune %q", i, keys[i], want)
-		}
-	}
-}
-
-func TestASingleKeystrokeIsStillOneEvent(t *testing.T) {
-	keys := keyEvents(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
-	if len(keys) != 1 || keys[0].Code != 's' {
-		t.Fatalf("events = %+v, want the one keystroke", keys)
-	}
-	if keyEvents(tea.KeyMsg{Type: tea.KeyCtrlUnderscore}) != nil {
-		t.Error("a key the emulator has no name for should stay nil")
+	up := mouseEvent(tea.MouseReleaseMsg{X: navWidth + 2, Y: 1, Button: tea.MouseLeft}, navWidth+1, 0)
+	if up == nil || up.Action != actRelease {
+		t.Errorf("release = %+v, want the release kept", up)
 	}
 }

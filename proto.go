@@ -71,6 +71,12 @@ type message struct {
 
 	Sessions []sessionInfo `json:"sessions,omitempty"`
 
+	// Exe is the binary the asking window is running, sent with an upgrade.
+	// The daemon cannot exec its own path: a daemon started by `go run` came
+	// from a temp binary that was gone once that run ended. The window asking
+	// for the upgrade is running the build it wants, so it says where.
+	Exe string `json:"exe,omitempty"`
+
 	// Since is when the daemon started, so a client can tell whether it is
 	// older than the build asking. A daemon outlives the window that started
 	// it, which is the point of it, and it therefore also outlives rebuilds.
@@ -149,7 +155,7 @@ const (
 	kindResize  = "resize"    // the pane changed shape
 	kindClose   = "close"     // end this shell
 	kindStand   = "standdown" // stop, if you are holding nothing
-	kindUpgrade = "upgrade"   // exec the binary at your own path, shells and all
+	kindUpgrade = "upgrade"   // exec the binary at Exe, shells and all
 	kindHistory = "history"   // asked: this shell's transcript; answered: here it is
 
 	// Daemon to client.

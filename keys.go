@@ -1,8 +1,7 @@
 package main
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	uv "github.com/charmbracelet/ultraviolet"
+	tea "charm.land/bubbletea/v2"
 )
 
 // A shell on the far side of a pty expects the bytes a terminal sends, and
@@ -13,162 +12,44 @@ import (
 // and less all ask. The same key is different bytes depending on a mode that
 // only the emulator is tracking.
 //
-// So nothing here writes bytes. It translates one vocabulary of keystrokes
-// into another — Bubble Tea's into the emulator's — and the emulator, which
-// knows what it has been asked for, writes the bytes at the other end.
+// So nothing here writes bytes. A keystroke crosses to the daemon as the
+// event it was, and the emulator, which knows what it has been asked for,
+// writes the bytes at the other end. Bubble Tea and the emulator share
+// ultraviolet's vocabulary — the same codes, the same modifier bits — so
+// where this file once translated between two namings of every key, it now
+// only restates one of them as the wire's struct.
 
-// keyCodes are the keys the emulator names, against the way Bubble Tea names
-// them. The ones that are missing are the ones that are not a key so much as a
-// key with a modifier, and they are put back together below.
-var keyCodes = map[tea.KeyType]rune{
-	tea.KeyUp:        uv.KeyUp,
-	tea.KeyDown:      uv.KeyDown,
-	tea.KeyRight:     uv.KeyRight,
-	tea.KeyLeft:      uv.KeyLeft,
-	tea.KeyHome:      uv.KeyHome,
-	tea.KeyEnd:       uv.KeyEnd,
-	tea.KeyPgUp:      uv.KeyPgUp,
-	tea.KeyPgDown:    uv.KeyPgDown,
-	tea.KeyDelete:    uv.KeyDelete,
-	tea.KeyInsert:    uv.KeyInsert,
-	tea.KeyEnter:     uv.KeyEnter,
-	tea.KeyTab:       uv.KeyTab,
-	tea.KeyBackspace: uv.KeyBackspace,
-	tea.KeyEsc:       uv.KeyEscape,
-	tea.KeySpace:     uv.KeySpace,
-
-	tea.KeyF1:  uv.KeyF1,
-	tea.KeyF2:  uv.KeyF2,
-	tea.KeyF3:  uv.KeyF3,
-	tea.KeyF4:  uv.KeyF4,
-	tea.KeyF5:  uv.KeyF5,
-	tea.KeyF6:  uv.KeyF6,
-	tea.KeyF7:  uv.KeyF7,
-	tea.KeyF8:  uv.KeyF8,
-	tea.KeyF9:  uv.KeyF9,
-	tea.KeyF10: uv.KeyF10,
-	tea.KeyF11: uv.KeyF11,
-	tea.KeyF12: uv.KeyF12,
+// keyEvent turns a keystroke into the event the emulator will encode.
+func keyEvent(msg tea.KeyPressMsg) *keyPress {
+	return &keyPress{Code: msg.Code, Text: msg.Text, Mod: int(msg.Mod)}
 }
 
-// modified are the keys Bubble Tea reports as a key of their own, which the
-// emulator would rather have as an ordinary key held down with something.
-var modified = map[tea.KeyType]keyPress{
-	tea.KeyShiftTab: {Code: uv.KeyTab, Mod: int(uv.ModShift)},
-
-	tea.KeyCtrlUp:     {Code: uv.KeyUp, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlDown:   {Code: uv.KeyDown, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlRight:  {Code: uv.KeyRight, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlLeft:   {Code: uv.KeyLeft, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlHome:   {Code: uv.KeyHome, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlEnd:    {Code: uv.KeyEnd, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlPgUp:   {Code: uv.KeyPgUp, Mod: int(uv.ModCtrl)},
-	tea.KeyCtrlPgDown: {Code: uv.KeyPgDown, Mod: int(uv.ModCtrl)},
-
-	tea.KeyShiftUp:    {Code: uv.KeyUp, Mod: int(uv.ModShift)},
-	tea.KeyShiftDown:  {Code: uv.KeyDown, Mod: int(uv.ModShift)},
-	tea.KeyShiftRight: {Code: uv.KeyRight, Mod: int(uv.ModShift)},
-	tea.KeyShiftLeft:  {Code: uv.KeyLeft, Mod: int(uv.ModShift)},
-	tea.KeyShiftHome:  {Code: uv.KeyHome, Mod: int(uv.ModShift)},
-	tea.KeyShiftEnd:   {Code: uv.KeyEnd, Mod: int(uv.ModShift)},
-}
-
-// keyEvents turns a key message into the events the emulator will encode. It
-// is almost always one event; the exception is a burst of typed runes, which
-// Bubble Tea hands over as a single message when input arrives faster than it
-// is read. Only the first rune would survive being made one keystroke, and
-// each of them was a keystroke of its own.
-func keyEvents(msg tea.KeyMsg) []*keyPress {
-	if msg.Type == tea.KeyRunes && !msg.Alt && len(msg.Runes) > 1 {
-		out := make([]*keyPress, 0, len(msg.Runes))
-		for _, r := range msg.Runes {
-			out = append(out, &keyPress{Code: r, Text: string(r)})
-		}
-		return out
-	}
-	if k := keyEvent(msg); k != nil {
-		return []*keyPress{k}
-	}
-	return nil
-}
-
-// keyEvent turns a keystroke into the event the emulator will encode, or nil
-// for one it has no idea what to do with.
-func keyEvent(msg tea.KeyMsg) *keyPress {
-	k := translate(msg)
-	if k == nil {
-		return nil
-	}
-	// Alt is a modifier here rather than the escape prefix it becomes on the
-	// wire. Which of those it should be is the emulator's business.
-	if msg.Alt {
-		k.Mod |= int(uv.ModAlt)
-	}
-	return k
-}
-
-func translate(msg tea.KeyMsg) *keyPress {
-	if k, ok := modified[msg.Type]; ok {
-		return &k
-	}
-	if code, ok := keyCodes[msg.Type]; ok {
-		k := keyPress{Code: code}
-		// The keys that type something say so, so that the emulator can tell
-		// a space from the idea of a space.
-		if msg.Type == tea.KeySpace {
-			k.Text = " "
-		}
-		return &k
-	}
-
-	if msg.Type == tea.KeyRunes {
-		if len(msg.Runes) == 0 {
-			return nil
-		}
-		return &keyPress{Code: msg.Runes[0], Text: string(msg.Runes)}
-	}
-
-	// What is left is the control keys, which Bubble Tea numbers by the byte
-	// they stand for: ctrl+a is 1. The emulator wants the letter and the fact
-	// that control was down, not the byte — the byte is one of the things it
-	// is going to decide for itself.
-	if msg.Type >= 1 && msg.Type <= 26 {
-		return &keyPress{Code: rune('a' + msg.Type - 1), Mod: int(uv.ModCtrl)}
-	}
-	return nil
+// isPrefix reports whether a keystroke is scrn's prefix, ctrl+space. The
+// terminal sends it as NUL, which ultraviolet reads back as the key it was.
+func isPrefix(msg tea.KeyPressMsg) bool {
+	return msg.Code == tea.KeySpace && msg.Mod == tea.ModCtrl
 }
 
 // mouseEvent turns a mouse event into one in the pane's own coordinates, or
 // nil when it happened somewhere the pane is not.
 //
-// Bubble Tea and the emulator number the buttons the same way, both from the
-// X11 codes every terminal has reported since: none, left, middle, right, then
-// the four a wheel has.
+// The buttons cross by number, from the X11 codes every terminal has reported
+// since: none, left, middle, right, then the four a wheel has. A wheel turn
+// arrives as its own message type but is a press of a wheel button, which is
+// how the emulator will report it onward.
 func mouseEvent(msg tea.MouseMsg, left, top int) *mousePress {
-	x, y := msg.X-left, msg.Y-top
+	mo := msg.Mouse()
+	x, y := mo.X-left, mo.Y-top
 	if x < 0 || y < 0 {
 		return nil
 	}
 
-	m := &mousePress{X: x, Y: y, Button: int(msg.Button), Action: actPress}
-	switch msg.Action {
-	case tea.MouseActionRelease:
+	m := &mousePress{X: x, Y: y, Button: int(mo.Button), Mod: int(mo.Mod), Action: actPress}
+	switch msg.(type) {
+	case tea.MouseReleaseMsg:
 		m.Action = actRelease
-	case tea.MouseActionMotion:
+	case tea.MouseMotionMsg:
 		m.Action = actMotion
-	}
-
-	for _, mod := range []struct {
-		down bool
-		bit  uv.KeyMod
-	}{
-		{msg.Shift, uv.ModShift},
-		{msg.Alt, uv.ModAlt},
-		{msg.Ctrl, uv.ModCtrl},
-	} {
-		if mod.down {
-			m.Mod |= int(mod.bit)
-		}
 	}
 	return m
 }

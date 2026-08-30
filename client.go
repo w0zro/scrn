@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // The client side of the split. It never touches a pty: it asks the daemon to
@@ -263,10 +263,16 @@ func (s *session) list() { s.ask(message{Kind: kindList}) }
 // do if it is holding nothing.
 func (s *session) standDown() { s.ask(message{Kind: kindStand}) }
 
-// upgrade asks a daemon older than this build to exec the binary at its own
-// path, carrying its shells across rather than ending them. A daemon too old
-// to know the word ignores it, which is what the R fallback is for.
-func (s *session) upgrade() { s.ask(message{Kind: kindUpgrade}) }
+// upgrade asks a daemon older than this build to exec the binary this window
+// is running, carrying its shells across rather than ending them. The path
+// travels with the ask because the daemon's own may no longer exist — a
+// daemon started by `go run` came from a temp binary that went with the run.
+// A daemon too old to know the word ignores it, which is what the R fallback
+// is for.
+func (s *session) upgrade() {
+	exe, _ := os.Executable()
+	s.ask(message{Kind: kindUpgrade, Exe: exe})
+}
 
 // upgradeLimboMsg says an upgrade that was asked for has had long enough: a
 // daemon that acted dropped every connection well before this fires.

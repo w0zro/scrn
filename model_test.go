@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // sized returns a model laid out for the given terminal dimensions. The
@@ -47,16 +47,21 @@ func narrowed(m model) model {
 	return m
 }
 
+// typed is a printable keystroke as the terminal would deliver it.
+func typed(s string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
+}
+
 // press sends a key and returns the resulting model.
 func press(m model, key string) model {
-	var msg tea.KeyMsg
+	var msg tea.KeyPressMsg
 	switch key {
 	case "up":
-		msg = tea.KeyMsg{Type: tea.KeyUp}
+		msg = tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		msg = tea.KeyMsg{Type: tea.KeyDown}
+		msg = tea.KeyPressMsg{Code: tea.KeyDown}
 	default:
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+		msg = typed(key)
 	}
 	next, _ := m.Update(msg)
 	return next.(model)
@@ -98,7 +103,7 @@ func splitRow(row string) (nav, detail string) {
 
 // bodyRows returns every row of the view.
 func bodyRows(m model) []string {
-	all := strings.Split(m.View(), "\n")
+	all := strings.Split(m.View().Content, "\n")
 	out := make([]string, 0, len(all))
 	for _, ln := range all {
 		out = append(out, stripANSI(ln))
@@ -110,7 +115,7 @@ func bodyRows(m model) []string {
 // bracket them in that column and are not part of the list.
 func navColumn(m model) []string {
 	rows := bodyRows(m)
-	end := len(rows) - len(m.hintLines(m.hintWidth(), m.height))
+	end := len(rows) - len(m.hintLines(m.hintWidth()))
 	if end < 1 {
 		return nil
 	}
@@ -157,7 +162,7 @@ func lineAt(ls []string, i int) string {
 // --- layout ---------------------------------------------------------------
 
 func TestViewPutsScrnInTopLeft(t *testing.T) {
-	lines := strings.Split(sized(80, 24).View(), "\n")
+	lines := strings.Split(sized(80, 24).View().Content, "\n")
 	if got := len(lines); got != 24 {
 		t.Fatalf("view height = %d lines, want 24", got)
 	}
@@ -167,7 +172,7 @@ func TestViewPutsScrnInTopLeft(t *testing.T) {
 }
 
 func TestNavPaneOccupiesItsColumn(t *testing.T) {
-	lines := strings.Split(sized(80, 24).View(), "\n")
+	lines := strings.Split(sized(80, 24).View().Content, "\n")
 	for i := 1; i < len(lines)-1; i++ {
 		row := []rune(stripANSI(lines[i]))
 		if len(row) <= navWidth || row[navWidth] != '│' {
@@ -177,7 +182,7 @@ func TestNavPaneOccupiesItsColumn(t *testing.T) {
 }
 
 func TestDetailPaneDroppedWhenTooNarrow(t *testing.T) {
-	view := stripANSI(sized(navMin-1, 24).View())
+	view := stripANSI(sized(navMin-1, 24).View().Content)
 	if strings.Contains(view, "│") {
 		t.Errorf("detail pane drawn below %d columns:\n%s", navMin, view)
 	}
@@ -185,7 +190,7 @@ func TestDetailPaneDroppedWhenTooNarrow(t *testing.T) {
 
 func TestViewFitsShortTerminals(t *testing.T) {
 	for _, h := range []int{0, 1, 2, 3} {
-		got := len(strings.Split(sized(80, h).View(), "\n"))
+		got := len(strings.Split(sized(80, h).View().Content, "\n"))
 		if got > 3 && got > h {
 			t.Errorf("height %d: view = %d lines, overflows", h, got)
 		}
@@ -392,19 +397,17 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 	wide := sized(80, 8)
 	wide.showAll = true
 
-	_, cmd := wide.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(".")})
+	_, cmd := wide.Update(typed("."))
 	if cmd == nil {
 		t.Error("narrowing should rescan processes so the list is current")
 	}
 }
 
-func TestFooterAdvertisesTheToggle(t *testing.T) {
-	m := press(sized(160, 24), "?")
-	if !strings.Contains(stripANSI(m.View()), ". all") {
-		t.Error("footer should offer to show all while narrowed, which is the default")
-	}
-	if !strings.Contains(stripANSI(press(m, ".").View()), ". running") {
-		t.Error("footer should offer the running-only view once showing all")
+func TestTheKeysListTheToggle(t *testing.T) {
+	// Both sides at once: the modal describes the pair rather than tracking
+	// which view the next press would show.
+	if !strings.Contains(keysOf(sized(160, 24)), ". all · running") {
+		t.Error("the keys should mention the all/running toggle")
 	}
 }
 
@@ -554,7 +557,7 @@ func TestDetailPaneSaysWhenItIsStillLoading(t *testing.T) {
 
 func TestMovingRequestsDetailForTheNewRow(t *testing.T) {
 	m := threeRepos(10)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if cmd == nil {
 		t.Error("moving the cursor should request details for the newly selected row")
 	}
@@ -564,7 +567,7 @@ func TestDetailIsNotRefetchedWhenCached(t *testing.T) {
 	m := threeRepos(10)
 	m.details[detailKey(m.rows[1])] = []field{{label: "name", value: "b"}}
 
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown}); cmd != nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}); cmd != nil {
 		t.Error("a row already inspected should not be inspected again")
 	}
 }
@@ -739,9 +742,11 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 	}
 }
 
-func TestFooterAdvertisesCollapse(t *testing.T) {
-	if !strings.Contains(stripANSI(press(sized(160, 24), "?").View()), "space fold") {
-		t.Error("footer should mention the collapse key")
+func TestTheKeysListTheFolds(t *testing.T) {
+	// Both directions at once: the modal describes the pair rather than
+	// tracking which way the next press would go.
+	if !strings.Contains(keysOf(sized(160, 24)), "space · - fold · unfold all") {
+		t.Error("the keys should mention folding")
 	}
 }
 
@@ -761,13 +766,17 @@ func TestCollapsedRowStaysInItsColumn(t *testing.T) {
 
 // keysOf opens the list of keys and returns it, since it is only a line until
 // somebody asks.
-func keysOf(m model) string { return footer(press(m, "?")) }
+// keysOf opens the keys modal and flattens the window to one string, so a
+// test can ask whether a key is listed.
+func keysOf(m model) string {
+	return strings.Join(strings.Fields(stripANSI(press(m, "?").View().Content)), " ")
+}
 
 // footer is scrn's own block at the foot of its column, flattened to one
 // string so a test can ask whether something is in it.
 func footer(m model) string {
-	lines := strings.Split(m.View(), "\n")
-	n := len(m.hintLines(m.hintWidth(), m.height))
+	lines := strings.Split(m.View().Content, "\n")
+	n := len(m.hintLines(m.hintWidth()))
 	if n > len(lines) {
 		n = len(lines)
 	}
@@ -794,7 +803,7 @@ func TestXAsksBeforeKilling(t *testing.T) {
 
 func TestXDoesNotKillOnItsOwn(t *testing.T) {
 	m := press(nestedTree(12), "down")
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	_, cmd := m.Update(typed("x"))
 	if cmd != nil {
 		t.Error("the first x should only arm the confirmation, not signal anything")
 	}
@@ -804,11 +813,11 @@ func TestConfirmingRunsTheKill(t *testing.T) {
 	m := press(press(nestedTree(12), "down"), "x")
 
 	for _, key := range []string{"x", "y", "enter"} {
-		var msg tea.KeyMsg
+		var msg tea.KeyPressMsg
 		if key == "enter" {
-			msg = tea.KeyMsg{Type: tea.KeyEnter}
+			msg = tea.KeyPressMsg{Code: tea.KeyEnter}
 		} else {
-			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+			msg = typed(key)
 		}
 		next, cmd := m.Update(msg)
 		if cmd == nil {
@@ -824,12 +833,12 @@ func TestAnyOtherKeyCancelsTheKill(t *testing.T) {
 	armed := press(press(nestedTree(12), "down"), "x")
 
 	for _, key := range []string{"s", "esc", "j", "a", " "} {
-		var msg tea.KeyMsg
+		var msg tea.KeyPressMsg
 		switch key {
 		case "esc":
-			msg = tea.KeyMsg{Type: tea.KeyEsc}
+			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
 		default:
-			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+			msg = typed(key)
 		}
 		next, cmd := armed.Update(msg)
 		m := next.(model)
@@ -850,7 +859,7 @@ func TestCancellingKeysDoNotAlsoActOnTheList(t *testing.T) {
 	armed := press(press(nestedTree(12), "down"), "x")
 	cursorWas := armed.cursor
 
-	next, _ := armed.Update(tea.KeyMsg{Type: tea.KeyDown})
+	next, _ := armed.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if next.(model).cursor != cursorWas {
 		t.Error("the key that cancels a kill should not also move the cursor")
 	}
@@ -861,7 +870,7 @@ func TestQuitStillWorksWhileArmed(t *testing.T) {
 	// key after cancelling quits as usual.
 	armed := press(press(nestedTree(12), "down"), "x")
 	cancelled := press(armed, "q")
-	if _, cmd := cancelled.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}); cmd == nil {
+	if _, cmd := cancelled.Update(typed("q")); cmd == nil {
 		t.Error("q should quit once the confirmation is cleared")
 	}
 }
@@ -906,9 +915,9 @@ func TestStatusClearsOnTheNextKey(t *testing.T) {
 	}
 }
 
-func TestFooterAdvertisesKill(t *testing.T) {
-	if !strings.Contains(keysOf(sized(80, 24)), "x kill") {
-		t.Error("footer should mention the kill key")
+func TestTheKeysListTheKill(t *testing.T) {
+	if !strings.Contains(keysOf(sized(80, 24)), "x · X kill") {
+		t.Error("the keys should mention the kill key")
 	}
 }
 
@@ -1325,7 +1334,7 @@ func TestXCollapsedStillKillsWhatIsFoldedAway(t *testing.T) {
 
 func TestConfirmingATreeKillSignalsEveryProcess(t *testing.T) {
 	m := press(press(nestedTree(12), "down"), "X")
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	next, cmd := m.Update(typed("X"))
 	if cmd == nil {
 		t.Fatal("X should confirm a tree kill it armed")
 	}
@@ -1398,9 +1407,9 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 	}
 }
 
-func TestFooterAdvertisesTheTreeKill(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "X kill tree") {
-		t.Errorf("footer = %q, want the tree kill advertised", f)
+func TestTheKeysListTheTreeKill(t *testing.T) {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "kill the tree") {
+		t.Errorf("keys = %q, want the tree kill listed", f)
 	}
 }
 
@@ -1514,7 +1523,7 @@ func TestAFinishedTurnLightsItsRow(t *testing.T) {
 		t.Errorf("row = %q, want a filled marker on a finished turn", row)
 	}
 	styled := false
-	for _, raw := range strings.Split(m.View(), "\n") {
+	for _, raw := range strings.Split(m.View().Content, "\n") {
 		if strings.Contains(raw, attnStyle.Render("claude")) {
 			styled = true
 		}
@@ -1538,7 +1547,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 		t.Errorf("row = %q, want a diamond on a blocked instance", row)
 	}
 	styled := false
-	for _, raw := range strings.Split(m.View(), "\n") {
+	for _, raw := range strings.Split(m.View().Content, "\n") {
 		if strings.Contains(raw, blockedStyle.Render("claude")) {
 			styled = true
 		}
@@ -1549,8 +1558,8 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 
 	// The chord counts it among the waiting, unlike an instance merely idle
 	// since launch.
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	if got := next.(model).status; got == "no agent is waiting" {
 		t.Error("the chord passed over a blocked instance")
 	}
@@ -1569,8 +1578,8 @@ func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
 		t.Errorf("row = %q, want a hollow marker on an instance idle since launch", row)
 	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	if got := next.(model).status; got != "no agent is waiting" {
 		t.Errorf("status = %q, want the chord to find nothing owed", got)
 	}
@@ -1609,8 +1618,8 @@ func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
 	})
 	m.worked = map[int]bool{700: true, 701: true}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	m = next.(model)
 
 	r, ok := m.selected()
@@ -1629,8 +1638,8 @@ func TestPrefixReachesOutOfAFocusedShell(t *testing.T) {
 	m.terms = map[int]*remoteTerm{900: {pid: 900}}
 	m.focus = 900
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if m.focus != 0 {
@@ -1647,8 +1656,8 @@ func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
 	})
 	m.worked = map[int]bool{700: true}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(typed("j"))
 	m = next.(model)
 
 	if m.pendingPrefix {
@@ -1664,8 +1673,8 @@ func TestPrefixWithNothingWaitingSaysSo(t *testing.T) {
 		700: {PID: 700, Status: busyStatus},
 	})
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if m.status != "no agent is waiting" {
@@ -1729,7 +1738,7 @@ func TestTheKeysNeverOutgrowTheirColumn(t *testing.T) {
 	// A line that overflows the column would push the divider out of true.
 	for _, w := range []int{40, 60, 80, 100, 140} {
 		m := sized(w, 24)
-		for i, ln := range m.hintLines(m.hintWidth(), 24) {
+		for i, ln := range m.hintLines(m.hintWidth()) {
 			if got := lipgloss.Width(ln); got > m.hintWidth() {
 				t.Errorf("width %d: key line %d is %d columns, want at most %d: %q",
 					w, i, got, m.hintWidth(), stripANSI(ln))
@@ -1742,7 +1751,7 @@ func TestTheKeysNeverCrowdOutTheList(t *testing.T) {
 	// However short the window, the list keeps a row of its own.
 	for _, h := range []int{3, 4, 6, 8, 12, 24} {
 		m := withProcList(80, h, []Project{{Name: "alpha"}, {Name: "beta"}}, nil)
-		if got := len(strings.Split(m.View(), "\n")); got != h {
+		if got := len(strings.Split(m.View().Content, "\n")); got != h {
 			t.Errorf("height %d: view is %d lines", h, got)
 		}
 		if h >= 3 && len(navColumn(m)) == 0 {
@@ -1832,14 +1841,82 @@ func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 	}
 }
 
-func TestTheFooterSaysWhichWayTheFoldGoes(t *testing.T) {
-	m := press(sized(160, 24), "?")
-	if f := footer(m); !strings.Contains(f, "- unfold") {
-		t.Errorf("footer = %q, want it to offer the full tree", f)
+// runWithShell is a model standing on a folded run — a shell scrn holds that
+// started a claude — with the shell's screen and the row's details in hand.
+func runWithShell(screen string) model {
+	m := withProcList(80, 24,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
+		})
+	m.terms[10] = &remoteTerm{pid: 10, screen: screen}
+	m.details["proc:20"] = []field{heading("claude"), {label: "run", value: "zsh 10 › claude 20"}}
+	m.cursor = 1
+	return m
+}
+
+func TestAFoldedRunSplitsThePaneIntoBannerAndScreen(t *testing.T) {
+	// The shell's screen shows what the run is doing; the banner says what it
+	// is. Standing on the row shows both, the facts above the live pane.
+	pane := detailColumn(runWithShell("hello-from-the-shell"))
+
+	rule, screen := -1, -1
+	for i, row := range pane {
+		if strings.HasPrefix(strings.TrimSpace(row), "──") {
+			rule = i
+		}
+		if strings.Contains(row, "hello-from-the-shell") {
+			screen = i
+		}
 	}
-	m = press(m, "-")
-	if f := footer(m); !strings.Contains(f, "- fold") {
-		t.Errorf("footer = %q, want it to offer folding back", f)
+	if len(pane) == 0 || !strings.Contains(pane[0], "claude") {
+		t.Fatalf("pane = %q, want the detail heading across the top", pane)
+	}
+	if rule < 0 || screen < 0 || rule > screen {
+		t.Fatalf("pane = %q, want a rule between the banner and the screen", pane)
+	}
+}
+
+func TestTheSplitPaneKeepsTheBottomOfTheScreen(t *testing.T) {
+	// The shell is sized for the whole pane, and the banner leaves less than
+	// that. What goes is blank padding first and the oldest rows second: the
+	// bottom of a screen is the part a glance is after.
+	term := &remoteTerm{screen: "old\nnewer\nnewest\n\n\n"}
+	got := screenTail(term, 2)
+	if len(got) != 2 || got[0] != "newer" || got[1] != "newest" {
+		t.Errorf("screenTail = %q, want the last things said", got)
+	}
+}
+
+func TestABareShellPaneHasNoBanner(t *testing.T) {
+	m := withProcList(80, 24,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}})
+	m.terms[10] = &remoteTerm{pid: 10, screen: "just-the-screen"}
+	m.cursor = 1
+
+	pane := detailColumn(m)
+	if len(pane) == 0 || !strings.Contains(pane[0], "just-the-screen") {
+		t.Fatalf("pane = %q, want the shell's screen alone", pane)
+	}
+	for _, row := range pane {
+		if strings.HasPrefix(strings.TrimSpace(row), "──") {
+			t.Errorf("pane = %q, want no banner on a row that folded nothing", pane)
+		}
+	}
+}
+
+func TestAFocusedShellHasNoBanner(t *testing.T) {
+	// Focused, the pane is the shell: the banner belongs to looking, not to
+	// working in it.
+	m := runWithShell("hello-from-the-shell")
+	m.focus = 10
+
+	for _, row := range detailColumn(m) {
+		if strings.HasPrefix(strings.TrimSpace(row), "──") {
+			t.Error("a focused pane should be the whole screen")
+		}
 	}
 }
 
@@ -1874,7 +1951,7 @@ func TestSlashSearchesEveryProjectNotJustTheRunningOnes(t *testing.T) {
 // typeFilter sends each rune to the filter.
 func typeFilter(m model, s string) model {
 	for _, r := range s {
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		next, _ := m.Update(typed(string(r)))
 		m = next.(model)
 	}
 	return m
@@ -1952,7 +2029,7 @@ func TestBackspaceWidensTheFilter(t *testing.T) {
 		t.Fatalf("setup: rows = %d, want no match", len(m.rows))
 	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	wantRows(t, navColumn(next.(model)), []string{"▸brand"})
 }
 
@@ -1960,7 +2037,7 @@ func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
 	// Clearing it on accept would drop an idle project straight back out of
 	// the narrowed list, before anything could be started in it.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
 	if m.typing {
@@ -1974,11 +2051,11 @@ func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
 
 func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
 	// s now means open a shell rather than a letter of the filter.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ = m.Update(typed("s"))
 	if got := next.(model); got.filter != "brand" {
 		t.Errorf("filter = %q, want s to have been taken as a key", got.filter)
 	}
@@ -1986,10 +2063,10 @@ func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {
 
 func TestEscapeClearsTheFilterRatherThanQuitting(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Error("esc with a filter applied should clear it, not quit")
 	}
@@ -1999,14 +2076,14 @@ func TestEscapeClearsTheFilterRatherThanQuitting(t *testing.T) {
 }
 
 func TestEscapeStillQuitsWithNoFilter(t *testing.T) {
-	if _, cmd := manyProjects(90, 14).Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+	if _, cmd := manyProjects(90, 14).Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd == nil {
 		t.Error("esc should still quit when there is no filter to clear")
 	}
 }
 
 func TestEscapeWhileTypingAbandonsTheFilter(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 
 	if m.typing || m.filter != "" {
@@ -2027,7 +2104,7 @@ func TestTheFooterShowsWhatIsBeingTyped(t *testing.T) {
 
 	// Enter opens a shell in what is under the cursor, so the filter is over
 	// and what it says next is about that rather than about the search.
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if next.(model).typing {
 		t.Error("enter should finish the looking up")
 	}
@@ -2044,7 +2121,7 @@ func TestStartingSomethingClearsTheSearchThatFoundIt(t *testing.T) {
 	// Once there is work in the project it stays listed on its own merit, so
 	// the filter has nothing left to do.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
 	// A shell opened in it, and then the scan that finds it.
@@ -2065,7 +2142,7 @@ func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
 	// Clearing on the keystroke would drop the project out of the list until
 	// the scan caught up, which is a flicker for no reason.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 	m.wantCursor = 700 // asked for, not yet running
 
@@ -2090,7 +2167,7 @@ func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
 	m.rebuild()
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got := next.(model); got.filter != "" {
 		t.Errorf("filter = %q, want stepping in to have finished the search", got.filter)
 	}
@@ -2100,10 +2177,10 @@ func TestKillingDoesNotClearTheSearch(t *testing.T) {
 	// Clearing out several projects is one job; the list should not move
 	// underneath it after each one.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "brand")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	next, _ = m.Update(typed("X"))
 	if got := next.(model); got.filter != "brand" {
 		t.Errorf("filter = %q, want a kill to leave the search alone", got.filter)
 	}
@@ -2173,7 +2250,7 @@ func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
 	m = press(m, "/")
 	wantRows(t, navColumn(m), []string{"▸scrn"})
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh"})
 }
 
@@ -2235,27 +2312,51 @@ func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
 	}
 }
 
-func TestQuestionMarkSpellsThemOut(t *testing.T) {
+func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 	m := press(manyProjects(160, 24), "?")
-	f := footer(m)
-	for _, key := range []string{"/ find", "s shell", "a agent", "x kill", "q quit"} {
-		if !strings.Contains(f, key) {
-			t.Errorf("footer = %q, want it to list %q", f, key)
+	view := stripANSI(m.View().Content)
+	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the waiting agent", "quit"} {
+		if !strings.Contains(view, key) {
+			t.Errorf("view does not show %q with the modal open", key)
+		}
+	}
+	if got := footer(m); got != "? keys" {
+		t.Errorf("footer = %q, want the foot line untouched by the modal", got)
+	}
+}
+
+func TestTheKeysModalIsARectangle(t *testing.T) {
+	// The overlay reserves the first row's width for every row, so a row
+	// wider than the top border would spill past the box's right edge.
+	m := manyProjects(120, 30)
+	box := m.keysModal(30)
+	if len(box) == 0 {
+		t.Fatal("no modal to measure")
+	}
+	w := lipgloss.Width(box[0])
+	for i, ln := range box {
+		if got := lipgloss.Width(ln); got != w {
+			t.Errorf("modal row %d is %d columns, want %d: %q", i, got, w, stripANSI(ln))
 		}
 	}
 }
 
-func TestQuestionMarkPutsThemAwayAgain(t *testing.T) {
-	m := press(press(manyProjects(90, 14), "?"), "?")
-	if got := footer(m); got != "? keys" {
-		t.Errorf("footer = %q, want the keys folded away again", got)
+func TestAnyKeyPutsTheKeysAway(t *testing.T) {
+	// The modal was asked for with a keystroke and leaves on one — and the
+	// leaving key is swallowed, not acted on.
+	m := press(press(manyProjects(90, 14), "?"), "j")
+	if m.showHelp {
+		t.Error("a key with the modal open should close it")
+	}
+	if m.cursor != 0 {
+		t.Error("the closing key should be swallowed, not acted on")
 	}
 }
 
 func TestEscapeClosesTheKeysFirst(t *testing.T) {
 	// Whatever is open is what esc is most likely about.
 	m := press(manyProjects(90, 14), "?")
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 
 	if cmd != nil {
@@ -2264,21 +2365,43 @@ func TestEscapeClosesTheKeysFirst(t *testing.T) {
 	if m.showHelp {
 		t.Error("esc should close the keys")
 	}
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd == nil {
 		t.Error("esc should still quit once nothing is open")
 	}
 }
 
-func TestTheListGetsTheRoomTheKeysWereTaking(t *testing.T) {
+func TestPrefixQuestionMarkShowsTheKeysFromAShell(t *testing.T) {
+	// The modal rides the prefix so it can be asked for from wherever the
+	// keys are going, including inside a focused shell — and the key that
+	// closes it must not fall through into the shell.
+	m := manyProjects(90, 14)
+	m.terms = map[int]*remoteTerm{900: {pid: 900}}
+	m.focus = 900
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	m = press(next.(model), "?")
+	if !m.showHelp {
+		t.Fatal("^spc ? should show the keys over a focused shell")
+	}
+	m = press(m, "x") // would reach the shell, or panic on the nil daemon
+	if m.showHelp {
+		t.Error("the next key should close the modal")
+	}
+	if m.focus != 900 {
+		t.Error("the modal should leave the shell focused")
+	}
+}
+
+func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	m := manyProjects(90, 14)
 	closed := m.bodyHeight()
 	open := press(m, "?").bodyHeight()
 
-	if open >= closed {
-		t.Errorf("rows for the list: %d with the keys open, %d closed; closing should give the room back", open, closed)
+	if open != closed {
+		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
 	}
 	if closed != m.height-2 {
-		t.Errorf("with the keys folded away the list has %d rows, want all but the name and the one line", closed)
+		t.Errorf("the list has %d rows, want all but the name and the one line", closed)
 	}
 }
 
@@ -2392,7 +2515,7 @@ func TestTheEndsOfAnEmptyListAreHarmless(t *testing.T) {
 func TestTheEndsWorkWithinAFilter(t *testing.T) {
 	// The list they move through is the one on screen.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 	if len(m.rows) < 2 {
 		t.Fatalf("setup: rows = %d, want a few matches", len(m.rows))
@@ -2418,7 +2541,7 @@ func TestGIsALetterWhileAFilterIsBeingTyped(t *testing.T) {
 
 func TestTheKeysListTheEnds(t *testing.T) {
 	f := keysOf(sized(160, 24))
-	for _, key := range []string{"gg top", "G bottom"} {
+	for _, key := range []string{"gg · G", "top · bottom"} {
 		if !strings.Contains(f, key) {
 			t.Errorf("keys = %q, want %q listed", f, key)
 		}
@@ -2436,7 +2559,7 @@ func TestCtrlNAndCtrlPMoveWhileTyping(t *testing.T) {
 		t.Fatal("setup: expected to start at the top")
 	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	m = next.(model)
 	if m.cursor != 1 {
 		t.Errorf("cursor = %d, want ctrl+n to move down", m.cursor)
@@ -2445,7 +2568,7 @@ func TestCtrlNAndCtrlPMoveWhileTyping(t *testing.T) {
 		t.Error("moving should not end the looking up")
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	if got := next.(model).cursor; got != 0 {
 		t.Errorf("cursor = %d, want ctrl+p to move back up", got)
 	}
@@ -2453,7 +2576,7 @@ func TestCtrlNAndCtrlPMoveWhileTyping(t *testing.T) {
 
 func TestTypingStillNarrowsAfterMoving(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	m = typeFilter(next.(model), "crn")
 
 	if m.filter != "scrn" {
@@ -2547,16 +2670,16 @@ func TestASpaceInTheSearchDoesNotMoveTheCursor(t *testing.T) {
 
 	m = press(m, "/")
 	for _, r := range "vim" {
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		next, _ := m.Update(typed(string(r)))
 		m = next.(model)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = next.(model)
 
 	was, _ := m.selected()
 	rows := len(m.rows)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	m = next.(model)
 
 	if len(m.rows) != rows {
@@ -2569,7 +2692,7 @@ func TestASpaceInTheSearchDoesNotMoveTheCursor(t *testing.T) {
 
 	// A letter still does start again from the top: those rows really have
 	// changed under the cursor.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	next, _ = m.Update(typed("p"))
 	if m = next.(model); m.cursor != 0 {
 		t.Errorf("cursor = %d after narrowing the list, want the top", m.cursor)
 	}
@@ -2725,9 +2848,9 @@ func TestProcessesFileUnderTheirSubProject(t *testing.T) {
 	wantRows(t, navColumn(m), []string{
 		"▸mono",
 		" ├─ make",
-		"   services/api",
-		"   └─ node",
-		"   web",
+		" ├─ services/api",
+		" │ └─ node",
+		" └─ web",
 	})
 }
 
@@ -2736,7 +2859,7 @@ func TestIdleSubProjectsAreBehindTheDot(t *testing.T) {
 	m := narrowed(subbed(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"}))
 	wantRows(t, navColumn(m), []string{
 		"▸mono",
-		"   services/api",
+		" └─ services/api",
 		"   └─ node",
 	})
 	for _, row := range navColumn(m) {
@@ -2752,7 +2875,7 @@ func TestTheFilterReachesAnIdleSubProject(t *testing.T) {
 	m := typeFilter(press(subbed(), "/"), "api")
 	wantRows(t, navColumn(m), []string{
 		"▸mono",
-		"   services/api",
+		" └─ services/api",
 	})
 	for _, row := range navColumn(m) {
 		if strings.Contains(row, "web") {

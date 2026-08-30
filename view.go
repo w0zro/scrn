@@ -1,73 +1,96 @@
 package main
 
 import (
+	"image/color"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
+// The styles are package-wide because everything in this file reads them, and
+// they are variables because they depend on a fact that arrives late: which
+// background the terminal has. Lipgloss no longer guesses at it, so scrn asks
+// (Init) and rebuilds on the answer (Update). Until it comes, dark — the more
+// common terminal, and a wrong guess lasts one frame.
 var (
+	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle   lipgloss.Style
+	faintStyle, labelStyle, warnStyle, errStyle, busyStyle  lipgloss.Style
+	attnStyle, blockedStyle, cursorStyle, headingStyle      lipgloss.Style
+	offSelStyle                                             lipgloss.Style
+)
+
+func init() { applyBackground(true) }
+
+// applyBackground rebuilds every style for the background the terminal
+// reported.
+func applyBackground(dark bool) {
+	pick := lipgloss.LightDark(dark)
+	on := func(light, dark string) color.Color {
+		return pick(lipgloss.Color(light), lipgloss.Color(dark))
+	}
+
 	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#5A3FD9", Dark: "#B9A7FF"})
+		Bold(true).
+		Foreground(on("#5A3FD9", "#B9A7FF"))
 
 	hintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#8A8A8A", Dark: "#6C6C6C"})
+		Foreground(on("#8A8A8A", "#6C6C6C"))
 
 	ruleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#D8DEE4", Dark: "#30363D"})
+		Foreground(on("#D8DEE4", "#30363D"))
 
 	itemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#1F2328", Dark: "#E6E6E6"})
+		Foreground(on("#1F2328", "#E6E6E6"))
 
 	selStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#0550AE", Dark: "#79C0FF"})
+		Bold(true).
+		Foreground(on("#0550AE", "#79C0FF"))
 
 	faintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#98A0A8", Dark: "#5C6570"})
+		Foreground(on("#98A0A8", "#5C6570"))
 
 	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#6A737D", Dark: "#8B949E"})
+		Foreground(on("#6A737D", "#8B949E"))
 
 	warnStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#9A6700", Dark: "#D29922"})
+		Bold(true).
+		Foreground(on("#9A6700", "#D29922"))
 
 	errStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#CF222E", Dark: "#F85149"})
+		Foreground(on("#CF222E", "#F85149"))
 
 	busyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
+		Foreground(on("#1A7F37", "#3FB950"))
 
 	// attnStyle marks an agent that is done and waiting on its user: the
 	// answer owed, bright enough to catch from across the room.
 	attnStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#9A6700", Dark: "#D29922"})
+		Bold(true).
+		Foreground(on("#9A6700", "#D29922"))
 
 	// blockedStyle marks an agent stopped mid-turn on a specific ask — a
 	// permission prompt, a question. Brighter than the amber of done-and-
 	// waiting, because this answer is holding up work already in flight.
 	blockedStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#BF3989", Dark: "#F778BA"})
+		Bold(true).
+		Foreground(on("#BF3989", "#F778BA"))
 
 	cursorStyle = lipgloss.NewStyle().Reverse(true)
 
 	// headingStyle names what the detail pane is about, so that what a row is
 	// does not read at the same weight as its memory share.
 	headingStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#1F2328", Dark: "#E6E6E6"})
+		Bold(true).
+		Foreground(on("#1F2328", "#E6E6E6"))
 
 	// offSelStyle marks the selected row when that row is one scrn cannot step
 	// into: bold enough to find, dim enough to still read as unavailable.
 	offSelStyle = faintStyle.Bold(true)
-)
+}
 
 // agentMark is the glyph beside an agent's row. A working one turns, one
 // stopped mid-turn on a specific ask holds a bright diamond, one that has
@@ -95,30 +118,46 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 // and nothing else. A terminal made to give up its first and last rows to a
 // header and a footer is a terminal drawing something other than what it was
 // told it had room for.
-func (m model) View() string {
-	return m.windowRequests() + m.layout()
+//
+// What the attached process asked of the terminal window — its title, its
+// progress — rides out on the view too. A program in the pane addresses those
+// to the terminal it believes it is in, which is scrn; scrn is inside a real
+// one, and the view is how it hands them on.
+func (m model) View() tea.View {
+	v := tea.NewView(m.layout())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.WindowTitle = m.windowTitle
+	v.ProgressBar = m.progressBar()
+	return v
 }
 
-// windowRequests passes on what the attached process asked of the terminal
-// window. A program in the pane addresses these to the terminal it believes it
-// is in, which is scrn; scrn is inside a real one, and it is the only thing
-// that can hand them on.
-//
-// They ride out with the frame rather than being written straight to the
-// terminal, because the renderer holds the output while it draws and a write
-// from anywhere else would land in the middle of one. Neither sequence moves
-// the cursor or changes a colour, so carrying them along costs the frame
-// nothing, and repeating them every frame is how a terminal expects to be told.
-func (m model) windowRequests() string {
+// progressBar is the attached process's progress, restated for the window.
+// Only a focused shell speaks for it: a build finishing in a pane being
+// merely looked at should not set a bar on a tab showing something else.
+func (m model) progressBar() *tea.ProgressBar {
 	t := m.focused()
 	if t == nil || t.progress == "" {
-		// Nothing attached, or nothing running: say so once the shell that was
-		// reporting progress is no longer the one being watched.
-		return "\x1b]9;4;0;\x07"
+		// Nothing attached, or nothing running: a nil bar is the renderer's
+		// cue to clear whatever the last shell had put up.
+		return nil
 	}
-	// The payload the emulator hands over already carries its own command
-	// number, so it goes out as it came in.
-	return "\x1b]" + t.progress + "\x07"
+	// The payload the emulator hands over is the OSC 9;4 it heard —
+	// "9;4;<state>;<value>" — and the states are numbered the same on both
+	// sides of this restatement.
+	parts := strings.Split(t.progress, ";")
+	if len(parts) < 3 || parts[0] != "9" || parts[1] != "4" {
+		return nil
+	}
+	state, err := strconv.Atoi(parts[2])
+	if err != nil || state < int(tea.ProgressBarNone) || state > int(tea.ProgressBarWarning) {
+		return nil
+	}
+	value := 0
+	if len(parts) > 3 {
+		value, _ = strconv.Atoi(parts[3])
+	}
+	return tea.NewProgressBar(tea.ProgressBarState(state), value)
 }
 
 // oscTitleText is the title out of an OSC 0, 1 or 2 payload, which is the part
@@ -137,16 +176,18 @@ func (m model) layout() string {
 	}
 
 	left := m.leftColumn(rows)
-	if !m.showDetail() {
-		return strings.Join(padTo(left, rows), "\n")
+	lines := padTo(left, rows)
+	if m.showDetail() {
+		right := m.paneLines(m.detailWidth(), rows)
+		divider := ruleStyle.Render("│")
+
+		lines = make([]string, 0, rows)
+		for i := 0; i < rows; i++ {
+			lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i))
+		}
 	}
-
-	right := m.paneLines(m.detailWidth(), rows)
-	divider := ruleStyle.Render("│")
-
-	lines := make([]string, 0, rows)
-	for i := 0; i < rows; i++ {
-		lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i))
+	if m.showHelp {
+		lines = m.overlayKeys(lines)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -179,7 +220,7 @@ func (m model) leftColumn(rows int) []string {
 // a confirmation that wrapped over a short window would otherwise take the
 // whole column, leaving nothing to say what is being confirmed about.
 func (m model) trimmedHint(rows int) []string {
-	hint := m.hintLines(m.hintWidth(), rows)
+	hint := m.hintLines(m.hintWidth())
 	if max := rows - 2; max > 0 && len(hint) > max {
 		hint = hint[:max]
 	}
@@ -203,14 +244,14 @@ func padTo(lines []string, n int) []string {
 	return lines[:n]
 }
 
-// hintLines draws scrn's own keys at the foot of its column. It is a block
-// rather than a line because that column is narrow, and knowing the keys is
-// worth more than the horizontal room it would take to list them across.
+// hintLines is what scrn says at the foot of its column: normally one quiet
+// line, because the foot is beside the list all day and busyness there is
+// paid for on every frame.
 //
 // A pending confirmation or the report of the last action takes the whole
 // block: while either is on screen it is the only thing the next keystroke
 // is about.
-func (m model) hintLines(width, rows int) []string {
+func (m model) hintLines(width int) []string {
 	switch {
 	case m.pendingReplace:
 		return append(
@@ -263,52 +304,87 @@ func (m model) hintLines(width, rows int) []string {
 			hintBlock("filter "+m.filter, width, selStyle),
 			hintBlock("s shell · a agent · / edit · esc clear", width, hintStyle)...)
 	}
-	if !m.showHelp {
-		// One line to say the keys exist. The list of them is worth less to
-		// the reader, most of the time, than the rows it would cover up.
-		return []string{" " + hintStyle.Render("? keys")}
-	}
-	return m.keyLines(width, rows)
+	// One line to say the keys exist. The list itself is a modal, on ? or
+	// ^spc ?: it is wanted rarely and read briefly, so it borrows the middle
+	// of the window for a keystroke rather than keeping rows of every frame.
+	return []string{" " + hintStyle.Render("? keys")}
 }
 
-// keyLines is the standing list of keys, in two columns.
-func (m model) keyLines(width, rows int) []string {
-	all := ". all"
-	if m.showAll {
-		all = ". running"
+// keysModal is every key, spelled out in a box for the middle of the window,
+// cut down to what the window can hold. The list is ordered so that what a
+// short window drops is what is least missed.
+func (m model) keysModal(rows int) []string {
+	keys := [][2]string{
+		{"↑↓ j k", "move"},
+		{"enter", "open"},
+		{"s", "shell"},
+		{"a", "agent"},
+		{"r", "run"},
+		{"x · X", "kill · kill the tree"},
+		{"/", "find a project"},
+		{"space · -", "fold · unfold all"},
+		{".", "all · running"},
+		{"gg · G", "top · bottom"},
+		{"ctrl+o", "out of a shell"},
+		{"^spc ^spc", "the waiting agent"},
+		{"^spc ?", "these keys"},
+		{"R", "replace the daemon"},
+		{"q", "quit"},
 	}
-	folds := "- unfold"
-	if m.unfolded {
-		folds = "- fold"
-	}
-
-	pairs := [][2]string{
-		{"↑↓ move", "gg top"},
-		{"G bottom", "/ find"},
-		{"s shell", "a agent"},
-		{"r run", "enter open"},
-		{"x kill", "X kill tree"},
-		{"space fold", folds},
-		{"^spc ^spc", "waiting agent"},
-		{all, "q quit"},
-	}
-
-	// The keys must not crowd out the list they are about, so a short window
-	// gets the first of them rather than all of them. They are ordered so that
-	// what goes first is what is least missed.
-	if max := rows / 3; max < len(pairs) {
+	if max := rows - 2; max < len(keys) {
 		if max < 1 {
-			max = 1
+			return nil
 		}
-		pairs = pairs[:max]
+		keys = keys[:max]
 	}
 
-	col := (width - 1) / 2
-	lines := make([]string, 0, len(pairs))
-	for _, p := range pairs {
-		lines = append(lines, " "+pad(hintStyle.Render(p[0]), col)+hintStyle.Render(p[1]))
+	var keyw, descw int
+	for _, k := range keys {
+		if w := lipgloss.Width(k[0]); w > keyw {
+			keyw = w
+		}
+		if w := lipgloss.Width(k[1]); w > descw {
+			descw = w
+		}
 	}
-	return lines
+	inner := 1 + keyw + 2 + descw + 1
+
+	// "─ keys " is seven columns, so the dashes make the row up to the same
+	// inner width the content rows have.
+	top := ruleStyle.Render("╭─ ") + headingStyle.Render("keys") +
+		ruleStyle.Render(" "+strings.Repeat("─", inner-7)+"╮")
+	edge := ruleStyle.Render("│")
+	lines := make([]string, 0, len(keys)+2)
+	lines = append(lines, top)
+	for _, k := range keys {
+		lines = append(lines, edge+" "+pad(itemStyle.Render(k[0]), keyw)+
+			"  "+pad(hintStyle.Render(k[1]), descw)+" "+edge)
+	}
+	return append(lines, ruleStyle.Render("╰"+strings.Repeat("─", inner)+"╯"))
+}
+
+// overlayKeys lays the keys modal over the composed frame. Each covered row
+// is cut where the box sits and rejoined on its far side, so the window shows
+// around the box rather than being replaced by it.
+func (m model) overlayKeys(lines []string) []string {
+	box := m.keysModal(len(lines))
+	if len(box) == 0 {
+		return lines
+	}
+	w := lipgloss.Width(box[0])
+	x := (m.width - w) / 2
+	if x < 0 {
+		x = 0
+	}
+	y := (len(lines) - len(box)) / 2
+
+	out := append([]string(nil), lines...)
+	for i, b := range box {
+		under := pad(at(out, y+i), m.width)
+		out[y+i] = ansi.Cut(under, 0, x) + ansi.Truncate(b, m.width-x, "") +
+			ansi.Cut(under, x+w, m.width)
+	}
+	return out
 }
 
 // hintBlock wraps a line of scrn's own words to the column it has.
@@ -405,20 +481,23 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
-	// A place sits inside whatever the rows above it name, and the indent is
-	// the whole of how that is said: the tree rules belong to processes.
+	// A group or a repository sits on indent alone, naming a place the rows
+	// beneath are inside. What hangs off a repository — its processes and its
+	// sub-projects — is one family of siblings, and the tree rules say so.
 	rules := r.prefix
+	if r.kind == rowProc || r.kind == rowSub {
+		branch := "├─"
+		if r.last {
+			branch = "└─"
+		}
+		rules = r.prefix + branch + " "
+	}
 	// A repository is cut from the left and a command from the right, because
 	// what identifies each is at that end: the repo name after its parents,
 	// and the program before its arguments.
 	cut := truncate
 	label := r.project.Name
 	if r.kind == rowProc {
-		branch := "├─"
-		if r.last {
-			branch = "└─"
-		}
-		rules = r.prefix + branch + " "
 		label = m.rowLabel(r)
 		cut = truncateTail
 	}
@@ -575,7 +654,17 @@ func (m model) paneLines(width, rows int) []string {
 		return scrollWindow(s, width, rows)
 	}
 
-	lines := t.lines(rows)
+	// A row that folded a run into one line has more to say than its shell's
+	// screen: what the run is, its ports, what its agent is doing. The pane
+	// splits — those facts in a banner across the top, the live screen under
+	// them — so standing on the row shows both. The keys do not change with
+	// the look: the screen below is still a preview.
+	var lines []string
+	if banner := m.runBanner(width, rows); len(banner) > 0 {
+		lines = append(banner, screenTail(t, rows-len(banner))...)
+	} else {
+		lines = t.lines(rows)
+	}
 
 	// A screen can arrive wider than this pane: the shell is sized by the
 	// windows watching it, and this window may not be one of them. A row
@@ -589,6 +678,46 @@ func (m model) paneLines(width, rows int) []string {
 	// shell it would say the typing lands there, which it does not.
 	if m.focused() == t && t.curY >= 0 && t.curY < len(lines) {
 		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
+	}
+	return lines
+}
+
+// runBanner is the detail summary drawn across the top of the pane when the
+// row under the cursor stands for a folded run. It takes at most a third of
+// the pane: the banner is there to say what the row is, and the screen below
+// to show what it is doing, and of the two it is the screen that is live.
+// Focused, there is no banner — the pane is the shell then, whole.
+func (m model) runBanner(width, rows int) []string {
+	if m.focused() != nil {
+		return nil
+	}
+	r, ok := m.selected()
+	if !ok || r.kind != rowProc || len(r.run) < 2 {
+		return nil
+	}
+	room := rows / 3
+	if room < 1 {
+		return nil
+	}
+	lines := m.detailLines(width, room)
+	return append(lines, ruleStyle.Render(strings.Repeat("─", width)))
+}
+
+// screenTail is the bottom of a shell's screen, trailing blank rows dropped.
+// Under a banner the pane is shorter than the shell was sized for, so some of
+// the screen has to go; what goes is blank padding first and the oldest rows
+// second, because the bottom of a screen — the prompt, the last thing said —
+// is the part a glance is after.
+func screenTail(t *remoteTerm, rows int) []string {
+	if rows <= 0 {
+		return nil
+	}
+	lines := strings.Split(t.screen, "\n")
+	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > rows {
+		lines = lines[len(lines)-rows:]
 	}
 	return lines
 }

@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // killRequest is a kill waiting on confirmation: the processes to signal, and

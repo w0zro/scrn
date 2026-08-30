@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
@@ -88,10 +88,10 @@ func openShellIn(t *testing.T, m model, dir string) model {
 
 func send(m model, s string) model {
 	for _, r := range s {
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		next, _ := m.Update(typed(string(r)))
 		m = next.(model)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	return next.(model)
 }
 
@@ -129,7 +129,7 @@ func TestTheShellRunsInThePaneAndTheNavigatorRemains(t *testing.T) {
 func TestCtrlOLeavesTheShellRunning(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if m.focused() != nil {
@@ -144,10 +144,10 @@ func TestAFocusedShellTakesEveryOtherKey(t *testing.T) {
 	// q, x and ctrl+c are scrn's keys on the list and the shell's here.
 	m := openShellIn(t, repoModel(), "/tmp")
 
-	for _, msg := range []tea.KeyMsg{
-		{Type: tea.KeyRunes, Runes: []rune("q")},
-		{Type: tea.KeyRunes, Runes: []rune("x")},
-		{Type: tea.KeyCtrlC},
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: 'q', Text: "q"},
+		{Code: 'x', Text: "x"},
+		{Code: 'c', Mod: tea.ModCtrl},
 	} {
 		next, cmd := m.Update(msg)
 		m = next.(model)
@@ -184,9 +184,9 @@ func TestEnterOnAShellStepsBackIntoIt(t *testing.T) {
 	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "sh", Dir: "/tmp"}}})
 	m = next.(model)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
 	if m.focus != pid {
@@ -200,7 +200,7 @@ func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
 	if m.focus != 0 {
@@ -218,7 +218,7 @@ func TestAnUnfocusedShellStillShowsInThePane(t *testing.T) {
 
 	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "sh", Dir: "/tmp"}}})
 	m = next.(model)
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if !strings.Contains(paneText(m), "still-visible") {
@@ -391,7 +391,7 @@ func TestRefusingToAttachIsNotAnError(t *testing.T) {
 		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	got := next.(model)
 
 	if got.statusErr {
@@ -415,7 +415,7 @@ func TestSStartsAShellOnAnyRow(t *testing.T) {
 	m = connected(t, m)
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ := m.Update(typed("s"))
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 || m.focused() == nil {
@@ -443,7 +443,7 @@ func TestSIsTheShellsOwnKeyOnceFocused(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	before := len(m.terms)
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ := m.Update(typed("s"))
 	if got := len(next.(model).terms); got != before {
 		t.Errorf("terms = %d, want s typed into the shell rather than opening another", got)
 	}
@@ -460,7 +460,7 @@ func TestAStartsAnAgentScrnOwns(t *testing.T) {
 	// you get one that outlives the window and can be stepped back into.
 	m := connected(t, repoModel())
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	next, _ := m.Update(typed("a"))
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 {
@@ -556,7 +556,7 @@ func TestEnteringSomethingInsideAShellEntersTheShell(t *testing.T) {
 	if r, _ := m.selected(); r.node.Command != "claude" {
 		t.Fatalf("setup: selected %+v, want the claude row", r)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if got := next.(model).focus; got != 500 {
 		t.Errorf("focus = %d, want the shell %d the claude is running inside", got, 500)
@@ -570,7 +570,7 @@ func TestEnteringAGrandchildStillFindsTheShell(t *testing.T) {
 	if r, _ := m.selected(); r.node.Command != "rg" {
 		t.Fatalf("setup: selected %+v, want the deepest row", r)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if got := next.(model).focus; got != 500 {
 		t.Errorf("focus = %d, want the shell at the top of its tree", got)
@@ -624,17 +624,17 @@ func TestKillingAShellScrnHoldsGoesThroughTheDaemon(t *testing.T) {
 	m = next.(model)
 
 	// Leave the shell first, or X is just a letter typed into it.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
 	m.cursor = 1
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	next, _ = m.Update(typed("X"))
 	m = next.(model)
 	if m.pendingKill == nil {
 		t.Fatal("X should arm a kill on a shell scrn holds")
 	}
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	next, cmd := m.Update(typed("X"))
 	m = next.(model)
 	if cmd == nil {
 		t.Fatal("confirming should report the outcome")
@@ -658,7 +658,7 @@ func TestKillingSomethingInAShellTakesTheShellToo(t *testing.T) {
 	m := connected(t, insideShell(t, 500))
 	m.cursor = 1 // the claude row, which folded the shell into it
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ := m.Update(typed("x"))
 	m = next.(model)
 
 	if got := targets(m.pendingKill); !sameInts(got, []int{501, 500}) {
@@ -674,7 +674,7 @@ func TestTheShellIsHungUpWhileTheProcessIsSignalled(t *testing.T) {
 	// does not hold the claude, so that is signalled.
 	m := connected(t, insideShell(t, 500))
 	m.cursor = 1
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ := m.Update(typed("x"))
 	m = next.(model)
 
 	var hungUp, signalled []int
@@ -703,7 +703,7 @@ func TestAProcessInNobodysShellIsJustItself(t *testing.T) {
 		})
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ := m.Update(typed("x"))
 	if got := targets(next.(model).pendingKill); !sameInts(got, []int{801}) {
 		t.Errorf("targets = %v, want just the process", got)
 	}
@@ -717,7 +717,7 @@ func TestAShellIsNotItsOwnShell(t *testing.T) {
 	m.rebuild()
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ := m.Update(typed("x"))
 	m = next.(model)
 
 	if got := targets(m.pendingKill); !sameInts(got, []int{700}) {
@@ -791,12 +791,12 @@ func TestOnlyTheAttachedProcessSpeaksForTheWindow(t *testing.T) {
 	}
 
 	m.focus = 700
-	if got := m.windowRequests(); !strings.Contains(got, "9;4;3;50") {
-		t.Errorf("requests = %q, want the attached shell's progress", got)
+	if got := m.progressBar(); got == nil || got.State != tea.ProgressBarIndeterminate {
+		t.Errorf("bar = %+v, want the attached shell's progress", got)
 	}
 	m.focus = 800
-	if got := m.windowRequests(); !strings.Contains(got, "9;4;1;10") {
-		t.Errorf("requests = %q, want the newly attached shell's progress", got)
+	if got := m.progressBar(); got == nil || got.State != tea.ProgressBarDefault || got.Value != 10 {
+		t.Errorf("bar = %+v, want the newly attached shell's progress", got)
 	}
 }
 
@@ -807,8 +807,29 @@ func TestProgressIsClearedWhenNothingIsAttached(t *testing.T) {
 	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;3;50"}}
 
 	m.focus = 0
-	if got := m.windowRequests(); got != "\x1b]9;4;0;\x07" {
-		t.Errorf("requests = %q, want the progress cleared", got)
+	if got := m.progressBar(); got != nil {
+		t.Errorf("bar = %+v, want none: a nil bar is how the renderer clears it", got)
+	}
+}
+
+func TestOnlyTheAttachedProcessRetitlesTheWindow(t *testing.T) {
+	// The title rides out on the view, and only the shell being looked at
+	// speaks for it: another one finishing a build should not retitle a tab
+	// showing something else.
+	m := repoModel()
+	m.terms = map[int]*remoteTerm{700: {pid: 700}, 800: {pid: 800}}
+	m.focus = 700
+
+	next, _ := m.Update(screenMsg{pid: 800, title: "0;not yours"})
+	m = next.(model)
+	if got := m.View().WindowTitle; got != "" {
+		t.Errorf("title = %q, want an unfocused shell kept off the window", got)
+	}
+
+	next, _ = m.Update(screenMsg{pid: 700, title: "0;vim README.md"})
+	m = next.(model)
+	if got := m.View().WindowTitle; got != "vim README.md" {
+		t.Errorf("title = %q, want the focused shell's, without its command number", got)
 	}
 }
 
@@ -825,15 +846,22 @@ func TestTheTitlePayloadDropsItsCommandNumber(t *testing.T) {
 	}
 }
 
-func TestTheProgressGoesOutAsItCameIn(t *testing.T) {
-	// The payload already carries its own command number; prefixing another
-	// makes a sequence no terminal will act on.
+func TestTheProgressPayloadIsReadAsStateAndValue(t *testing.T) {
+	// The payload the emulator hands over is the OSC 9;4 it heard, and its
+	// states are numbered the way the renderer's are.
 	m := repoModel()
-	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;3;77"}}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;2;77"}}
 	m.focus = 700
 
-	if got := m.windowRequests(); got != "\x1b]9;4;3;77\x07" {
-		t.Errorf("requests = %q, want the payload passed through unchanged", got)
+	got := m.progressBar()
+	if got == nil || got.State != tea.ProgressBarError || got.Value != 77 {
+		t.Errorf("bar = %+v, want the error state at 77", got)
+	}
+
+	// A payload that is not a progress report sets nothing.
+	m.terms[700].progress = "0;some title"
+	if got := m.progressBar(); got != nil {
+		t.Errorf("bar = %+v, want none for a payload that is not 9;4", got)
 	}
 }
 
@@ -851,7 +879,7 @@ func staleDaemon(t *testing.T) model {
 
 func TestRAsksBeforeEndingTheWorkItReplaces(t *testing.T) {
 	m := staleDaemon(t)
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, _ := m.Update(typed("R"))
 	m = next.(model)
 
 	if !m.pendingReplace {
@@ -864,8 +892,8 @@ func TestRAsksBeforeEndingTheWorkItReplaces(t *testing.T) {
 
 func TestConfirmingReplacesTheDaemon(t *testing.T) {
 	m := staleDaemon(t)
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
-	next, cmd := next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, _ := m.Update(typed("R"))
+	next, cmd := next.(model).Update(typed("R"))
 	m = next.(model)
 
 	if cmd == nil {
@@ -881,8 +909,8 @@ func TestConfirmingReplacesTheDaemon(t *testing.T) {
 
 func TestAnyOtherKeyLeavesTheDaemonAlone(t *testing.T) {
 	m := staleDaemon(t)
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	next, _ := m.Update(typed("R"))
+	next, _ = next.(model).Update(typed("j"))
 	m = next.(model)
 
 	if m.pendingReplace {
@@ -902,7 +930,7 @@ func TestROnACurrentDaemonDoesNothing(t *testing.T) {
 	m := connected(t, repoModel())
 	m.terms = map[int]*remoteTerm{700: {pid: 700}}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, _ := m.Update(typed("R"))
 	m = next.(model)
 
 	if m.pendingReplace {
@@ -932,7 +960,7 @@ func projectNeeding(t *testing.T, plan string) (model, string) {
 func TestRStartsWhatTheProjectSaysItNeeds(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	got := map[string]bool{}
@@ -951,7 +979,7 @@ func TestRStartsOnlyWhatIsMissing(t *testing.T) {
 	// It is a list to run, not a promise to keep, so running it again starts
 	// only what has since stopped.
 	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	// One of them stops, the way a dev server dies.
@@ -966,7 +994,7 @@ func TestRStartsOnlyWhatIsMissing(t *testing.T) {
 		t.Fatalf("terms = %d, want the one that is left", len(m.terms))
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ = m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	names := map[string]int{}
@@ -981,10 +1009,10 @@ func TestRStartsOnlyWhatIsMissing(t *testing.T) {
 
 func TestRSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ = m.Update(typed("r"))
 	m = next.(model)
 	if !strings.Contains(footer(m), "everything proj needs is running") {
 		t.Errorf("footer = %q, want it to say there was nothing to do", footer(m))
@@ -996,7 +1024,7 @@ func TestRSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
 
 func TestROnAProjectThatSaysNothingExplainsItself(t *testing.T) {
 	m, _ := projectNeeding(t, "")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = next.(model)
 
 	if len(m.terms) != 0 {
@@ -1011,7 +1039,7 @@ func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
 	// The shell opened by hand goes too: x on a repository means being done
 	// with the repository, not with the part of it a plan happened to start.
 	m, dir := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	m.daemon.open(dir, "", "", 40, 8) // by hand, so unnamed
@@ -1019,7 +1047,7 @@ func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
 
 	// Opening one by hand steps into it, so come back out before pressing a
 	// key meant for the list.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	// The kill covers what the scan has seen, so let it see both shells.
@@ -1031,7 +1059,7 @@ func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
 	m = next.(model)
 	m.cursor = 0 // back onto the repo row
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ = m.Update(typed("x"))
 	m = next.(model)
 	if m.pendingKill == nil {
 		t.Fatal("x should ask before killing")
@@ -1040,13 +1068,13 @@ func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
 		t.Errorf("footer = %q, want it to say what it is about to clear out", f)
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ = m.Update(typed("x"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 0 }, 5*time.Second)
 }
 
 func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
 	m, dir := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	procs := make([]Proc, 0, 1)
@@ -1057,8 +1085,8 @@ func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
 	m = next.(model)
 	m.cursor = 0
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	next, _ = m.Update(typed("x"))
+	next, _ = next.(model).Update(typed("j"))
 	m = next.(model)
 
 	if len(m.terms) != 1 {
@@ -1073,7 +1101,7 @@ func TestXOnAProjectWithNothingRunningSaysSo(t *testing.T) {
 	// A plan is a list to run, not something running: until r is pressed
 	// there is nothing for a kill to act on.
 	m, _ := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	next, _ := m.Update(typed("x"))
 	m = next.(model)
 
 	if m.pendingKill != nil {
@@ -1086,7 +1114,7 @@ func TestXOnAProjectWithNothingRunningSaysSo(t *testing.T) {
 
 func TestTheRepoPaneShowsThePlanAsAChecklist(t *testing.T) {
 	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ := m.Update(typed("r"))
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	fs := repoFields(Project{Name: "proj", Path: dir}, 2, m.namesIn(dir))
@@ -1194,7 +1222,7 @@ func lookingUp(t *testing.T, filter string) model {
 	m.showAll = false
 	m = press(m, "/")
 	for _, r := range filter {
-		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		next, _ := m.Update(typed(string(r)))
 		m = next.(model)
 	}
 	return m
@@ -1207,7 +1235,7 @@ func TestEnterOpensAShellInWhatTheFilterFound(t *testing.T) {
 		t.Fatalf("rows = %d, want the one match", len(m.rows))
 	}
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if m.typing {
@@ -1221,7 +1249,7 @@ func TestEnterOpensAShellInWhatTheFilterFound(t *testing.T) {
 func TestCtrlAStartsAnAgentInWhatTheFilterFound(t *testing.T) {
 	m := lookingUp(t, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 {
@@ -1240,7 +1268,7 @@ func TestCtrlRStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
 	m = press(m, "/")
 	m = typeFilter(m, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	names := map[string]bool{}
@@ -1264,7 +1292,7 @@ func TestCtrlRStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
 func TestCtrlROnAProjectThatNeedsNothingSaysSo(t *testing.T) {
 	m := lookingUp(t, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if len(m.terms) != 0 {
@@ -1284,7 +1312,7 @@ func TestCtrlUClearsTheQueryAndKeepsTyping(t *testing.T) {
 	// The query is a line being typed, and ctrl+u is what clears one.
 	m := lookingUp(t, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if m.filter != "" {
@@ -1309,7 +1337,7 @@ func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 	m.showAll = false
 	m = typeFilter(press(m, "/"), "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	if f := footer(m); !strings.Contains(f, "started one") {
@@ -1372,18 +1400,18 @@ func TestWhatTheShellReceivesFollowsTheModesItAskedFor(t *testing.T) {
 		return strings.Contains(term.vt.Render(), "cat -v")
 	})
 
-	term.send(message{Key: keyEvent(tea.KeyMsg{Type: tea.KeyUp})})
+	term.send(message{Key: keyEvent(tea.KeyPressMsg{Code: tea.KeyUp})})
 	await("^[[A", "an arrow with nothing asked for")
 
 	// Application cursor keys, which vim, readline and less all turn on.
 	term.vt.Write([]byte("\x1b[?1h"))
-	term.send(message{Key: keyEvent(tea.KeyMsg{Type: tea.KeyUp})})
+	term.send(message{Key: keyEvent(tea.KeyPressMsg{Code: tea.KeyUp})})
 	await("^[OA", "an arrow under application cursor keys")
 
 	// And a click, with the program asking to hear about the mouse at all.
 	term.vt.Write([]byte("\x1b[?1000h\x1b[?1006h"))
 	term.send(message{Mouse: mouseEvent(
-		tea.MouseMsg{X: navWidth + 1 + 9, Y: 4, Button: tea.MouseButtonLeft},
+		tea.MouseClickMsg{X: navWidth + 1 + 9, Y: 4, Button: tea.MouseLeft},
 		navWidth+1, 0)})
 	await("^[[<0;10;5M", "a left click nine columns into the pane")
 }
@@ -1544,7 +1572,7 @@ func TestAWheelStaysAWheelWhenTheProgramAskedForIt(t *testing.T) {
 
 // wheelMsg is a wheel notch over the pane, in window coordinates.
 func wheelMsg(btn tea.MouseButton) tea.MouseMsg {
-	return tea.MouseMsg{X: navWidth + 2, Y: 2, Button: btn, Action: tea.MouseActionPress}
+	return tea.MouseWheelMsg{X: navWidth + 2, Y: 2, Button: btn}
 }
 
 // watchingTail is a model focused on a shell with forty lines of transcript
@@ -1567,7 +1595,7 @@ func watchingTail(t *testing.T) model {
 func readingBack(t *testing.T) model {
 	t.Helper()
 	m := watchingTail(t)
-	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
 	m = next.(model)
 	if m.scroll == nil {
 		t.Fatal("a wheel up at the prompt should start reading back")
@@ -1621,7 +1649,7 @@ func TestTheMotionsMoveTheReading(t *testing.T) {
 func TestRollingPastTheBottomReturnsToLive(t *testing.T) {
 	m := readingBack(t)
 
-	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelDown))
+	next, _ := m.Update(wheelMsg(tea.MouseWheelDown))
 	m = next.(model)
 
 	if m.scroll != nil {
@@ -1652,7 +1680,7 @@ func TestReadingSwallowsWhatIsNotAMotion(t *testing.T) {
 func TestCtrlOWhileReadingGoesAllTheWayOut(t *testing.T) {
 	m := readingBack(t)
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = next.(model)
 
 	if m.scroll != nil || m.focus != 0 {
@@ -1664,7 +1692,7 @@ func TestTheWheelIsTheProgramsWhenItAskedForIt(t *testing.T) {
 	m := watchingTail(t)
 	m.terms[700].mouse = true
 
-	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
 	if next.(model).scroll != nil {
 		t.Error("a program listening for the mouse should keep its wheel")
 	}
@@ -1674,7 +1702,7 @@ func TestTheWheelDoesNotReadOverTheAlternateScreen(t *testing.T) {
 	m := watchingTail(t)
 	m.terms[700].alt = true
 
-	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
 	if next.(model).scroll != nil {
 		t.Error("the alternate screen has no transcript above it to read")
 	}
@@ -1702,7 +1730,7 @@ func TestEnterOpensAShellInTheSubProjectTheFilterFound(t *testing.T) {
 
 	m = typeFilter(press(m, "/"), "api")
 	m = cursorOn(t, m, sub)
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 	if cmd != nil {
 		if msg := cmd(); msg != nil {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func main() {
@@ -25,15 +25,10 @@ func main() {
 		applyNavWidth(cfg.NavWidth)
 	}
 
-	// The mouse is asked for so that it can be handed on. A program in the pane
-	// that wants clicks and wheel turns cannot ask the real terminal for them —
-	// it is talking to scrn's emulator, which has no window — so scrn asks on
-	// its behalf and passes on what arrives.
-	//
-	// Cell motion rather than every movement: it covers clicking, dragging and
-	// the wheel, which is what the programs that want a mouse are after, without
-	// a message for every pixel the pointer crosses.
-	p := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// The alternate screen and the mouse are asked for on the view rather
+	// than here: in Bubble Tea v2 they are facts about what is being drawn,
+	// and the view carries them out with every frame.
+	p := tea.NewProgram(newModel())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 		os.Exit(1)

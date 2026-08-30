@@ -167,15 +167,19 @@ func keepOpen(fd uintptr) error {
 	return nil
 }
 
-// execSelf replaces this daemon with the binary at its own path, carrying the
+// execSelf replaces this daemon with the binary at exe — the one the asking
+// window is running, since the daemon's own may be gone — carrying the
 // listener and every shell across as inherited file descriptors and a state
-// file. On success it does not return: the exec is the return. On failure the
-// daemon is untouched — nothing is torn down before the exec, so there is
-// nothing to put back.
-func (d *daemon) execSelf() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
+// file. An ask without a path falls back to the daemon's own, for a window
+// old enough not to send one. On success it does not return: the exec is the
+// return. On failure the daemon is untouched — nothing is torn down before
+// the exec, so there is nothing to put back.
+func (d *daemon) execSelf(exe string) error {
+	if exe == "" {
+		var err error
+		if exe, err = os.Executable(); err != nil {
+			return err
+		}
 	}
 
 	lf, err := d.listener.(*net.UnixListener).File()

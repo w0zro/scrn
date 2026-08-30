@@ -11,15 +11,16 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
 
 // TestMain lets this binary answer as the daemon. An upgrading daemon execs
-// the binary at its own path — which, under test, is the test binary — so the
-// upgrade test exercises the real exec rather than a stand-in.
+// the binary the ask names, or its own when the ask names none — which, under
+// test, is the test binary either way — so the upgrade test exercises the
+// real exec rather than a stand-in.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		if err := runDaemon(); err != nil {
@@ -146,9 +147,10 @@ func TestAnUpgradedDaemonKeepsItsShells(t *testing.T) {
 	typeInto(conn, pid, "PS1=; echo survives-the-exec\n")
 	awaitScreen(t, conn, "survives-the-exec")
 
-	// Ask for the upgrade. The exec drops this connection, which is what
-	// acting on it looks like from here.
-	conn.write(message{Kind: kindUpgrade})
+	// Ask for the upgrade, naming the binary the way a real window does. The
+	// exec drops this connection, which is what acting on it looks like from
+	// here.
+	conn.write(message{Kind: kindUpgrade, Exe: exe})
 	for {
 		if _, err := conn.readBy(deadline); err != nil {
 			break
@@ -213,6 +215,9 @@ func TestAStaleDaemonHoldingShellsIsAskedToUpgrade(t *testing.T) {
 	case got := <-asked:
 		if got.Kind != kindUpgrade {
 			t.Errorf("asked %q of the daemon, want %q", got.Kind, kindUpgrade)
+		}
+		if got.Exe == "" {
+			t.Error("the ask does not say which binary to exec; the daemon's own may be gone")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("nothing was asked of the stale daemon")
