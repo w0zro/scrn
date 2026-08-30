@@ -48,6 +48,13 @@ func runDaemon() error {
 	// project, so it stands in none of them.
 	_ = os.Chdir("/")
 
+	// The one piece of config the daemon owns: how much transcript to keep.
+	// It is read before any shell exists — including the adopted ones, whose
+	// replayed history has to fit in it.
+	if cfg, _ := loadConfig(); cfg.Scrollback > 0 {
+		scrollbackLines = cfg.Scrollback
+	}
+
 	// A daemon woken by its own exec has a state file waiting and shells to
 	// take back up; one started fresh claims the socket instead.
 	var d *daemon

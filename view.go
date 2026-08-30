@@ -376,7 +376,9 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
-	rules := ""
+	// A place sits inside whatever the rows above it name, and the indent is
+	// the whole of how that is said: the tree rules belong to processes.
+	rules := r.prefix
 	// A repository is cut from the left and a command from the right, because
 	// what identifies each is at that end: the repo name after its parents,
 	// and the program before its arguments.

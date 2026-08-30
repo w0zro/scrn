@@ -52,18 +52,37 @@ func detailKey(r navRow) string {
 
 // loadDetail inspects the selected row off the render path. Git and ps are
 // fast, but they are still processes, and the UI should not wait on them.
-func loadDetail(r navRow, procCount int, sess *claudeSession, running map[string]bool) tea.Cmd {
+func loadDetail(r navRow, procCount, repoCount int, sess *claudeSession, running map[string]bool) tea.Cmd {
 	key := detailKey(r)
-	if r.kind == rowProc {
+	p := r.project
+	switch r.kind {
+	case rowProc:
 		node, run := r.node, r.run
 		return func() tea.Msg {
 			return detailMsg{key: key, fields: procFields(node, run, sess)}
 		}
+	case rowGroup:
+		return func() tea.Msg {
+			return detailMsg{key: key, fields: groupFields(p, repoCount, procCount, running)}
+		}
 	}
-	p := r.project
 	return func() tea.Msg {
 		return detailMsg{key: key, fields: repoFields(p, procCount, running)}
 	}
+}
+
+// groupFields describes a group of repositories: where it is, what it holds,
+// and the plan its folder carries, if it carries one. Git has nothing to say
+// here — the folder is not a repository, which is the point of it.
+func groupFields(p Project, repoCount, procCount int, running map[string]bool) []field {
+	fs := []field{
+		heading(p.Name),
+		note(p.Path),
+		gap(),
+		{label: "holds", value: plural(repoCount, "repository", "repositories")},
+		{label: "running", value: plural(procCount, "process", "processes")},
+	}
+	return append(fs, planFields(p.Path, running)...)
 }
 
 // repoFields describes a repository: where it is, what state its checkout is
@@ -110,25 +129,30 @@ func repoFields(p Project, procCount int, running map[string]bool) []field {
 	}
 
 	fs = append(fs, gap(), field{label: "running", value: plural(procCount, "process", "processes")})
+	return append(fs, planFields(p.Path, running)...)
+}
 
-	// What the project says it needs, and which of those are up. It is the
-	// list u works from, so showing it is showing what u would do.
-	if plan := readPlan(p.Path); len(plan.Entries) > 0 {
-		fs = append(fs, gap())
-		for i, e := range plan.Entries {
-			label := "needs"
-			if i > 0 {
-				label = "" // the rest line up under the first
-			}
-			mark := "○ "
-			if running[e.Name] {
-				mark = "● "
-			}
-			fs = append(fs, field{label: label, value: mark + e.Name + "  " + e.Run})
-		}
-		fs = append(fs, field{label: "from", value: plan.Source})
+// planFields is the checklist of what a place says it needs, and which of
+// those are up. It is the list r works from, so showing it is showing what
+// r would do.
+func planFields(path string, running map[string]bool) []field {
+	plan := readPlan(path)
+	if len(plan.Entries) == 0 {
+		return nil
 	}
-	return fs
+	fs := []field{gap()}
+	for i, e := range plan.Entries {
+		label := "needs"
+		if i > 0 {
+			label = "" // the rest line up under the first
+		}
+		mark := "○ "
+		if running[e.Name] {
+			mark = "● "
+		}
+		fs = append(fs, field{label: label, value: mark + e.Name + "  " + e.Run})
+	}
+	return append(fs, field{label: "from", value: plan.Source})
 }
 
 // describeStatus turns porcelain output into a count of what changed.

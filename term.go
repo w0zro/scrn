@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,6 +31,19 @@ import (
 
 // termReadSize is how much pty output is taken at a time.
 const termReadSize = 32 * 1024
+
+// scrollbackLines is how many lines of transcript a shell keeps once they
+// scroll off its pane. The daemon sets it from the config before any shell
+// exists; every emulator made after that — opened or adopted — is given it.
+var scrollbackLines = vt.DefaultScrollbackSize
+
+// newEmulator is the emulator every shell draws on, holding as much
+// transcript as the daemon was configured to keep.
+func newEmulator(width, height int) *vt.SafeEmulator {
+	e := vt.NewSafeEmulator(width, height)
+	e.SetScrollbackSize(scrollbackLines)
+	return e
+}
 
 // terminal is one shell scrn started, and the screen it has drawn.
 type terminal struct {
@@ -147,7 +161,7 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 		name:   name,
 		cmd:    c,
 		pty:    f,
-		vt:     vt.NewSafeEmulator(width, height),
+		vt:     newEmulator(width, height),
 		cols:   width,
 		output: make(chan struct{}, 1),
 		done:   make(chan struct{}),
@@ -509,18 +523,23 @@ func (t *terminal) screen() string {
 // into the kind of string a screen crosses the wire as — one row per line —
 // but without the padding: no cursor is ever cut into these rows, so nothing
 // leans on their width.
+//
+// Only the line headers are copied under the lock. A line is cloned as it is
+// pushed and never written again — the buffer only shifts and appends around
+// it — so the styling, which is the slow part, runs after the pump has been
+// let go. A transcript rendered while a build pours output must not make the
+// build wait.
 func (t *terminal) history() string {
 	t.vtMu.RLock()
-	defer t.vtMu.RUnlock()
+	lines := slices.Clone(t.vt.Scrollback().Lines())
+	t.vtMu.RUnlock()
 
-	sb := t.vt.Scrollback()
-	n := sb.Len()
-	if n == 0 {
+	if len(lines) == 0 {
 		return ""
 	}
-	rows := make([]string, 0, n)
-	for i := 0; i < n; i++ {
-		rows = append(rows, sb.Line(i).Render())
+	rows := make([]string, len(lines))
+	for i, line := range lines {
+		rows[i] = line.Render()
 	}
 	return strings.Join(rows, "\n")
 }

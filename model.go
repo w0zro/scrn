@@ -6,13 +6,25 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// navWidth is the column the navigator occupies, divider excluded.
-const navWidth = 28
+// navWidth is the column the navigator occupies, divider excluded. The
+// default suits short home-project names; the config widens it for the long
+// qualified paths a work checkout produces.
+var navWidth = 28
+
+// applyNavWidth sets the navigator's width from the config, within reason:
+// below 16 columns no name survives, and past 60 the navigator is most of
+// any screen. Zero — unset — leaves the default standing.
+func applyNavWidth(w int) {
+	if w > 0 {
+		navWidth = min(max(w, 16), 60)
+	}
+}
 
 // navMin is the total width below which there is no room for a detail pane
 // beside the navigator, so the navigator takes the whole width.
@@ -60,9 +72,13 @@ func tick(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// projectsMsg carries the result of the startup scan.
+// projectsMsg carries the result of the startup scan: the repositories, the
+// groups that hold them, and the sub-projects found inside each repository,
+// keyed by the repository's path.
 type projectsMsg struct {
 	projects []Project
+	groups   []Project
+	subs     map[string][]Project
 	err      error
 }
 
@@ -83,8 +99,10 @@ type claudeMsg struct {
 type rowKind int
 
 const (
-	rowProject rowKind = iota
-	rowProc
+	rowGroup   rowKind = iota // a folder of repositories that make one project
+	rowProject                // a repository
+	rowSub                    // a sub-project: a directory inside a repository with a manifest
+	rowProc                   // a process
 )
 
 // navRow is one selectable line: a repository, or a process inside one.
@@ -127,14 +145,27 @@ type model struct {
 	projects []Project
 	err      error
 
-	// procs are the running processes; byRepo groups them under the repository
-	// they are working in, already arranged into parent/child trees. parent
-	// maps a pid to the one that started it, which is how a process is traced
-	// back to the shell it is running inside.
-	procs  []Proc
-	byRepo map[string][]*ProcNode
-	parent map[int]int
-	nodes  map[int]*ProcNode
+	// procs are the running processes; byPlace groups them under the place
+	// they are working in — a repository, or a sub-project inside one — each
+	// group already arranged into parent/child trees. parent maps a pid to
+	// the one that started it, which is how a process is traced back to the
+	// shell it is running inside.
+	procs   []Proc
+	byPlace map[string][]*ProcNode
+	parent  map[int]int
+	nodes   map[int]*ProcNode
+
+	// subs are each repository's sub-projects, keyed by the repository's
+	// path. They come from the repository scan, not the process scan: a
+	// sub-project exists whether or not anything is running in it, which is
+	// what lets the filter reach it cold.
+	subs map[string][]Project
+
+	// groups are the folders grouping repositories into one project, and
+	// grouped files each group's repositories under its path. A project is
+	// often several repositories in one directory, worked on at that level.
+	groups  []Project
+	grouped map[string][]Project
 
 	// showHelp spells the keys out. They are worth a line to say they exist
 	// and six to list, and the list is worth more to the navigator most of the
@@ -282,11 +313,30 @@ func scanProjects() tea.Msg {
 	if err != nil {
 		return projectsMsg{err: fmt.Errorf("config: %w", err)}
 	}
-	projects, err := discoverProjects(expandPath(cfg.ProjectsDir))
+	projects, groups, err := discoverAll(cfg.roots(), cfg.skipSet())
 	if err != nil {
 		return projectsMsg{err: err}
 	}
-	return projectsMsg{projects: projects}
+
+	// Each repository's index is asked for its sub-projects, together rather
+	// than in turn: fifty repositories at twenty milliseconds each would
+	// otherwise hold the first paint for a second.
+	subs := make(map[string][]Project, len(projects))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, p := range projects {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if found := subProjects(p.Path); len(found) > 0 {
+				mu.Lock()
+				subs[p.Path] = found
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return projectsMsg{projects: projects, groups: groups, subs: subs}
 }
 
 // scanClaude reads what the running Claude Code instances say about
@@ -339,7 +389,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case projectsMsg:
-		m.projects, m.err = msg.projects, msg.err
+		m.projects, m.groups, m.subs, m.err = msg.projects, msg.groups, msg.subs, msg.err
 		m.rebuild()
 		return m, m.detailCmd()
 
@@ -804,11 +854,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.Type {
 	case tea.KeyEnter:
-		// Enter is the one key that means both things. On a repository it
-		// opens a shell, which is the point of having looked it up; the filter
-		// is finished either way.
+		// Enter is the one key that means both things. On a repository or a
+		// sub-project it opens a shell there, which is the point of having
+		// looked it up; the filter is finished either way.
 		m.typing = false
-		if r, ok := m.selected(); ok && r.kind == rowProject {
+		if r, ok := m.selected(); ok && r.kind != rowProc {
 			return m.openShell()
 		}
 		return m.detailCmd()
@@ -874,7 +924,7 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 // what you acted on rather than back at the top of everything.
 func (m *model) selectProject(path string) {
 	for i, r := range m.rows {
-		if r.kind == rowProject && r.project.Path == path {
+		if r.kind != rowProc && r.project.Path == path {
 			m.cursor = i
 			m.scrollToCursor()
 			return
@@ -956,7 +1006,7 @@ func (m model) paneTerm() *remoteTerm {
 // reached by attaching to that shell. Only a process on a terminal scrn does
 // not own is out of reach, and no amount of asking will change that.
 func (m model) attachable(r navRow) bool {
-	if r.kind == rowProject {
+	if r.kind != rowProc {
 		return true
 	}
 	return m.owningTerm(r.node.PID) != nil
@@ -1179,9 +1229,22 @@ func (m *model) askKill(tree bool) tea.Cmd {
 		return nil
 	}
 
-	if r.kind == rowProject {
+	if r.kind != rowProc {
+		// A place's kill covers everything beneath it: the sub-projects of a
+		// repository, the repositories of a group. They are on screen under
+		// the row, and an x that ignored them would be an x ignoring half of
+		// what is shown.
+		var roots []*ProcNode
+		switch r.kind {
+		case rowGroup:
+			roots = m.groupTrees(r.project.Path)
+		case rowProject:
+			roots = m.repoTrees(r.project.Path)
+		default:
+			roots = m.byPlace[r.project.Path]
+		}
 		var nodes []*ProcNode
-		for _, root := range m.byRepo[r.project.Path] {
+		for _, root := range roots {
 			nodes = append(nodes, subtree(root)...)
 		}
 		if len(nodes) == 0 {
@@ -1290,14 +1353,20 @@ func (m *model) toggleCollapse() {
 // childCount is how many processes a row hides when it is collapsed: every
 // process in the repository, or every descendant of the process.
 func (m model) childCount(r navRow) int {
-	if r.kind == rowProject {
-		total := 0
-		for _, n := range m.byRepo[r.project.Path] {
-			total += countTree(n)
-		}
-		return total
+	roots := m.byPlace[r.project.Path]
+	switch r.kind {
+	case rowGroup:
+		roots = m.groupTrees(r.project.Path)
+	case rowProject:
+		roots = m.repoTrees(r.project.Path)
+	case rowProc:
+		return countTree(r.leaf()) - 1
 	}
-	return countTree(r.leaf()) - 1
+	total := 0
+	for _, n := range roots {
+		total += countTree(n)
+	}
+	return total
 }
 
 // spinNeeded reports whether anything on screen is moving: a process on its
@@ -1544,7 +1613,7 @@ func (m *model) rebuild() {
 	// until the rows settle, then lets go.
 	if m.wantProject != "" {
 		m.selectProject(m.wantProject)
-		if m.filter == "" && len(m.byRepo[m.wantProject]) > 0 {
+		if m.filter == "" && len(m.byPlace[m.wantProject]) > 0 {
 			m.wantProject = ""
 		}
 	}
@@ -1600,6 +1669,13 @@ func (m *model) pruneDetails() {
 // A process is attributed to the innermost repository containing it, so a
 // process in a nested checkout is listed there and not under its parent repo.
 func (m *model) groupProcs() {
+	m.grouped = make(map[string][]Project, len(m.groups))
+	for _, p := range m.projects {
+		if p.Group != "" {
+			m.grouped[p.Group] = append(m.grouped[p.Group], p)
+		}
+	}
+
 	m.parent = make(map[int]int, len(m.procs))
 	for _, pr := range m.procs {
 		m.parent[pr.PID] = pr.PPID
@@ -1613,40 +1689,311 @@ func (m *model) groupProcs() {
 				best = p.Path
 			}
 		}
-		if best != "" {
-			owner[best] = append(owner[best], pr)
+		if best == "" {
+			// Work at a group's own level — a shell opened on the group row —
+			// is in none of its repositories, and belongs to the group.
+			for _, g := range m.groups {
+				if under(pr.Dir, g.Path) && len(g.Path) > len(best) {
+					best = g.Path
+				}
+			}
+			if best != "" {
+				owner[best] = append(owner[best], pr)
+			}
+			continue
 		}
+		// Within the repository, the innermost sub-project containing the
+		// process is its place; a process in none of them works at the root.
+		place := best
+		for _, sp := range m.subs[best] {
+			if under(pr.Dir, sp.Path) && len(sp.Path) > len(place) {
+				place = sp.Path
+			}
+		}
+		owner[place] = append(owner[place], pr)
 	}
 
-	m.byRepo = make(map[string][]*ProcNode, len(owner))
+	m.byPlace = make(map[string][]*ProcNode, len(owner))
 	m.nodes = make(map[int]*ProcNode, len(m.procs))
 	for path, procs := range owner {
-		m.byRepo[path] = procForest(procs)
-		for _, root := range m.byRepo[path] {
+		m.byPlace[path] = procForest(procs)
+		for _, root := range m.byPlace[path] {
 			indexNodes(root, m.nodes)
 		}
 	}
 }
 
-// flatten turns the visible repositories and their process trees into the flat
-// list of selectable rows the navigator draws and the cursor walks.
+// repoTrees is every process tree in a repository: the ones at its root and
+// the ones inside each of its sub-projects.
+func (m model) repoTrees(repo string) []*ProcNode {
+	out := append([]*ProcNode{}, m.byPlace[repo]...)
+	for _, s := range m.subs[repo] {
+		out = append(out, m.byPlace[s.Path]...)
+	}
+	return out
+}
+
+// placeHasWork reports whether a sub-project holds a process tree or a shell
+// the daemon is holding there — the shell counting before the scan has seen
+// it, for the same reason a repository's does.
+func (m model) placeHasWork(path string) bool {
+	if len(m.byPlace[path]) > 0 {
+		return true
+	}
+	for _, t := range m.terms {
+		if t.dir == path {
+			return true
+		}
+	}
+	return false
+}
+
+// workIn reports whether anything is running in a repository, its
+// sub-projects included.
+func (m model) workIn(repo string) bool {
+	if len(m.repoTrees(repo)) > 0 {
+		return true
+	}
+	for _, t := range m.terms {
+		if under(t.dir, repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// groupTrees is every process tree in a group: at its own level, and inside
+// each of its repositories.
+func (m model) groupTrees(g string) []*ProcNode {
+	out := append([]*ProcNode{}, m.byPlace[g]...)
+	for _, p := range m.grouped[g] {
+		out = append(out, m.repoTrees(p.Path)...)
+	}
+	return out
+}
+
+// workInGroup reports whether anything is running anywhere in a group. The
+// terms check covers a shell just opened at the group's own level, before
+// the scan has seen it.
+func (m model) workInGroup(g Project) bool {
+	if len(m.byPlace[g.Path]) > 0 {
+		return true
+	}
+	for _, t := range m.terms {
+		if under(t.dir, g.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// flatten turns the visible places — groups, repositories, sub-projects —
+// and their process trees into the flat list of selectable rows the
+// navigator draws and the cursor walks.
 func (m model) flatten() []navRow {
 	var rows []navRow
-	for _, p := range m.visible() {
-		row := navRow{kind: rowProject, project: p}
-		rows = append(rows, row)
-		// While a project is being looked up the list is of projects. What is
-		// running inside them is not what is being chosen between, and it
-		// would bury the names being scanned for.
-		if m.typing || m.collapsed[detailKey(row)] {
+	for _, top := range m.topPlaces() {
+		if top.kind == rowProject {
+			rows = append(rows, m.flattenRepo(top.project, "")...)
 			continue
 		}
-		roots := m.byRepo[p.Path]
+
+		rows = append(rows, top)
+		repos := m.visibleRepos(top.project)
+		if m.typing {
+			for _, p := range repos {
+				rows = append(rows, m.flattenRepo(p, "  ")...)
+			}
+			continue
+		}
+		if m.collapsed[detailKey(top)] {
+			continue
+		}
+		// Work at the group's own level — a shell opened on the group row —
+		// comes before the repositories it sits beside.
+		roots := m.byPlace[top.project.Path]
 		for i, n := range roots {
-			rows = append(rows, m.flattenProc(p, n, "", i == len(roots)-1)...)
+			rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1 && len(repos) == 0)...)
+		}
+		for _, p := range repos {
+			rows = append(rows, m.flattenRepo(p, "  ")...)
 		}
 	}
 	return rows
+}
+
+// topPlaces is the top of the navigator: the groups and the repositories
+// standing alone, in one alphabetical order, each listed when its own rule
+// says so.
+func (m model) topPlaces() []navRow {
+	var out []navRow
+	for _, g := range m.groups {
+		if m.groupVisible(g) {
+			out = append(out, navRow{kind: rowGroup, project: g})
+		}
+	}
+	for _, p := range m.projects {
+		if p.Group == "" && m.repoVisible(p) {
+			out = append(out, navRow{kind: rowProject, project: p})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := strings.ToLower(out[i].project.Name), strings.ToLower(out[j].project.Name)
+		if a != b {
+			return a < b
+		}
+		return out[i].project.Path < out[j].project.Path
+	})
+	return out
+}
+
+// repoVisible is the repositories' listing rule. While a filter is at work,
+// the ones that answer to it — by name or path, by a sub-project answering,
+// or by a process running there whose command answers, so typing claude finds
+// the repositories a claude is working in and not only the ones named for it.
+// A repository whose sub-project answers is listed for the answer's sake, the
+// way a directory holds the file you were looking for. Otherwise the ones
+// with work in them, or all behind the dot. A shell the daemon is holding
+// counts as work before the scan has seen it: it is running, and asking for
+// it and then watching the project vanish for a poll would be a lie about
+// what just happened.
+func (m model) repoVisible(p Project) bool {
+	if m.typing || m.filter != "" {
+		return matchesFilter(p, m.filter) || len(m.matchingSubs(p)) > 0 ||
+			m.procAnswers(p.Path, m.filter)
+	}
+	return m.showAll || m.workIn(p.Path)
+}
+
+// procAnswers reports whether something running at place answers the filter
+// by its command. The whole tree is asked: a shell running a claude answers
+// for claude, whichever of them the row happens to be named after.
+func (m model) procAnswers(place, filter string) bool {
+	f := strings.ToLower(strings.TrimSpace(filter))
+	if f == "" {
+		return false
+	}
+	var any func(ns []*ProcNode) bool
+	any = func(ns []*ProcNode) bool {
+		for _, n := range ns {
+			if strings.Contains(strings.ToLower(n.Command), f) || any(n.Children) {
+				return true
+			}
+		}
+		return false
+	}
+	return any(m.byPlace[place])
+}
+
+// groupVisible is the same rule at the group's altitude: its own name or a
+// process running at its folder answering the filter, or any of its
+// repositories answering; its own directory holding work, or any of its
+// repositories holding some.
+func (m model) groupVisible(g Project) bool {
+	if m.typing || m.filter != "" {
+		return matchesFilter(g, m.filter) || len(m.visibleRepos(g)) > 0 ||
+			m.procAnswers(g.Path, m.filter)
+	}
+	if m.showAll || m.workInGroup(g) {
+		return true
+	}
+	for _, p := range m.grouped[g.Path] {
+		if m.workIn(p.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// visibleRepos is the repositories listed beneath a group, by the
+// repositories' own rule.
+func (m model) visibleRepos(g Project) []Project {
+	var out []Project
+	for _, p := range m.grouped[g.Path] {
+		if m.repoVisible(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// flattenRepo is one repository's section: its row, and beneath it the
+// sub-projects and process trees, everything shifted right when the
+// repository itself sits under a group.
+func (m model) flattenRepo(p Project, indent string) []navRow {
+	row := navRow{kind: rowProject, project: p, prefix: indent}
+	rows := []navRow{row}
+	subs := m.visibleSubs(p)
+	// While a project is being looked up the list is of places to land. What
+	// is running inside them is not what is being chosen between, and it
+	// would bury the names being scanned for.
+	if m.typing {
+		for _, sp := range subs {
+			rows = append(rows, navRow{kind: rowSub, project: sp, prefix: indent + "  "})
+		}
+		return rows
+	}
+	if m.collapsed[detailKey(row)] {
+		return rows
+	}
+	roots := m.byPlace[p.Path]
+	for i, n := range roots {
+		rows = append(rows, m.flattenProc(p, n, indent, i == len(roots)-1 && len(subs) == 0)...)
+	}
+	for _, sp := range subs {
+		srow := navRow{kind: rowSub, project: sp, prefix: indent + "  "}
+		rows = append(rows, srow)
+		if m.collapsed[detailKey(srow)] {
+			continue
+		}
+		sroots := m.byPlace[sp.Path]
+		for i, n := range sroots {
+			rows = append(rows, m.flattenProc(sp, n, indent+"  ", i == len(sroots)-1)...)
+		}
+	}
+	return rows
+}
+
+// visibleSubs is the sub-projects listed beneath a repository. While a
+// filter is at work they are the ones that answer to it — an empty query
+// lists projects alone, or every sub-project of every repository would bury
+// the list being remembered. Otherwise they follow the repositories' own
+// rule: the ones with work in them, or all of them behind the dot.
+func (m model) visibleSubs(p Project) []Project {
+	if m.typing || m.filter != "" {
+		return m.matchingSubs(p)
+	}
+	all := m.subs[p.Path]
+	if m.showAll {
+		return all
+	}
+	var out []Project
+	for _, sp := range all {
+		if m.placeHasWork(sp.Path) {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
+
+// matchingSubs is the sub-projects of a repository that answer to the
+// filter, by their own path or qualified by their repository's name — which
+// is how "mono api" and "services/api" both find the same place — or by a
+// process running in them whose command answers.
+func (m model) matchingSubs(p Project) []Project {
+	f := strings.ToLower(strings.TrimSpace(m.filter))
+	if f == "" {
+		return nil
+	}
+	var out []Project
+	for _, sp := range m.subs[p.Path] {
+		if strings.Contains(strings.ToLower(sp.Name), f) ||
+			strings.Contains(strings.ToLower(p.Name+"/"+sp.Name), f) ||
+			m.procAnswers(sp.Path, f) {
+			out = append(out, sp)
+		}
+	}
+	return out
 }
 
 func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []navRow {
@@ -1703,35 +2050,6 @@ var shells = map[string]bool{
 
 func isShell(command string) bool { return shells[strings.TrimPrefix(command, "-")] }
 
-// visible returns the repositories the navigator should list.
-func (m model) visible() []Project {
-	if m.typing || m.filter != "" {
-		// Every repository is searched, not just the ones already listed: a
-		// filter is for reaching the projects that are not on screen. An empty
-		// filter matches all of them, which is the list you get on pressing /.
-		var out []Project
-		for _, p := range m.projects {
-			if matchesFilter(p, m.filter) {
-				out = append(out, p)
-			}
-		}
-		return out
-	}
-	if m.showAll {
-		return m.projects
-	}
-	out := make([]Project, 0, len(m.byRepo))
-	for _, p := range m.projects {
-		// A shell the daemon is holding counts even before the scan has seen
-		// it: it is running, and asking for it and then watching the project
-		// vanish for a poll would be a lie about what just happened.
-		if len(m.byRepo[p.Path]) > 0 || len(m.planned(p.Path)) > 0 {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // matchesFilter reports whether a repository answers to what has been typed.
 // The path is searched as well as the name, so a directory that is only in the
 // name of a repository's parent still finds it.
@@ -1764,10 +2082,11 @@ func (m model) refreshDetailCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if r.kind == rowProject && m.ticks%repoDetailEvery != 0 {
+	if r.kind != rowProc && m.ticks%repoDetailEvery != 0 {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r), m.namesIn(r.project.Path))
+	return loadDetail(r, m.placeCount(r), len(m.grouped[r.project.Path]),
+		m.claudeFor(r), m.namesIn(r.project.Path))
 }
 
 // holds reports whether a pid is anywhere in the run this row stands for.
@@ -1804,5 +2123,18 @@ func (m model) detailCmd() tea.Cmd {
 	if _, cached := m.details[detailKey(r)]; cached {
 		return nil
 	}
-	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r), m.namesIn(r.project.Path))
+	return loadDetail(r, m.placeCount(r), len(m.grouped[r.project.Path]),
+		m.claudeFor(r), m.namesIn(r.project.Path))
+}
+
+// placeCount is how many process trees a row's place holds — for a
+// repository or a group, everything in it.
+func (m model) placeCount(r navRow) int {
+	switch r.kind {
+	case rowGroup:
+		return len(m.groupTrees(r.project.Path))
+	case rowProject:
+		return len(m.repoTrees(r.project.Path))
+	}
+	return len(m.byPlace[r.project.Path])
 }

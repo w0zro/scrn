@@ -19,6 +19,12 @@ func main() {
 		return
 	}
 
+	// The navigator's width is drawn from before the first paint, so it is the
+	// one piece of config the client applies here rather than on a scan.
+	if cfg, err := loadConfig(); err == nil {
+		applyNavWidth(cfg.NavWidth)
+	}
+
 	// The mouse is asked for so that it can be handed on. A program in the pane
 	// that wants clicks and wheel turns cannot ask the real terminal for them —
 	// it is talking to scrn's emulator, which has no window — so scrn asks on

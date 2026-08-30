@@ -1407,6 +1407,46 @@ func TestHistoryIsWhatScrolledOffTheTop(t *testing.T) {
 	}
 }
 
+func TestAShellKeepsTheConfiguredScrollback(t *testing.T) {
+	// The cap comes from the config through the daemon; the library default is
+	// what a work build log overruns. Opened and adopted shells alike draw on
+	// an emulator made here.
+	defer func(n int) { scrollbackLines = n }(scrollbackLines)
+	scrollbackLines = 123
+
+	emu := newEmulator(40, 8)
+	if got := emu.Scrollback().MaxLines(); got != 123 {
+		t.Errorf("scrollback cap = %d, want the configured 123", got)
+	}
+}
+
+func TestHistoryLetsThePumpKeepWriting(t *testing.T) {
+	// The transcript is styled outside the lock the pump writes under; only
+	// the line headers are copied inside it. The scrollback is kept tiny so
+	// the buffer shifts under the reader the whole time — with the race
+	// detector on, this is the proof the copy is enough.
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
+	term.vt.SetScrollbackSize(10)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 500 {
+			term.vtMu.Lock()
+			term.vt.Write([]byte("line-" + strconv.Itoa(i) + "\r\n"))
+			term.vtMu.Unlock()
+		}
+	}()
+	for range 50 {
+		term.history()
+	}
+	<-done
+
+	if h := term.history(); !strings.Contains(h, "line-494") {
+		t.Errorf("history = %q, want the last lines that scrolled away", h)
+	}
+}
+
 func TestHistoryOfAQuietShellIsEmpty(t *testing.T) {
 	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
 	term.vt.Write([]byte("just a prompt"))
@@ -1644,5 +1684,35 @@ func TestTheHintSaysTheTranscriptIsBeingRead(t *testing.T) {
 	m := readingBack(t)
 	if f := footer(m); !strings.Contains(f, "scrollback") {
 		t.Errorf("footer = %q, want it to say where the keys went", f)
+	}
+}
+
+func TestEnterOpensAShellInTheSubProjectTheFilterFound(t *testing.T) {
+	// The cold start at work, end to end: /api, enter, and you are in a
+	// shell in services/api with nothing running there beforehand.
+	sub := filepath.Join(t.TempDir(), "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := connected(t, sized(90, 20))
+	m.showAll = true
+	m.projects = []Project{{Name: "mono", Path: "/p/mono"}}
+	m.subs = map[string][]Project{"/p/mono": {{Name: "api", Path: sub}}}
+	m.rebuild()
+
+	m = typeFilter(press(m, "/"), "api")
+	m = cursorOn(t, m, sub)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if cmd != nil {
+		if msg := cmd(); msg != nil {
+			next, _ = m.Update(msg)
+			m = next.(model)
+		}
+	}
+	m = pump(t, m, hasShell, 5*time.Second)
+
+	if got := m.terms[m.focus].dir; got != sub {
+		t.Errorf("shell dir = %q, want the sub-project %q", got, sub)
 	}
 }

@@ -135,7 +135,7 @@ func TestWhatTheRealProjectsWouldInfer(t *testing.T) {
 	// Not an assertion about any one project, just that reading a real tree
 	// does not blow up and does find the convention where it exists.
 	cfg, _ := loadConfig()
-	ps, err := discoverProjects(expandPath(cfg.ProjectsDir))
+	ps, err := discoverProjects(expandPath(cfg.ProjectsDir), nil)
 	if err != nil {
 		t.Skip(err)
 	}

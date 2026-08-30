@@ -301,10 +301,10 @@ func TestProcessesGoUnderTheInnermostRepo(t *testing.T) {
 		[]Project{{Name: "outer", Path: "/p/outer"}, {Name: "inner", Path: "/p/outer/inner"}},
 		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/outer/inner/src"}},
 	)
-	if n := len(m.byRepo["/p/outer"]); n != 0 {
+	if n := len(m.byPlace["/p/outer"]); n != 0 {
 		t.Errorf("outer repo got %d processes, want 0; the nested repo owns it", n)
 	}
-	if n := len(m.byRepo["/p/outer/inner"]); n != 1 {
+	if n := len(m.byPlace["/p/outer/inner"]); n != 1 {
 		t.Errorf("inner repo got %d processes, want 1", n)
 	}
 }
@@ -1712,6 +1712,49 @@ func typeFilter(m model, s string) model {
 	return m
 }
 
+func TestFilterReachesProcessesByCommand(t *testing.T) {
+	// Typing claude finds the repositories a claude is working in, not only
+	// the ones named for it — at work the question is as often "where is that
+	// running" as "where is that checked out".
+	m := withProcList(90, 14, []Project{
+		{Name: "scrn", Path: "/p/scrn"},
+		{Name: "brand", Path: "/p/brand"},
+	}, []Proc{{PID: 100, PPID: 1, Command: "claude", Dir: "/p/brand"}})
+
+	m = typeFilter(press(narrowed(m), "/"), "claude")
+	wantRows(t, navColumn(m), []string{"▸brand"})
+}
+
+func TestFilterReachesAChildProcessCommand(t *testing.T) {
+	// The whole tree answers: a shell running an npm running a node is found
+	// by any of their names, whichever the row happens to be named after.
+	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
+		[]Proc{
+			{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/brand"},
+			{PID: 101, PPID: 100, Command: "node", Dir: "/p/brand"},
+		})
+
+	m = typeFilter(press(narrowed(m), "/"), "node")
+	wantRows(t, navColumn(m), []string{"▸brand"})
+}
+
+func TestNavWidthComesFromConfigWithinReason(t *testing.T) {
+	defer func(w int) { navWidth = w }(navWidth)
+
+	for _, tc := range []struct{ in, want int }{
+		{0, 28},   // unset leaves the default
+		{40, 40},  // a chosen width holds
+		{5, 16},   // too narrow for any name
+		{200, 60}, // most of any screen
+	} {
+		navWidth = 28
+		applyNavWidth(tc.in)
+		if navWidth != tc.want {
+			t.Errorf("applyNavWidth(%d): navWidth = %d, want %d", tc.in, navWidth, tc.want)
+		}
+	}
+}
+
 func TestFilterMatchesThePathAsWellAsTheName(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "node")
 	wantRows(t, navColumn(m), []string{"▸tressle-api"})
@@ -1906,8 +1949,9 @@ func TestSlashListsEveryProjectBeforeAnythingIsTyped(t *testing.T) {
 	}
 
 	m = press(m, "/")
+	// Alphabetical, the order the scan delivers and topPlaces keeps.
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " hsg", " brand", " tressle-api", " flocking-pixi",
+		"▸brand", " flocking-pixi", " hsg", " scrn", " tressle-api",
 	})
 }
 
@@ -1921,7 +1965,7 @@ func TestThePickerShowsProjectsWithoutTheirProcesses(t *testing.T) {
 		})
 
 	m = press(m, "/")
-	wantRows(t, navColumn(m), []string{"▸scrn", " hsg"})
+	wantRows(t, navColumn(m), []string{"▸hsg", " scrn"})
 	if len(m.rows) != 2 {
 		t.Errorf("rows = %d, want only the two projects", len(m.rows))
 	}
@@ -1948,7 +1992,7 @@ func TestTypingNarrowsThePicker(t *testing.T) {
 	}
 
 	m = typeFilter(m, "h")
-	wantRows(t, navColumn(m), []string{"▸hsg", " brand"}) // both are under /p/hsg
+	wantRows(t, navColumn(m), []string{"▸brand", " hsg"}) // both are under /p/hsg
 	m = typeFilter(m, "sg/h")
 	wantRows(t, navColumn(m), []string{"▸hsg"})
 }
@@ -2486,5 +2530,223 @@ func TestAProcessIsReAskedOnEveryPoll(t *testing.T) {
 	m.ticks = 1
 	if m.refreshDetailCmd() == nil {
 		t.Error("a process's details should refresh on every poll")
+	}
+}
+
+// subbed is a model whose one repository holds two sub-projects, showing all.
+func subbed(procs ...Proc) model {
+	m := sized(90, 20)
+	m.showAll = true
+	m.projects = []Project{{Name: "mono", Path: "/p/mono"}}
+	m.subs = map[string][]Project{"/p/mono": {
+		{Name: "services/api", Path: "/p/mono/services/api"},
+		{Name: "web", Path: "/p/mono/web"},
+	}}
+	m.procs = procs
+	m.rebuild()
+	return m
+}
+
+func TestProcessesFileUnderTheirSubProject(t *testing.T) {
+	// A monorepo is a projects directory that happens to be one repository:
+	// work inside a sub-project is listed there, not in a heap at the root.
+	m := subbed(
+		Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"},
+		Proc{PID: 101, PPID: 1, Command: "make", Dir: "/p/mono"},
+	)
+	wantRows(t, navColumn(m), []string{
+		"▸mono",
+		" ├─ make",
+		"   services/api",
+		"   └─ node",
+		"   web",
+	})
+}
+
+func TestIdleSubProjectsAreBehindTheDot(t *testing.T) {
+	// The repositories' own rule: what has work shows, the rest waits.
+	m := narrowed(subbed(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"}))
+	wantRows(t, navColumn(m), []string{
+		"▸mono",
+		"   services/api",
+		"   └─ node",
+	})
+	for _, row := range navColumn(m) {
+		if strings.Contains(row, "web") {
+			t.Errorf("row %q shows an idle sub-project in the narrowed view", row)
+		}
+	}
+}
+
+func TestTheFilterReachesAnIdleSubProject(t *testing.T) {
+	// The cold start at work: nothing is running, and /api still lands you
+	// somewhere you can press s or r.
+	m := typeFilter(press(subbed(), "/"), "api")
+	wantRows(t, navColumn(m), []string{
+		"▸mono",
+		"   services/api",
+	})
+	for _, row := range navColumn(m) {
+		if strings.Contains(row, "web") {
+			t.Errorf("row %q does not answer to the query", row)
+		}
+	}
+}
+
+func TestAnEmptyQueryListsProjectsAlone(t *testing.T) {
+	// Every sub-project of every repository would bury the list of names
+	// being remembered.
+	m := press(subbed(), "/")
+	for _, row := range navColumn(m) {
+		if strings.Contains(row, "services") || strings.Contains(row, "web") {
+			t.Errorf("row %q lists a sub-project before anything was typed", row)
+		}
+	}
+}
+
+func TestAShellOnASubProjectStartsThere(t *testing.T) {
+	r := navRow{kind: rowSub, project: Project{Name: "services/api", Path: "/p/mono/services/api"}}
+	if got := (model{}).shellDir(r); got != "/p/mono/services/api" {
+		t.Errorf("shellDir = %q, want the sub-project's own directory", got)
+	}
+}
+
+// cursorOn puts the cursor on the row for a path, failing if there is none.
+func cursorOn(t *testing.T, m model, path string) model {
+	t.Helper()
+	for i, r := range m.rows {
+		if r.kind != rowProc && r.project.Path == path {
+			m.cursor = i
+			return m
+		}
+	}
+	t.Fatalf("no row for %q", path)
+	return m
+}
+
+func TestXOnASubProjectTakesOnlyItsProcesses(t *testing.T) {
+	m := subbed(
+		Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"},
+		Proc{PID: 101, PPID: 1, Command: "make", Dir: "/p/mono"},
+	)
+	m = press(cursorOn(t, m, "/p/mono/services/api"), "x")
+
+	if m.pendingKill == nil {
+		t.Fatal("x on a sub-project should arm a kill")
+	}
+	if len(m.pendingKill.nodes) != 1 || m.pendingKill.nodes[0].PID != 100 {
+		t.Errorf("nodes = %+v, want the sub-project's process alone", m.pendingKill.nodes)
+	}
+	if !strings.Contains(m.pendingKill.subject, "services/api") {
+		t.Errorf("subject = %q, want it named for the sub-project", m.pendingKill.subject)
+	}
+}
+
+func TestXOnTheRepositoryTakesSubProcessesToo(t *testing.T) {
+	// The sub-projects are on screen beneath it; an x that ignored them
+	// would be an x ignoring half of what is shown.
+	m := subbed(
+		Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"},
+		Proc{PID: 101, PPID: 1, Command: "make", Dir: "/p/mono"},
+	)
+	m = press(cursorOn(t, m, "/p/mono"), "x")
+
+	if m.pendingKill == nil || len(m.pendingKill.nodes) != 2 {
+		t.Fatalf("pendingKill = %+v, want both processes", m.pendingKill)
+	}
+}
+
+func TestWorkInASubProjectKeepsItsRepositoryListed(t *testing.T) {
+	m := narrowed(subbed(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"}))
+	if len(m.rows) == 0 || m.rows[0].project.Name != "mono" {
+		t.Fatalf("rows = %d, want the repository listed for its sub's work", len(m.rows))
+	}
+}
+
+// groupedModel is a model with one group of two repositories and one
+// repository standing alone, showing all.
+func groupedModel(procs ...Proc) model {
+	m := sized(90, 20)
+	m.showAll = true
+	m.projects = []Project{
+		{Name: "api", Path: "/p/checklists.org/api", Group: "/p/checklists.org"},
+		{Name: "web", Path: "/p/checklists.org/web", Group: "/p/checklists.org"},
+		{Name: "scrn", Path: "/p/scrn"},
+	}
+	m.groups = []Project{{Name: "checklists.org", Path: "/p/checklists.org"}}
+	m.procs = procs
+	m.rebuild()
+	return m
+}
+
+func TestAGroupHoldsItsRepositories(t *testing.T) {
+	// A project is often several repositories in one folder, worked on at
+	// that level; the folder gets the row and its repositories sit under it.
+	m := groupedModel()
+	wantRows(t, navColumn(m), []string{
+		"▸checklists.org",
+		"   api",
+		"   web",
+		" scrn",
+	})
+}
+
+func TestWorkInARepositoryLiftsItsGroupIntoView(t *testing.T) {
+	m := narrowed(groupedModel(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/checklists.org/api"}))
+	wantRows(t, navColumn(m), []string{
+		"▸checklists.org",
+		"   api",
+		"   └─ node",
+	})
+	for _, row := range navColumn(m) {
+		if strings.Contains(row, "web") || strings.Contains(row, "scrn") {
+			t.Errorf("row %q has no work and should not be listed", row)
+		}
+	}
+}
+
+func TestAShellAtTheGroupLevelBelongsToTheGroup(t *testing.T) {
+	// Working at that level means a shell opened there, in none of the
+	// repositories; it belongs to the group row.
+	m := narrowed(groupedModel(Proc{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/checklists.org"}))
+	wantRows(t, navColumn(m), []string{
+		"▸checklists.org",
+		"   └─ zsh",
+	})
+}
+
+func TestTheFilterFindsTheGroupByName(t *testing.T) {
+	m := typeFilter(press(groupedModel(), "/"), "check")
+	rows := navColumn(m)
+	if len(rows) == 0 || !strings.Contains(rows[0], "checklists.org") {
+		t.Fatalf("rows = %v, want the group found by its name", rows)
+	}
+	for _, row := range rows {
+		if strings.Contains(row, "scrn") {
+			t.Errorf("row %q does not answer to the query", row)
+		}
+	}
+}
+
+func TestXOnAGroupTakesEverythingInIt(t *testing.T) {
+	m := groupedModel(
+		Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/checklists.org/api"},
+		Proc{PID: 101, PPID: 1, Command: "vite", Dir: "/p/checklists.org/web"},
+		Proc{PID: 102, PPID: 1, Command: "zsh", Dir: "/p/checklists.org"},
+	)
+	m = press(cursorOn(t, m, "/p/checklists.org"), "x")
+
+	if m.pendingKill == nil || len(m.pendingKill.nodes) != 3 {
+		t.Fatalf("pendingKill = %+v, want all three processes in the group", m.pendingKill)
+	}
+	if !strings.Contains(m.pendingKill.subject, "checklists.org") {
+		t.Errorf("subject = %q, want it named for the group", m.pendingKill.subject)
+	}
+}
+
+func TestAShellOnAGroupRowStartsAtTheGroup(t *testing.T) {
+	r := navRow{kind: rowGroup, project: Project{Name: "checklists.org", Path: "/p/checklists.org"}}
+	if got := (model{}).shellDir(r); got != "/p/checklists.org" {
+		t.Errorf("shellDir = %q, want the group's own directory", got)
 	}
 }

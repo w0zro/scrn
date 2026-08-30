@@ -9,8 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/charmbracelet/x/vt"
 )
 
 // A daemon is replaced by exec rather than by stopping. Exec keeps the
@@ -134,7 +132,7 @@ func adoptTerm(h handoffTerm) *terminal {
 		repo:   h.Dir,
 		name:   h.Name,
 		pty:    os.NewFile(uintptr(h.FD), "pty"),
-		vt:     vt.NewSafeEmulator(h.Cols, h.Rows),
+		vt:     newEmulator(h.Cols, h.Rows),
 		cols:   h.Cols,
 		output: make(chan struct{}, 1),
 		done:   make(chan struct{}),
