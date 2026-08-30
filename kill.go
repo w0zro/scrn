@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -81,19 +82,71 @@ func spin() tea.Cmd {
 // for — so the process that would do the restarting is stopped first.
 // done carries the outcomes already settled before the command runs — the
 // shells the daemon was asked to hang up, which needed no signal.
+//
+// Before anything is signalled, ps is asked when each pid's process began.
+// The tree is a scan old, and on a busy machine a pid in it can have been
+// freed and handed to a stranger in the meantime; a start time that no longer
+// matches means the process the user aimed at is not the one holding the
+// number. It is reported already gone — which, for the one aimed at, it is.
 func killTree(req *killRequest, done []killResult) tea.Cmd {
 	subject, nodes := req.subject, req.nodes
 	return func() tea.Msg {
 		msg := killedMsg{subject: subject, results: append([]killResult{}, done...)}
+		started := startTimes(nodes)
 		for _, n := range nodes {
-			msg.results = append(msg.results, killResult{
-				command: n.Command,
-				pid:     n.PID,
-				err:     signal(n.PID),
-			})
+			res := killResult{command: n.Command, pid: n.PID}
+			if reused(n, started) {
+				res.err = errGone
+			} else {
+				res.err = signal(n.PID)
+			}
+			msg.results = append(msg.results, res)
 		}
 		return msg
 	}
+}
+
+// startTimes is when each of the given processes began, asked freshly of ps.
+// nil when ps could not answer at all, which callers read as the check being
+// unavailable rather than every process being gone.
+func startTimes(nodes []*ProcNode) map[int]string {
+	if len(nodes) == 0 {
+		return nil
+	}
+	args := []string{"-o", "pid=,lstart="}
+	for _, n := range nodes {
+		args = append(args, "-p", strconv.Itoa(n.PID))
+	}
+	// ps exits nonzero when any asked-for pid is gone, while still listing
+	// the rest; only nothing printed at all means it could not answer.
+	out, err := listing(scanTimeout, "ps", args...)
+	if err != nil && len(strings.TrimSpace(string(out))) == 0 {
+		return nil
+	}
+
+	table := map[int]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		pid, rest := cutField(line)
+		n, err := strconv.Atoi(pid)
+		if err != nil {
+			continue
+		}
+		table[n] = strings.Join(strings.Fields(rest), " ")
+	}
+	return table
+}
+
+// reused reports whether a pid now belongs to some other process than the
+// scanned one: listed with a different start time, or missing from a table
+// that answered. A scan that carried no start time has nothing to compare,
+// and an empty table is ps failing — both let the signal proceed as it always
+// did, where ESRCH still catches the truly gone.
+func reused(n *ProcNode, started map[int]string) bool {
+	if n.Started == "" || len(started) == 0 {
+		return false
+	}
+	now, ok := started[n.PID]
+	return !ok || now != n.Started
 }
 
 // subtree lists a node and everything below it, parents first. It reads the

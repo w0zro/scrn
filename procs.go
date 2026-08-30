@@ -45,6 +45,13 @@ type Proc struct {
 	Command string
 	Argv    string
 	Dir     string
+
+	// Started is when the process began, as ps prints it — an opaque token
+	// that, together with the pid, identifies the process the way a pid
+	// alone cannot: pids are recycled, start times are not. A kill compares
+	// it before signalling, so a row from an old scan cannot aim at whatever
+	// inherited its number.
+	Started string
 }
 
 // ProcNode is a process together with the processes it started.
@@ -69,10 +76,10 @@ func runningProcs() ([]Proc, error) {
 	var procs []Proc
 	var cur Proc
 
-	// What each process was run with, in one call. Asking per process is
-	// milliseconds each, which is fine for the one row being inspected and far
-	// too slow for a list being redrawn.
-	argv := commandLines()
+	// What each process was run with and when it began, in one call. Asking
+	// per process is milliseconds each, which is fine for the one row being
+	// inspected and far too slow for a list being redrawn.
+	ps := psTable()
 
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -108,35 +115,58 @@ func runningProcs() ([]Proc, error) {
 				continue
 			}
 			cur.Dir = value
-			cur.Argv = argv[cur.PID]
+			cur.Argv = ps[cur.PID].argv
+			cur.Started = ps[cur.PID].started
 			procs = append(procs, cur)
 		}
 	}
 	return procs, sc.Err()
 }
 
-// commandLines is what every process was run with, keyed by pid. A failure
-// leaves it empty, and a process without one falls back to its name.
-func commandLines() map[int]string {
-	out, err := listing(scanTimeout, "ps", "-axo", "pid=,command=")
+// psInfo is what ps says about one process: when it began, and what it was
+// run with.
+type psInfo struct {
+	started string
+	argv    string
+}
+
+// psTable is every process's start time and command line, keyed by pid. A
+// failure leaves it empty; a process without an entry falls back to its name
+// and goes without the start-time check.
+func psTable() map[int]psInfo {
+	out, err := listing(scanTimeout, "ps", "-axo", "pid=,lstart=,command=")
 	if err != nil {
 		return nil
 	}
 
 	lines := strings.Split(string(out), "\n")
-	argv := make(map[int]string, len(lines))
+	table := make(map[int]psInfo, len(lines))
 	for _, line := range lines {
-		pid, rest, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok {
-			continue
-		}
+		pid, rest := cutField(line)
 		n, err := strconv.Atoi(pid)
 		if err != nil {
 			continue
 		}
-		argv[n] = strings.TrimSpace(rest)
+		// lstart is five fields — "Fri Aug 29 10:00:00 2026" — and the
+		// command line is everything after them, its own spacing kept. The
+		// fields are rejoined rather than sliced out whole, so a padded
+		// single-digit day reads the same here as anywhere else ps prints it.
+		fields := make([]string, 5)
+		for i := range fields {
+			fields[i], rest = cutField(rest)
+		}
+		table[n] = psInfo{started: strings.Join(fields, " "), argv: strings.TrimSpace(rest)}
 	}
-	return argv
+	return table
+}
+
+// cutField takes the next space-separated field, leaving the rest.
+func cutField(s string) (string, string) {
+	s = strings.TrimLeft(s, " \t")
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		return s[:i], s[i:]
+	}
+	return s, ""
 }
 
 // procForest arranges processes into parent/child trees. A process whose parent

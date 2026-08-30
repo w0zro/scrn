@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0c10">
+<title>Guide — scrn</title>
+<meta name="description" content="Installing and using scrn: the navigator, shells, agents, plans, kills, configuration, and the daemon.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d1117'/%3E%3Ctext x='9' y='23' font-family='monospace' font-size='18' fill='%23b9a7ff'%3E%E2%96%B8%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="/">scrn</a>
+    <nav>
+      <a href="/guide" aria-current="page">Guide</a>
+      <a href="/#keys">Keys</a>
+      <a href="/#install">Install</a>
+      <a href="https://github.com/w0zro/scrn">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="guide">
+
+<aside class="toc">
+  <h5>Guide</h5>
+  <ul>
+    <li><a href="#install">Install</a></li>
+    <li><a href="#first-run">First run</a></li>
+    <li><a href="#navigator">The navigator</a></li>
+    <li><a href="#shells">Shells</a></li>
+    <li><a href="#agents">Agents</a></li>
+    <li><a href="#plans">Plans</a></li>
+    <li><a href="#kills">Killing</a></li>
+    <li><a href="#configuration">Configuration</a></li>
+    <li><a href="#daemon">The daemon</a></li>
+    <li><a href="#upgrading">Upgrading</a></li>
+    <li><a href="#linux">Linux</a></li>
+  </ul>
+</aside>
+
+<article class="doc">
+
+<h1>Guide</h1>
+<p>Everything scrn does, in the order you'll meet it.</p>
+
+<h2 id="install"><a href="#install">Install</a></h2>
+
+<div class="cmd">
+  <span class="prompt" aria-hidden="true">$</span>
+  <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
+  <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">copy</button>
+</div>
+
+<p>The script fetches the release built for this machine, verifies it against the release's <code>checksums.txt</code>, and puts the binary in <code>~/.local/bin</code>. Two variables change its mind:</p>
+
+<table>
+  <tr><td><code>SCRN_INSTALL_DIR</code></td><td>install somewhere else</td></tr>
+  <tr><td><code>SCRN_VERSION</code></td><td>a release other than the latest</td></tr>
+</table>
+
+<p>Building from source works too, with Go 1.22 or later:</p>
+
+<pre class="code">go install github.com/w0zro/scrn@latest</pre>
+
+<h2 id="first-run"><a href="#first-run">First run</a></h2>
+
+<pre class="code">scrn</pre>
+
+<p>There is nothing else to set up. The first window starts the daemon — the same binary — and later windows attach to it. By default scrn looks for repositories under <code>~/projects</code>; point it elsewhere in the <a href="#configuration">config</a>.</p>
+
+<p>The list opens showing what is <em>running</em>, so on a quiet machine it may say <code>nothing running</code>. Two keys from there:</p>
+
+<ul>
+  <li><kbd>.</kbd> shows every repository, running or not</li>
+  <li><kbd>/</kbd> finds one by name</li>
+</ul>
+
+<h2 id="navigator"><a href="#navigator">The navigator</a></h2>
+
+<p>The left column is a tree, at most four levels deep: <strong>group</strong> → <strong>repository</strong> → <strong>sub-project</strong> → <strong>process</strong>.</p>
+
+<h3>Repositories</h3>
+<p>Every git repository under your project roots. The scan skips <code>node_modules</code>, <code>vendor</code>, <code>target</code>, <code>.build</code>, <code>Pods</code>, <code>.venv</code> and <code>venv</code>, plus anything you add to <code>skipDirs</code>.</p>
+
+<h3>Groups</h3>
+<p>A folder inside a root that holds two or more repositories groups them — the common shape of a project that spans sibling repos. The group is a place of its own: <kbd>s</kbd> opens a shell at the folder, <kbd>r</kbd> runs the folder's plan, <kbd>x</kbd> covers everything beneath it.</p>
+
+<h3>Sub-projects</h3>
+<p>In a monorepo, a directory with a manifest is a project of its own and gets a row under its repository. The manifests, in the order they are trusted: <code>.scrn</code>, <code>Procfile</code>, <code>package.json</code>, <code>deno.json</code>, <code>composer.json</code>, <code>go.mod</code>, <code>Cargo.toml</code>, <code>Gemfile</code>, <code>mix.exs</code>, <code>pyproject.toml</code>, <code>pom.xml</code>, <code>build.gradle</code>. They are found through <code>git ls-files</code> — no tree walk, ignores respected, untracked files included.</p>
+
+<h3>Processes</h3>
+<p>Each place lists the processes running in it, attributed to the innermost place they belong to, and named by what you would call them — <code>npm run dev</code>, not <code>node</code>. A few keys shape the list:</p>
+
+<table>
+  <tr><td><kbd>space</kbd></td><td>fold or unfold the selected node; a folded node shows <code>+n</code> for what it hides</td></tr>
+  <tr><td><kbd>-</kbd></td><td>fold or unfold everything; unfolded rows also show pids</td></tr>
+  <tr><td><kbd>.</kbd></td><td>toggle between everything and only what's running</td></tr>
+</table>
+
+<p>Dim rows are processes that exist but were started outside scrn, on some other terminal. They are listed and killable, but there is nothing to step into.</p>
+
+<h2 id="shells"><a href="#shells">Shells</a></h2>
+
+<p><kbd>s</kbd> opens a shell at the selected place. <kbd>enter</kbd> on a shell's row steps into it: keystrokes go to the shell, and <kbd>ctrl</kbd><kbd>o</kbd> is the one key scrn keeps for itself, to step back out.</p>
+
+<p>Shells live in the daemon, so they survive the window — close the terminal, reboot the terminal <em>app</em>, come back and everything is where it was. The pane is a real emulator: the alternate screen, mouse reporting, window title and progress all pass through, so full-screen programs behave.</p>
+
+<p>Scroll up (wheel or <kbd>k</kbd> after entering scrollback) to read what has scrolled away; <kbd>j</kbd> <kbd>k</kbd> move, <kbd>esc</kbd> returns to live. Each shell keeps 10,000 lines of transcript by default — <code>scrollback</code> in the config raises it.</p>
+
+<p>When several windows watch the same shell, it is sized for the smallest of them, so no window sees a torn screen.</p>
+
+<h2 id="agents"><a href="#agents">Agents</a></h2>
+
+<p><kbd>a</kbd> starts Claude Code in the selected place, in a shell like any other. scrn reads the session files Claude leaves behind, so the navigator can say more than "claude":</p>
+
+<ul>
+  <li>a turning marker beside a repository — an instance there is working</li>
+  <li>a still <code>○</code> — an instance is idle, probably waiting on you</li>
+</ul>
+
+<p>That mark is what tells you, from across the list, which projects need your attention. The detail pane for a Claude row shows the tail of its transcript.</p>
+
+<h2 id="plans"><a href="#plans">Plans</a></h2>
+
+<p>Working on a project usually means the same processes every time: the dev server, the test watcher, an agent. A project writes them down in <code>.scrn</code> — Procfile format, a name and a command per line:</p>
+
+<p class="code-cap">.scrn</p>
+<pre class="code"><span class="t-cyan">dev:</span>   npm run dev
+<span class="t-cyan">api:</span>   go run ./cmd/api
+<span class="t-cyan">agent:</span> claude</pre>
+
+<p>Without one, scrn reads the conventions in the order they are trustworthy: a <code>Procfile</code> means every line is a process; a <code>package.json</code> means only that its <code>dev</code> or <code>start</code> script probably is, so exactly one of those is taken.</p>
+
+<p><kbd>r</kbd> starts the plan's entries that aren't running, each in its own shell named for its entry. It is a list to run, not a supervisor: nothing restarts on its own, and a dead server shows as dead until you start it again.</p>
+
+<h2 id="kills"><a href="#kills">Killing</a></h2>
+
+<table>
+  <tr><td><kbd>x</kbd></td><td>kill the selected process</td></tr>
+  <tr><td><kbd>X</kbd></td><td>kill it and everything under it</td></tr>
+  <tr><td><kbd>x</kbd> <span style="white-space:normal">on a repository or group</span></td><td>kill everything running in it</td></tr>
+</table>
+
+<p>Every kill asks first — <kbd>x</kbd>, <kbd>y</kbd> or <kbd>enter</kbd> confirms, anything else cancels. Processes get SIGTERM, and a signalled row wears a red marker until a rescan actually observes the exit; the list never claims an exit it hasn't seen. Kills work on any listed process, including ones scrn didn't start.</p>
+
+<h2 id="configuration"><a href="#configuration">Configuration</a></h2>
+
+<p>One JSON file, entirely optional. It lives at <code>~/.config/scrn/config.json</code> (<code>XDG_CONFIG_HOME</code> is honored).</p>
+
+<p class="code-cap">~/.config/scrn/config.json</p>
+<pre class="code">{
+  <span class="t-cyan">"projectsDirs"</span>: [<span class="t-green">"~/projects"</span>, <span class="t-green">"~/work/mono"</span>],
+  <span class="t-cyan">"scrollback"</span>: <span class="t-mag">50000</span>,
+  <span class="t-cyan">"navWidth"</span>: <span class="t-mag">34</span>,
+  <span class="t-cyan">"skipDirs"</span>: [<span class="t-green">"bazel-out"</span>, <span class="t-green">"dist"</span>]
+}</pre>
+
+<table>
+  <tr><th>Field</th><th>Default</th><th></th></tr>
+  <tr><td><code>projectsDir</code></td><td><code>$HOME/projects</code></td><td>the directory searched for repositories; <code>~</code> and <code>$VARS</code> expand</td></tr>
+  <tr><td><code>projectsDirs</code></td><td>—</td><td>several roots; when set, it is the whole answer and <code>projectsDir</code> is ignored. A root that only exists on your other machine is fine</td></tr>
+  <tr><td><code>scrollback</code></td><td><code>10000</code></td><td>transcript lines each shell keeps. Read by the daemon at start, so raising it takes <kbd>R</kbd> to reach running shells</td></tr>
+  <tr><td><code>navWidth</code></td><td><code>28</code></td><td>the navigator column's width, 16–60</td></tr>
+  <tr><td><code>skipDirs</code></td><td>—</td><td>directory names the project scan never enters, on top of the built-in list</td></tr>
+</table>
+
+<h2 id="daemon"><a href="#daemon">The daemon</a></h2>
+
+<p>The daemon is the same <code>scrn</code> binary, started by the first window that finds none listening. It owns the ptys, holds the transcripts, and serves every window over a unix socket at <code>~/.local/state/scrn/scrnd-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides). One daemon per user, for all projects.</p>
+
+<p>It never outstays its purpose: holding no shells and watched by no window for a minute, it exits. A window that loses its daemon says so and reconnects when one is back.</p>
+
+<h2 id="upgrading"><a href="#upgrading">Upgrading</a></h2>
+
+<p>Install the new binary (the install script again, or <code>go install</code>), then press <kbd>R</kbd> in any window. The running daemon replaces itself with the binary on disk by exec — same process, new code — and every shell carries across: pids, ptys, transcripts, screen state. The programs in them never notice.</p>
+
+<h2 id="linux"><a href="#linux">Linux</a></h2>
+
+<p>Linux builds are published for arm64 and amd64, cross-compiled and so far untested — reports welcome. scrn reads the process list through <code>lsof</code>, so it must be installed:</p>
+
+<pre class="code">apt install lsof   <span class="t-dim"># or dnf, pacman, apk…</span></pre>
+
+</article>
+
+</div>
+
+<footer>
+  <div class="foot-inner">
+    <span class="brand-foot">▸ scrn</span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="https://github.com/w0zro/scrn">GitHub</a>
+      <a href="https://github.com/w0zro/scrn/releases">Releases</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+for (const b of document.querySelectorAll('.copy')) {
+  b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); } catch { return; }
+    b.textContent = 'copied';
+    b.classList.add('done');
+    setTimeout(() => { b.textContent = 'copy'; b.classList.remove('done'); }, 1500);
+  });
+}
+</script>
+
+</body>
+</html>
