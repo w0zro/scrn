@@ -304,7 +304,7 @@ func TestProcessesGoUnderTheInnermostRepo(t *testing.T) {
 	}
 }
 
-// --- the "a" toggle -------------------------------------------------------
+// --- the "." toggle -------------------------------------------------------
 
 func TestNavStartsNarrowedToRunningRepos(t *testing.T) {
 	if newModel().showAll {
@@ -373,13 +373,13 @@ func TestAToggleRoundTrips(t *testing.T) {
 		[]string{"/p/busy"},
 	))
 
-	m = press(m, "a")
+	m = press(m, ".")
 	if !strings.Contains(strings.Join(navColumn(m), "\n"), "idle") {
-		t.Error("a should bring every repo into the list")
+		t.Error(". should bring every repo into the list")
 	}
-	m = press(m, "a")
+	m = press(m, ".")
 	if strings.Contains(strings.Join(navColumn(m), "\n"), "idle") {
-		t.Error("a should narrow back to running repos")
+		t.Error(". should narrow back to running repos")
 	}
 }
 
@@ -387,7 +387,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 	wide := sized(80, 8)
 	wide.showAll = true
 
-	_, cmd := wide.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	_, cmd := wide.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(".")})
 	if cmd == nil {
 		t.Error("narrowing should rescan processes so the list is current")
 	}
@@ -395,10 +395,10 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 
 func TestFooterAdvertisesTheToggle(t *testing.T) {
 	m := press(sized(160, 24), "?")
-	if !strings.Contains(stripANSI(m.View()), "a all") {
+	if !strings.Contains(stripANSI(m.View()), ". all") {
 		t.Error("footer should offer to show all while narrowed, which is the default")
 	}
-	if !strings.Contains(stripANSI(press(m, "a").View()), "a running") {
+	if !strings.Contains(stripANSI(press(m, ".").View()), ". running") {
 		t.Error("footer should offer the running-only view once showing all")
 	}
 }
@@ -818,7 +818,7 @@ func TestConfirmingRunsTheKill(t *testing.T) {
 func TestAnyOtherKeyCancelsTheKill(t *testing.T) {
 	armed := press(press(nestedTree(12), "down"), "x")
 
-	for _, key := range []string{"n", "esc", "j", "a", " "} {
+	for _, key := range []string{"s", "esc", "j", "a", " "} {
 		var msg tea.KeyMsg
 		switch key {
 		case "esc":
@@ -861,13 +861,13 @@ func TestQuitStillWorksWhileArmed(t *testing.T) {
 	}
 }
 
-func TestXOnARepoSaysItIsNotKillable(t *testing.T) {
+func TestXOnARepoWithNoPlanExplainsItself(t *testing.T) {
 	m := press(nestedTree(12), "x") // cursor is on the repo row
 
-	if m.pendingKill != nil {
-		t.Error("a repository should not arm a kill")
+	if m.pendingKill != nil || m.pendingDown != nil {
+		t.Error("a repository whose plan started nothing should not arm anything")
 	}
-	if f := footer(m); !strings.Contains(f, "select a process") {
+	if f := footer(m); !strings.Contains(f, "was started from its plan") {
 		t.Errorf("footer = %q, want it to explain why nothing happened", f)
 	}
 }
@@ -901,13 +901,13 @@ func TestKillSuccessStartsTheMarker(t *testing.T) {
 }
 
 func TestStatusClearsOnTheNextKey(t *testing.T) {
-	m := press(nestedTree(12), "x") // leaves the "select a process" status
-	if !strings.Contains(footer(m), "select a process") {
+	m := press(nestedTree(12), "x") // leaves the status about the plan
+	if !strings.Contains(footer(m), "was started from its plan") {
 		t.Fatal("expected a status to clear")
 	}
 
 	m = press(m, "down")
-	if strings.Contains(footer(m), "select a process") {
+	if strings.Contains(footer(m), "was started from its plan") {
 		t.Errorf("status should clear once the cursor moves, footer = %q", footer(m))
 	}
 }
@@ -1717,15 +1717,15 @@ func TestFilterIgnoresCase(t *testing.T) {
 }
 
 func TestKeysGoToTheFilterWhileItIsBeingTyped(t *testing.T) {
-	// A project called "next" must be typeable without n opening a shell.
+	// A project called "scrn" must be typeable without s opening a shell.
 	m := press(narrowed(manyProjects(90, 14)), "/")
-	m = typeFilter(m, "n")
+	m = typeFilter(m, "s")
 
-	if m.filter != "n" {
+	if m.filter != "s" {
 		t.Errorf("filter = %q, want the keystroke to have gone into it", m.filter)
 	}
 	if len(m.terms) != 0 {
-		t.Error("n while typing a filter should not open a shell")
+		t.Error("s while typing a filter should not open a shell")
 	}
 }
 
@@ -1760,10 +1760,10 @@ func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(model)
 
-	// n now means open a shell rather than a letter of the filter.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	// s now means open a shell rather than a letter of the filter.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	if got := next.(model); got.filter != "brand" {
-		t.Errorf("filter = %q, want n to have been taken as a key", got.filter)
+		t.Errorf("filter = %q, want s to have been taken as a key", got.filter)
 	}
 }
 
@@ -2020,7 +2020,7 @@ func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
 func TestQuestionMarkSpellsThemOut(t *testing.T) {
 	m := press(manyProjects(160, 24), "?")
 	f := footer(m)
-	for _, key := range []string{"/ find", "n shell", "c claude", "x kill", "q quit"} {
+	for _, key := range []string{"/ find", "s shell", "a agent", "x kill", "q quit"} {
 		if !strings.Contains(f, key) {
 			t.Errorf("footer = %q, want it to list %q", f, key)
 		}
@@ -2068,7 +2068,7 @@ func TestSomethingBeingSaidStillTakesTheFoot(t *testing.T) {
 	// A confirmation or a report is about the next keystroke, so it is shown
 	// whether or not the keys have been asked for.
 	m := press(nestedTree(24), "x") // a repo row, so it explains itself
-	if !strings.Contains(footer(m), "select a process") {
+	if !strings.Contains(footer(m), "was started from its plan") {
 		t.Errorf("footer = %q, want what was just said", footer(m))
 	}
 }
@@ -2243,10 +2243,10 @@ func TestTypingStillNarrowsAfterMoving(t *testing.T) {
 }
 
 func TestLettersAreStillLettersWhileTyping(t *testing.T) {
-	// The actions are on chords because a project called "next" has to be
-	// typeable without n doing something.
-	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "nucd")
-	if m.filter != "nucd" {
+	// The actions are on chords because a project called "scrn" has to be
+	// typeable without s doing something.
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "sarx")
+	if m.filter != "sarx" {
 		t.Errorf("filter = %q, want every letter typed into it", m.filter)
 	}
 	if len(m.terms) != 0 {

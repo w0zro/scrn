@@ -509,7 +509,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// The filter takes every key while it is being typed, so a repository
-		// called "next" can be typed without n opening a shell halfway through.
+		// called "scrn" can be typed without s opening a shell halfway through.
 		if m.typing {
 			return m, m.filterKey(msg)
 		}
@@ -518,7 +518,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p := m.pendingDown; p != nil {
 			m.pendingDown = nil
 			switch msg.String() {
-			case "d", "y", "enter":
+			case "x", "y", "enter":
 				return m, m.down(*p)
 			}
 			m.status, m.statusErr = "left them running", false
@@ -585,15 +585,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.detailCmd()
 		case "enter":
 			return m, m.openShell()
-		case "u":
-			return m, m.up()
-		case "d":
-			return m, m.askDown()
-		case "n":
+		case "r":
+			return m, m.run()
+		case "s":
 			return m, m.start("")
-		case "c":
-			// A Claude instance scrn owns, so it survives the window and can
-			// be stepped back into — unlike the ones it can only watch.
+		case "a":
+			// An agent — a Claude instance scrn owns, so it survives the
+			// window and can be stepped back into, unlike the ones it can
+			// only watch.
 			return m, m.start(claudeCommand)
 		case "x":
 			return m, m.askKill(false)
@@ -615,7 +614,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.unfolded = !m.unfolded
 			m.rebuild()
 			return m, m.detailCmd()
-		case "a":
+		case ".":
+			// Dot shows the hidden, the way it does in a home directory.
 			m.showAll = !m.showAll
 			m.rebuild()
 			if !m.showAll {
@@ -683,13 +683,18 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 			m.setFilter(string(r[:len(r)-1]))
 		}
 		return m.detailCmd()
+	case tea.KeyCtrlU:
+		// The query is a line being typed, and ctrl+u is what clears a line
+		// everywhere else a line is typed. The typing itself goes on.
+		m.setFilter("")
+		return m.detailCmd()
 	case tea.KeySpace:
 		m.setFilter(m.filter + " ")
 		return m.detailCmd()
 
 	case tea.KeyRunes:
-		// A letter is a letter: a project called "next" has to be typeable
-		// without n doing something. The actions are on the chords, which no
+		// A letter is a letter: a project called "scrn" has to be typeable
+		// without s doing something. The actions are on the chords, which no
 		// name contains.
 		m.status = "" // whatever was reported was about the last project
 		m.setFilter(m.filter + string(msg.Runes))
@@ -699,15 +704,15 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 	// is the end of looking for it, so the search closes and leaves the cursor
 	// on the project — which is where you would want to be watching it come
 	// up, and where the keys mean what they usually mean again.
-	case tea.KeyCtrlU:
+	case tea.KeyCtrlR:
 		// Starting what a project needs is the end of looking for it, so the
 		// typing stops. The filter itself is held until the processes land,
 		// the same way it is for a shell: dropping it now would take the
 		// project out of the narrowed list until the scan caught up, and the
 		// cursor with it.
 		m.typing = false
-		return m.up()
-	case tea.KeyCtrlR:
+		return m.run()
+	case tea.KeyCtrlA:
 		return m.start(claudeCommand)
 	}
 	return nil
@@ -926,10 +931,10 @@ func (m *model) askReplace() tea.Cmd {
 	return nil
 }
 
-// up starts what the project the cursor is in says it needs, and is not
+// run starts what the project the cursor is in says it needs, and is not
 // already running. It is a list to run rather than a promise to keep, so
 // running it again starts only what has since stopped.
-func (m *model) up() tea.Cmd {
+func (m *model) run() tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
 		return nil
@@ -962,22 +967,6 @@ func (m *model) up() tea.Cmd {
 	// them is more the one you meant than the others.
 	m.status, m.statusErr = "started "+describeEntries(missing), false
 	return scanProcs
-}
-
-// askDown arms the stopping of what a project's plan started.
-func (m *model) askDown() tea.Cmd {
-	r, ok := m.selected()
-	if !ok {
-		return nil
-	}
-
-	p := r.project
-	if len(m.planned(p.Path)) == 0 {
-		m.status, m.statusErr = "nothing in "+p.Name+" was started from its plan", false
-		return nil
-	}
-	m.pendingDown = &p
-	return nil
 }
 
 // down stops the shells a project's plan started, and only those: a shell
@@ -1029,8 +1018,9 @@ func describeEntries(entries []entry) string {
 }
 
 // askKill arms a kill for whatever the cursor is on. A plain kill takes the
-// one selected process; a tree kill takes everything below it too, which for a
-// repository row means everything running in that repository.
+// one selected process — or, on a repository row, the shells its plan started;
+// a tree kill takes everything below it too, which for a repository row means
+// everything running in that repository.
 func (m *model) askKill(tree bool) tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
@@ -1038,9 +1028,19 @@ func (m *model) askKill(tree bool) tea.Cmd {
 	}
 
 	if r.kind == rowProject {
-		// A repository is not itself killable, but the tree under it is.
+		// On a repository the narrow kill is what its plan started, and the
+		// wide one is everything running in it: the same verb at two widths,
+		// told apart the way x and X are on a process.
 		if !tree {
-			m.status, m.statusErr = "select a process to kill, or X for the whole repository", true
+			p := r.project
+			if len(m.planned(p.Path)) == 0 {
+				m.status, m.statusErr = "nothing in "+p.Name+" was started from its plan", false
+				if len(m.byRepo[p.Path]) > 0 {
+					m.status += ", or X for the whole repository"
+				}
+				return nil
+			}
+			m.pendingDown = &p
 			return nil
 		}
 		var nodes []*ProcNode

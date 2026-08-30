@@ -382,7 +382,7 @@ func TestRefusingToAttachIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestNStartsAShellOnAnyRow(t *testing.T) {
+func TestSStartsAShellOnAnyRow(t *testing.T) {
 	// Standing on a process scrn does not own is a fine reason to want a shell
 	// where that process is working; it is only attaching that is impossible.
 	m := withProcList(90, 14,
@@ -395,7 +395,7 @@ func TestNStartsAShellOnAnyRow(t *testing.T) {
 	m = connected(t, m)
 	m.cursor = 1
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 || m.focused() == nil {
@@ -418,29 +418,29 @@ func TestANewShellStartsWhereTheWorkIs(t *testing.T) {
 	}
 }
 
-func TestNIsTheShellsOwnKeyOnceFocused(t *testing.T) {
-	// Inside a shell, n is just a letter.
+func TestSIsTheShellsOwnKeyOnceFocused(t *testing.T) {
+	// Inside a shell, s is just a letter.
 	m := openShellIn(t, repoModel(), "/tmp")
 	before := len(m.terms)
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	if got := len(next.(model).terms); got != before {
-		t.Errorf("terms = %d, want n typed into the shell rather than opening another", got)
+		t.Errorf("terms = %d, want s typed into the shell rather than opening another", got)
 	}
 }
 
 func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "n shell") {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "s shell") {
 		t.Errorf("footer = %q, want the one way to make a process advertised", f)
 	}
 }
 
-func TestCStartsAClaudeInstanceScrnOwns(t *testing.T) {
+func TestAStartsAnAgentScrnOwns(t *testing.T) {
 	// The Claude instances already running are somebody else's; this is how
 	// you get one that outlives the window and can be stepped back into.
 	m := connected(t, repoModel())
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 {
@@ -490,16 +490,16 @@ func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 	}
 }
 
-func TestFooterAdvertisesTheClaudeKey(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "c claude") {
-		t.Errorf("footer = %q, want the claude key advertised", f)
+func TestFooterAdvertisesTheAgentKey(t *testing.T) {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "a agent") {
+		t.Errorf("footer = %q, want the agent key advertised", f)
 	}
 }
 
 // --- what enter can reach ------------------------------------------------
 
 // insideShell puts a process under a shell the daemon holds, the way a claude
-// started with c sits under the shell that ran it.
+// started with a sits under the shell that ran it.
 func insideShell(t *testing.T, shellPID int) model {
 	t.Helper()
 	m := withProcList(90, 14,
@@ -909,10 +909,10 @@ func projectNeeding(t *testing.T, plan string) (model, string) {
 	return connected(t, m), dir
 }
 
-func TestUStartsWhatTheProjectSaysItNeeds(t *testing.T) {
+func TestRStartsWhatTheProjectSaysItNeeds(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	got := map[string]bool{}
@@ -927,11 +927,11 @@ func TestUStartsWhatTheProjectSaysItNeeds(t *testing.T) {
 	}
 }
 
-func TestUStartsOnlyWhatIsMissing(t *testing.T) {
+func TestRStartsOnlyWhatIsMissing(t *testing.T) {
 	// It is a list to run, not a promise to keep, so running it again starts
 	// only what has since stopped.
 	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	// One of them stops, the way a dev server dies.
@@ -946,7 +946,7 @@ func TestUStartsOnlyWhatIsMissing(t *testing.T) {
 		t.Fatalf("terms = %d, want the one that is left", len(m.terms))
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	names := map[string]int{}
@@ -959,12 +959,12 @@ func TestUStartsOnlyWhatIsMissing(t *testing.T) {
 	}
 }
 
-func TestUSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
+func TestRSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = next.(model)
 	if !strings.Contains(footer(m), "everything proj needs is running") {
 		t.Errorf("footer = %q, want it to say there was nothing to do", footer(m))
@@ -974,9 +974,9 @@ func TestUSaysSoWhenEverythingIsAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestUOnAProjectThatSaysNothingExplainsItself(t *testing.T) {
+func TestROnAProjectThatSaysNothingExplainsItself(t *testing.T) {
 	m, _ := projectNeeding(t, "")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = next.(model)
 
 	if len(m.terms) != 0 {
@@ -987,10 +987,10 @@ func TestUOnAProjectThatSaysNothingExplainsItself(t *testing.T) {
 	}
 }
 
-func TestDStopsOnlyWhatThePlanStarted(t *testing.T) {
+func TestXOnARepoStopsOnlyWhatThePlanStarted(t *testing.T) {
 	// A shell opened by hand was not part of the list and is not swept up.
 	m, dir := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	m.daemon.open(dir, "", "", 40, 8) // by hand, so unnamed
@@ -1001,16 +1001,16 @@ func TestDStopsOnlyWhatThePlanStarted(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	m = next.(model)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)
 	if m.pendingDown == nil {
-		t.Fatal("d should ask before stopping")
+		t.Fatal("x should ask before stopping")
 	}
 	if f := footer(m); !strings.Contains(f, "stop what proj started?") {
 		t.Errorf("footer = %q, want it to say what it is about to stop", f)
 	}
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	for _, term := range m.terms {
@@ -1022,10 +1022,10 @@ func TestDStopsOnlyWhatThePlanStarted(t *testing.T) {
 
 func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	m = next.(model)
 
@@ -1037,9 +1037,9 @@ func TestAnyOtherKeyLeavesThemRunning(t *testing.T) {
 	}
 }
 
-func TestDOnAProjectWithNothingOfItsOwnSaysSo(t *testing.T) {
+func TestXOnAProjectWithNothingOfItsOwnSaysSo(t *testing.T) {
 	m, _ := projectNeeding(t, "one: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = next.(model)
 
 	if m.pendingDown != nil {
@@ -1052,7 +1052,7 @@ func TestDOnAProjectWithNothingOfItsOwnSaysSo(t *testing.T) {
 
 func TestTheRepoPaneShowsThePlanAsAChecklist(t *testing.T) {
 	m, dir := projectNeeding(t, "one: sleep 30\ntwo: sleep 30\n")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	fs := repoFields(Project{Name: "proj", Path: dir}, 2, m.namesIn(dir))
@@ -1080,12 +1080,9 @@ func TestTheRepoPaneShowsThePlanAsAChecklist(t *testing.T) {
 	}
 }
 
-func TestTheKeysListUpAndDown(t *testing.T) {
-	f := keysOf(sized(160, 24))
-	for _, key := range []string{"u up", "d down"} {
-		if !strings.Contains(f, key) {
-			t.Errorf("keys = %q, want %q listed", f, key)
-		}
+func TestTheKeysListTheRun(t *testing.T) {
+	if f := keysOf(sized(160, 24)); !strings.Contains(f, "r run") {
+		t.Errorf("keys = %q, want the run key listed", f)
 	}
 }
 
@@ -1187,10 +1184,10 @@ func TestEnterOpensAShellInWhatTheFilterFound(t *testing.T) {
 	}
 }
 
-func TestCtrlRStartsAClaudeInWhatTheFilterFound(t *testing.T) {
+func TestCtrlAStartsAnAgentInWhatTheFilterFound(t *testing.T) {
 	m := lookingUp(t, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
 	m = pump(t, next.(model), hasShell, 5*time.Second)
 
 	if len(m.terms) != 1 {
@@ -1198,7 +1195,7 @@ func TestCtrlRStartsAClaudeInWhatTheFilterFound(t *testing.T) {
 	}
 }
 
-func TestCtrlUStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
+func TestCtrlRStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
 	// Starting what a project needs is the end of looking for it.
 	dir := t.TempDir()
 	if err := writeFile(filepath.Join(dir, planFile), "one: sleep 30\ntwo: sleep 30\n"); err != nil {
@@ -1209,7 +1206,7 @@ func TestCtrlUStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
 	m = press(m, "/")
 	m = typeFilter(m, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 2 }, 5*time.Second)
 
 	names := map[string]bool{}
@@ -1230,10 +1227,10 @@ func TestCtrlUStartsWhatAProjectNeedsAndLandsOnIt(t *testing.T) {
 	}
 }
 
-func TestCtrlUOnAProjectThatNeedsNothingSaysSo(t *testing.T) {
+func TestCtrlROnAProjectThatNeedsNothingSaysSo(t *testing.T) {
 	m := lookingUp(t, "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	m = next.(model)
 
 	if len(m.terms) != 0 {
@@ -1249,6 +1246,24 @@ func TestCtrlUOnAProjectThatNeedsNothingSaysSo(t *testing.T) {
 	}
 }
 
+func TestCtrlUClearsTheQueryAndKeepsTyping(t *testing.T) {
+	// The query is a line being typed, and ctrl+u is what clears one.
+	m := lookingUp(t, "alpha")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = next.(model)
+
+	if m.filter != "" {
+		t.Errorf("filter = %q, want ctrl+u to have cleared it", m.filter)
+	}
+	if !m.typing {
+		t.Error("clearing the query should not end the search")
+	}
+	if len(m.rows) < 2 {
+		t.Errorf("rows = %d, want the list back to every project", len(m.rows))
+	}
+}
+
 func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 	// Acting from the search is the point of it, and an action that says
 	// nothing looks like one that did nothing.
@@ -1260,7 +1275,7 @@ func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 	m.showAll = false
 	m = typeFilter(press(m, "/"), "alpha")
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	m = pump(t, next.(model), func(m model) bool { return len(m.terms) == 1 }, 5*time.Second)
 
 	if f := footer(m); !strings.Contains(f, "started one") {
@@ -1269,7 +1284,7 @@ func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 }
 
 func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
-	// ctrl+r reports and leaves the typing alone, so the search carries on.
+	// ctrl+a reports and leaves the typing alone, so the search carries on.
 	m := lookingUp(t, "alpha")
 	m.status, m.statusErr = "something about the last one", false
 

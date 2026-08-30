@@ -194,7 +194,7 @@ func (m model) hintLines(width, rows int) []string {
 	case m.pendingDown != nil:
 		return append(
 			hintBlock("stop what "+m.pendingDown.Name+" started?", width, warnStyle),
-			hintBlock("d confirm · any other key cancels", width, hintStyle)...)
+			hintBlock("x confirm · any other key cancels", width, hintStyle)...)
 
 	case m.pendingReplace:
 		return append(
@@ -212,7 +212,7 @@ func (m model) hintLines(width, rows int) []string {
 		// reported takes the line under it: acting from the search is the
 		// point of it, and an action that says nothing looks like one that did
 		// nothing.
-		below := "^n ^p move · enter shell · ^u up · ^r claude · esc"
+		below := "^n ^p move · enter shell · ^r run · ^a agent · esc"
 		style := hintStyle
 		if m.status != "" {
 			below, style = m.status, itemStyle
@@ -239,7 +239,7 @@ func (m model) hintLines(width, rows int) []string {
 	case m.filter != "":
 		return append(
 			hintBlock("filter "+m.filter, width, selStyle),
-			hintBlock("n shell · c claude · / edit · esc clear", width, hintStyle)...)
+			hintBlock("s shell · a agent · / edit · esc clear", width, hintStyle)...)
 	}
 	if !m.showHelp {
 		// One line to say the keys exist. The list of them is worth less to
@@ -251,9 +251,9 @@ func (m model) hintLines(width, rows int) []string {
 
 // keyLines is the standing list of keys, in two columns.
 func (m model) keyLines(width, rows int) []string {
-	all := "a all"
+	all := ". all"
 	if m.showAll {
-		all = "a running"
+		all = ". running"
 	}
 	folds := "- unfold"
 	if m.unfolded {
@@ -263,12 +263,11 @@ func (m model) keyLines(width, rows int) []string {
 	pairs := [][2]string{
 		{"↑↓ move", "gg top"},
 		{"G bottom", "/ find"},
-		{"n shell", "c claude"},
-		{"u up", "d down"},
-		{"enter open", "space fold"},
-		{folds, all},
+		{"s shell", "a agent"},
+		{"r run", "enter open"},
 		{"x kill", "X kill tree"},
-		{"q quit", ""},
+		{"space fold", folds},
+		{all, "q quit"},
 	}
 
 	// The keys must not crowd out the list they are about, so a short window
@@ -321,7 +320,7 @@ func (m model) navLines(rows int) []string {
 		return []string{
 			" " + faintStyle.Render("nothing running"),
 			"",
-			" " + faintStyle.Render("a  show all"),
+			" " + faintStyle.Render(".  show all"),
 			" " + faintStyle.Render("/  find a project"),
 		}
 	}
