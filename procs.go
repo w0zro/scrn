@@ -206,9 +206,18 @@ func descends(a, b *ProcNode, byPID map[int]*ProcNode) bool {
 	return false
 }
 
-// sortNodes orders each level by PID so the tree is stable between scans.
+// sortNodes orders each level by command name, ties broken by PID. A name
+// keeps its slot when the process behind it is restarted under a new pid,
+// which is when PID order would move the row; identically-named siblings
+// fall back to creation order, the one place it is the natural reading.
 func sortNodes(ns []*ProcNode) {
-	sort.Slice(ns, func(i, j int) bool { return ns[i].PID < ns[j].PID })
+	sort.Slice(ns, func(i, j int) bool {
+		a, b := strings.ToLower(ns[i].Command), strings.ToLower(ns[j].Command)
+		if a != b {
+			return a < b
+		}
+		return ns[i].PID < ns[j].PID
+	})
 	for _, n := range ns {
 		sortNodes(n.Children)
 	}

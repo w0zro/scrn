@@ -3,303 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0a0c10">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#e7e3d8">
 <title>scrn — a terminal UI for working on projects</title>
-<meta name="description" content="A terminal UI for working on projects at the command line. Every project, what's running in it, and shells that outlive the window.">
+<meta name="description" content="A terminal UI. Shells live in a daemon, so they keep running after the window closes. macOS and Linux.">
 <meta property="og:title" content="scrn">
-<meta property="og:description" content="A terminal UI for working on projects at the command line.">
+<meta property="og:description" content="A terminal UI. Shells live in a daemon, so they keep running after the window closes.">
 <meta property="og:url" content="https://scrn.w0zro.com">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d1117'/%3E%3Ctext x='9' y='23' font-family='monospace' font-size='18' fill='%23b9a7ff'%3E%E2%96%B8%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<div class="sheet">
+
 <header class="nav">
-  <div class="nav-inner">
-    <a class="brand" href="/">scrn</a>
-    <nav>
-      <a href="guide">Guide</a>
-      <a href="#keys">Keys</a>
-      <a href="#install">Install</a>
-      <a href="https://github.com/w0zro/scrn">GitHub</a>
-    </nav>
-  </div>
+  <a class="brand" href="/">scrn</a>
+  <nav class="nav-links">
+    <a href="guide">guide</a>
+    <a class="accent" href="https://github.com/w0zro/scrn">github ↗</a>
+  </nav>
 </header>
 
-<main>
-
 <section class="hero">
-  <h1>scrn</h1>
-  <p class="tagline">A terminal UI for working on projects at the command line. Every project, what's running in it, and shells that outlive the window.</p>
-
-  <div class="hero-actions">
-    <div class="cmd" role="group" aria-label="install command">
-      <span class="prompt" aria-hidden="true">$</span>
-      <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
-      <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">copy</button>
-    </div>
-  </div>
-  <p class="hero-links">macOS and Linux, arm64 and amd64 <span class="sep">·</span> <a href="guide">Read the guide</a></p>
-
-  <div class="term" id="demo" aria-label="scrn demo: navigating projects, running a plan, opening a shell, killing a process">
-    <div class="term-bar" aria-hidden="true">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <span class="term-title">scrn</span>
-    </div>
-    <div class="term-body" aria-hidden="true">
-<pre class="pane-left" id="pane-left"><span class="t-title">scrn</span>
-
- <span class="t-item">acme</span>
-   <span class="t-item">web</span> <span class="t-busy">⠧</span>
-<span class="t-sel">▸</span>  <span class="t-dim">├─</span> <span class="t-sel">npm run dev</span>
-   <span class="t-dim">└─</span> <span class="t-item">claude</span>
-   <span class="t-item">api</span> <span class="t-dim">○</span>
-   <span class="t-dim">└─</span> <span class="t-item">claude</span>
- <span class="t-item">scrn</span>
- <span class="t-dim">└─</span> <span class="t-item">go test ./...</span>
-
-
-
- <span class="t-hint">↑↓ move      gg top</span>
- <span class="t-hint">G bottom     / find</span>
- <span class="t-hint">s shell      a agent</span>
- <span class="t-hint">r run        enter open</span>
- <span class="t-hint">x kill       X kill tree</span>
- <span class="t-hint">space fold   - unfold</span>
- <span class="t-hint">. all        q quit</span></pre>
-<pre class="pane-right" id="pane-right">
-  <span class="t-mag">VITE v6.0.11</span>  <span class="t-green">ready in 284 ms</span>
-
-  <span class="t-green">➜</span>  <span class="t-item">Local:</span>   <span class="t-cyan">http://localhost:5173/</span>
-  <span class="t-green">➜</span>  <span class="t-dim">Network: use --host to expose</span>
-
-  <span class="t-dim">09:41:07</span> <span class="t-cyan">[vite]</span> <span class="t-item">hmr update</span> <span class="t-dim">/src/App.tsx</span>
-  <span class="t-dim">09:41:12</span> <span class="t-cyan">[vite]</span> <span class="t-item">hmr update</span> <span class="t-dim">/src/index.css</span>
-  <span class="t-dim">09:41:19</span> <span class="t-cyan">[vite]</span> <span class="t-item">hmr update</span> <span class="t-dim">/src/routes/home.tsx</span>
-  <span class="t-dim">09:41:19</span> <span class="t-cyan">[vite]</span> <span class="t-green">✓</span> <span class="t-dim">14 modules transformed</span></pre>
-    </div>
-    <div class="demo-key" id="demo-key" aria-hidden="true"></div>
+  <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
+  <p class="sub">A terminal UI. Shells live in a daemon, so they keep running after the window closes. macOS and Linux.</p>
+  <div class="cmd" role="group" aria-label="install command">
+    <span class="prompt" aria-hidden="true">$</span>
+    <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
+    <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">[copy]</button>
   </div>
 </section>
 
-<section class="features">
-  <p class="kicker">What it does</p>
-  <h2>The command line, kept in order</h2>
-  <p class="lede">One window shows every project and everything running in it. The keys act on whatever the cursor is on.</p>
-  <div class="grid">
-    <div class="card">
-      <h3>Shells outlive windows</h3>
-      <p>Shells live in a daemon, not in your window. Close the window and come back later — everything is still running, transcript included.</p>
+<section class="figure">
+  <div class="figure-left">
+    <div class="tui" aria-label="the scrn navigator: repositories with their processes nested under them">
+<pre><span class="t-ttl">scrn</span>                      <span class="t-num">①</span>
+
+ acme
+   web <span class="t-run">⠧</span>                   <span class="t-num">②</span>
+<span class="t-sel">▸  ├─ npm run dev</span>         <span class="t-num">③</span>
+   <span class="t-dim">└─</span> claude
+   api <span class="t-dim">○</span>
+   <span class="t-dim">└─</span> claude
+ scrn
+ <span class="t-dim">└─</span> go test ./...
+
+ <span class="t-hint">s shell  a agent  r run</span>   <span class="t-num">④</span></pre>
     </div>
-    <div class="card">
-      <h3>Every project, one list</h3>
-      <p>scrn scans your project roots and lists each repository with the processes running in it. Monorepo sub-projects and folders of sibling repos get rows of their own.</p>
-    </div>
-    <div class="card">
-      <h3>Projects say what they need</h3>
-      <p>A <code>.scrn</code> file, a Procfile, or <code>package.json</code> scripts name the processes a project runs. <kbd>r</kbd> starts the ones that are missing.</p>
-    </div>
-    <div class="card">
-      <h3>A real terminal</h3>
-      <p>The pane is a terminal emulator. Alternate screen, mouse, window title and progress all pass through — vim and less behave, and scrollback reaches back 10,000 lines.</p>
-    </div>
-    <div class="card">
-      <h3>Agents at a glance</h3>
-      <p><kbd>a</kbd> starts Claude in a project. A turning marker means it is working; a still one means it is waiting on you.</p>
-    </div>
-    <div class="card">
-      <h3>Kills you can trust</h3>
-      <p><kbd>x</kbd> kills a process, <kbd>X</kbd> its tree, and on a repository row everything running in it. Always confirmed first, and the row stays until the exit is actually observed.</p>
-    </div>
+    <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
-</section>
-
-<section class="arch">
-  <p class="kicker">How it holds together</p>
-  <h2>Windows are clients. A daemon owns the shells.</h2>
-  <p class="lede">Nothing to install as a service, nothing to launch by hand — the daemon is the same binary, started by the first window that needs it.</p>
-  <div class="diagram">
-    <svg viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Diagram: windows connect over a unix socket to the scrnd daemon, which owns a pty for each shell">
-      <g font-family="JetBrains Mono, monospace" font-size="12">
-        <!-- windows -->
-        <rect x="20" y="34" width="104" height="38" rx="7" fill="#10151c" stroke="#30363d"/>
-        <text x="72" y="57" text-anchor="middle" fill="#8b949e">window</text>
-        <rect x="20" y="106" width="104" height="38" rx="7" fill="#10151c" stroke="#30363d"/>
-        <text x="72" y="129" text-anchor="middle" fill="#8b949e">window</text>
-        <rect x="20" y="178" width="104" height="38" rx="7" fill="#0d1117" stroke="#1d232b" stroke-dasharray="4 4"/>
-        <text x="72" y="201" text-anchor="middle" fill="#5c6570">closed</text>
-
-        <!-- wires to the daemon -->
-        <path d="M124 53 C 190 53, 210 105, 274 118" fill="none" stroke="#30363d" stroke-width="1.5"/>
-        <path d="M124 125 L 274 125" fill="none" stroke="#30363d" stroke-width="1.5"/>
-        <path d="M124 197 C 190 197, 210 145, 274 132" fill="none" stroke="#1d232b" stroke-width="1.5" stroke-dasharray="4 4"/>
-        <text x="199" y="112" text-anchor="middle" fill="#5c6570" font-size="10.5">unix socket</text>
-
-        <!-- daemon -->
-        <rect x="274" y="82" width="132" height="86" rx="9" fill="#10151c" stroke="#b9a7ff" stroke-opacity="0.55"/>
-        <text x="340" y="118" text-anchor="middle" fill="#b9a7ff" font-weight="700">scrnd</text>
-        <text x="340" y="138" text-anchor="middle" fill="#5c6570" font-size="10.5">owns the ptys</text>
-
-        <!-- wires to the ptys -->
-        <path d="M406 105 C 450 105, 460 53, 496 53" fill="none" stroke="#30363d" stroke-width="1.5"/>
-        <path d="M406 125 L 496 125" fill="none" stroke="#30363d" stroke-width="1.5"/>
-        <path d="M406 145 C 450 145, 460 197, 496 197" fill="none" stroke="#30363d" stroke-width="1.5"/>
-
-        <!-- shells -->
-        <rect x="496" y="34" width="164" height="38" rx="7" fill="#10151c" stroke="#30363d"/>
-        <text x="510" y="57" fill="#e8eaed">npm run dev</text>
-        <rect x="496" y="106" width="164" height="38" rx="7" fill="#10151c" stroke="#30363d"/>
-        <text x="510" y="129" fill="#e8eaed">claude</text>
-        <rect x="496" y="178" width="164" height="38" rx="7" fill="#10151c" stroke="#30363d"/>
-        <text x="510" y="201" fill="#e8eaed">zsh — api</text>
-      </g>
-    </svg>
-    <div class="diagram-notes">
-      <div><strong>Starts itself</strong>The first window starts the daemon — it's the same binary. Empty and unwatched for a minute, it quits.</div>
-      <div><strong>Any number of windows</strong>Windows attach over the socket and watch the same shells. A shell is sized for the smallest window watching it.</div>
-      <div><strong>Upgrades in place</strong><kbd>R</kbd> swaps the running daemon for the newly installed binary by exec. Pids, ptys and transcripts carry across.</div>
-    </div>
-  </div>
-</section>
-
-<section class="plan">
-  <p class="kicker">Plans</p>
-  <div class="split">
-    <div>
-      <h2>Working on it means the same processes every time</h2>
-      <p>A project can write them down — Procfile format, a name and a command per line. Without a <code>.scrn</code>, scrn reads the Procfile itself, or the <code>dev</code> / <code>start</code> script in <code>package.json</code>.</p>
-      <p><kbd>r</kbd> starts the entries that aren't running. scrn never restarts anything by itself: a dead server shows as dead, and you start it again.</p>
-    </div>
-    <div>
-      <p class="code-cap">.scrn</p>
-      <pre class="code"><span class="t-cyan">dev:</span>   npm run dev
-<span class="t-cyan">api:</span>   go run ./cmd/api
-<span class="t-cyan">agent:</span> claude</pre>
-    </div>
+  <div class="figure-notes">
+    <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
+    <div class="note"><span class="marker">②</span><p>A turning marker: Claude is working. A still one: it is waiting on you.</p></div>
+    <div class="note"><span class="marker">③</span><p>Keys act on the selected row. x kills a process; on a repository, everything in it. Always confirmed first.</p></div>
+    <div class="note"><span class="marker">④</span><p>r runs the project's plan — the processes named in .scrn, a Procfile, or package.json.</p></div>
   </div>
 </section>
 
 <section id="keys" class="keys">
-  <p class="kicker">Keys</p>
-  <h2>A grammar, not a list</h2>
-  <p class="lede">New keys are derived, not memorized. Three rules cover the whole set.</p>
-  <div class="rules">
-    <div class="rule">
-      <span class="no">1</span>
-      <h3>Lowercase is a verb</h3>
-      <p><kbd>s</kbd> shell, <kbd>a</kbd> agent, <kbd>r</kbd> run, <kbd>x</kbd> kill. Uppercase widens the same verb: <kbd>X</kbd> takes the tree, <kbd>R</kbd> replaces the daemon.</p>
-    </div>
-    <div class="rule">
-      <span class="no">2</span>
-      <h3>The row scopes it</h3>
-      <p>The key acts on what the cursor is on. <kbd>x</kbd> on a process kills it; on a repository, everything running there. <kbd>enter</kbd> opens whatever the row is.</p>
-    </div>
-    <div class="rule">
-      <span class="no">3</span>
-      <h3>One letter, one action</h3>
-      <p>A letter means the same thing everywhere it appears. In the filter the verbs ride under ctrl: <kbd>ctrl</kbd><kbd>r</kbd> run, <kbd>ctrl</kbd><kbd>a</kbd> agent — on the match, without leaving the search.</p>
-    </div>
+  <div>
+    <div class="keyhead">MOVE</div>
+    <div class="keyrow"><span>↑ ↓ j k</span><span>move</span></div>
+    <div class="keyrow"><span>/</span><span>find a project</span></div>
+    <div class="keyrow"><span>enter</span><span>open the row</span></div>
+    <div class="keyrow"><span>^spc ^spc</span><span>waiting agent</span></div>
   </div>
-  <div class="keygrid">
-    <div class="keycol">
-      <h4>Move</h4>
-      <table>
-        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>j</kbd> <kbd>k</kbd></td><td>move</td></tr>
-        <tr><td><kbd>gg</kbd> / <kbd>G</kbd></td><td>top / bottom</td></tr>
-        <tr><td><kbd>/</kbd></td><td>find a project</td></tr>
-        <tr><td><kbd>esc</kbd></td><td>clear</td></tr>
-      </table>
-    </div>
-    <div class="keycol">
-      <h4>Act</h4>
-      <table>
-        <tr><td><kbd>enter</kbd></td><td>open the row</td></tr>
-        <tr><td><kbd>s</kbd></td><td>shell</td></tr>
-        <tr><td><kbd>a</kbd></td><td>agent</td></tr>
-        <tr><td><kbd>r</kbd></td><td>run the plan</td></tr>
-        <tr><td><kbd>x</kbd> / <kbd>X</kbd></td><td>kill / kill the tree</td></tr>
-      </table>
-    </div>
-    <div class="keycol">
-      <h4>View</h4>
-      <table>
-        <tr><td><kbd>space</kbd> / <kbd>-</kbd></td><td>fold one / all</td></tr>
-        <tr><td><kbd>.</kbd></td><td>all ↔ running</td></tr>
-        <tr><td><kbd>ctrl</kbd><kbd>o</kbd></td><td>back to the list</td></tr>
-        <tr><td><kbd>?</kbd></td><td>keys</td></tr>
-        <tr><td><kbd>q</kbd></td><td>quit</td></tr>
-      </table>
-    </div>
+  <div>
+    <div class="keyhead">ACT</div>
+    <div class="keyrow"><span>s / a</span><span>shell / agent</span></div>
+    <div class="keyrow"><span>r</span><span>run the plan</span></div>
+    <div class="keyrow"><span>x / X</span><span>kill / kill the tree</span></div>
+  </div>
+  <div>
+    <div class="keyhead">VIEW</div>
+    <div class="keyrow"><span>space</span><span>fold</span></div>
+    <div class="keyrow"><span>.</span><span>all ↔ running</span></div>
+    <div class="keyrow"><span>ctrl-o</span><span>back to the list</span></div>
   </div>
 </section>
 
-<section class="config">
-  <p class="kicker">Configuration</p>
-  <div class="split">
-    <div>
-      <h2>One file, all optional</h2>
-      <p>Where your projects live, how much transcript to keep, how wide the navigator is, which directories the scan should never enter. Every field has a default; scrn works before the file exists.</p>
-      <p><a href="guide#configuration">Every option, in the guide →</a></p>
-    </div>
-    <div>
-      <p class="code-cap">~/.config/scrn/config.json</p>
-      <pre class="code">{
-  <span class="t-cyan">"projectsDirs"</span>: [<span class="t-green">"~/projects"</span>, <span class="t-green">"~/work/mono"</span>],
-  <span class="t-cyan">"scrollback"</span>: <span class="t-mag">50000</span>,
-  <span class="t-cyan">"navWidth"</span>: <span class="t-mag">34</span>,
-  <span class="t-cyan">"skipDirs"</span>: [<span class="t-green">"bazel-out"</span>, <span class="t-green">"dist"</span>]
-}</pre>
-    </div>
-  </div>
-</section>
-
-<section id="install" class="install">
-  <p class="kicker">Install</p>
-  <h2>One command</h2>
-  <div class="cmd">
-    <span class="prompt" aria-hidden="true">$</span>
-    <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
-    <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">copy</button>
-  </div>
-  <p>Fetches the build for this machine, checks it against the release checksums, and puts it in <code>~/.local/bin</code>. <code>SCRN_INSTALL_DIR</code> changes the destination; <code>SCRN_VERSION</code> pins a release.</p>
-  <p>Or with Go:</p>
-  <div class="cmd">
-    <span class="prompt" aria-hidden="true">$</span>
-    <code>go install github.com/w0zro/scrn@latest</code>
-    <button class="copy" data-copy="go install github.com/w0zro/scrn@latest">copy</button>
-  </div>
-  <p>Builds are published for macOS and Linux, on arm64 and amd64. On Linux, scrn reads the process list through <code>lsof</code> — install it. Then read the <a href="guide">guide</a>.</p>
-</section>
-
-</main>
-
-<footer>
-  <div class="foot-inner">
-    <span class="brand-foot">▸ scrn</span>
-    <nav>
-      <a href="guide">Guide</a>
-      <a href="https://github.com/w0zro/scrn">GitHub</a>
-      <a href="https://github.com/w0zro/scrn/releases">Releases</a>
-    </nav>
-  </div>
+<footer class="footer">
+  <span>scrn</span>
+  <nav class="foot-links">
+    <a href="guide">guide</a>
+    <a href="https://github.com/w0zro/scrn">github</a>
+    <a href="https://github.com/w0zro/scrn/releases">releases</a>
+  </nav>
 </footer>
+
+</div>
 
 <script>
 for (const b of document.querySelectorAll('.copy')) {
   b.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); } catch { return; }
-    b.textContent = 'copied';
-    b.classList.add('done');
-    setTimeout(() => { b.textContent = 'copy'; b.classList.remove('done'); }, 1500);
+    b.textContent = '[copied]';
+    setTimeout(() => { b.textContent = '[copy]'; }, 1500);
   });
 }
 </script>
-<script src="demo.js" defer></script>
 
 </body>
 </html>

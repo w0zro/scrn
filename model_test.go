@@ -283,10 +283,10 @@ func TestARunStopsFoldingWhereItBranches(t *testing.T) {
 		[]Proc{
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh", "   ├─ nvim", "   └─ go"})
+	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh", "   ├─ nvim", "   └─ zig"})
 }
 
 func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
@@ -295,13 +295,13 @@ func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
 		[]Proc{
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
 			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ go",
+		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ zig",
 	})
 }
 
@@ -641,14 +641,14 @@ func isANSITerm(c byte) bool {
 
 // --- collapsing -----------------------------------------------------------
 
-// nestedTree is one repo with zsh → (vim → fmt, go).
+// nestedTree is one repo with zsh → (vim → fmt, zig).
 func nestedTree(h int) model {
 	return withProcList(80, h,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
 			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
 		},
@@ -658,13 +658,13 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ go",
+		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ zig",
 	})
 
 	// Move onto vim and fold it.
 	m = press(press(press(m, "down"), "down"), " ")
 	wantRows(t, navColumn(m), []string{
-		" scrn", " └─ zsh", "▸  ├─ vim +2", "   └─ go",
+		" scrn", " └─ zsh", "▸  ├─ vim +2", "   └─ zig",
 	})
 }
 
@@ -689,7 +689,7 @@ func TestSpaceUnfoldsAgain(t *testing.T) {
 }
 
 func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
-	// zsh hides vim, go and fmt.
+	// zsh hides vim, zig and fmt.
 	m := press(press(nestedTree(12), "down"), " ")
 	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh +4"})
 }
@@ -697,7 +697,7 @@ func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
 	m := nestedTree(12)
 	for range 4 {
-		m = press(m, "down") // onto "go 30", a leaf
+		m = press(m, "down") // onto "lint 50", a leaf
 	}
 	before := navColumn(m)
 
@@ -970,7 +970,7 @@ func TestKilledProcessDisappearsOnTheNextScan(t *testing.T) {
 	next, _ := m.Update(procsMsg{procs: []Proc{
 		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 	}})
 
 	col := strings.Join(navColumn(next.(model)), "\n")
@@ -990,7 +990,7 @@ func TestCursorHoldsItsPlaceWhenTheSelectionExits(t *testing.T) {
 	next, _ := m.Update(procsMsg{procs: []Proc{
 		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 	}})
 
 	if c := next.(model).cursor; c == 0 {
@@ -1132,7 +1132,7 @@ func TestTheMarkerGoesWhenTheProcessDoes(t *testing.T) {
 	next, _ = next.(model).Update(procsMsg{procs: []Proc{
 		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 	}})
 	got := next.(model)
 
@@ -1204,7 +1204,7 @@ func TestASecondKillJoinsTheRunningChain(t *testing.T) {
 		t.Fatal("the first kill should start the frame chain")
 	}
 
-	next, cmd = next.(model).Update(killed("go", 30))
+	next, cmd = next.(model).Update(killed("zig", 30))
 	if cmd != nil {
 		t.Error("a second kill started its own chain, doubling the frame rate")
 	}
@@ -1250,7 +1250,7 @@ func TestAProcessThatIgnoresTheSignalIsGivenUpOn(t *testing.T) {
 // --- killing a whole tree ------------------------------------------------
 
 func TestXKillsTheSubtreeParentsFirst(t *testing.T) {
-	// zsh 10 holds vim 20 (holding fmt 40) and go 30.
+	// zsh 10 holds vim 20 (holding fmt 40) and zig 30.
 	m := press(press(nestedTree(12), "down"), "X") // onto zsh 10
 
 	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
@@ -1350,7 +1350,7 @@ func TestEveryProcessInATreeKillIsMarked(t *testing.T) {
 		subject: "zsh 10 and 3 under it",
 		results: []killResult{
 			{command: "zsh", pid: 10}, {command: "vim", pid: 20},
-			{command: "fmt", pid: 40}, {command: "go", pid: 30},
+			{command: "fmt", pid: 40}, {command: "zig", pid: 30},
 		},
 	})
 	got := next.(model)
@@ -1395,7 +1395,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 		results: []killResult{
 			{command: "zsh", pid: 10, err: errors.New("not permitted")},
 			{command: "vim", pid: 20, err: errors.New("not permitted")},
-			{command: "go", pid: 30, err: errors.New("already gone")},
+			{command: "zig", pid: 30, err: errors.New("already gone")},
 		},
 	})
 	got := next.(model)
@@ -1793,7 +1793,7 @@ func TestARowThatFoldedNothingHasNoRun(t *testing.T) {
 		[]Proc{
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "go", Dir: "/p/scrn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 		})
 	m.cursor = 2 // nvim, which folded nothing because zsh branches
 

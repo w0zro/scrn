@@ -70,10 +70,36 @@ func TestProcForestNestsChildren(t *testing.T) {
 		t.Fatalf("roots = %v, want a single root pid 10", pids(roots))
 	}
 	if got := pids(roots[0].Children); len(got) != 2 || got[0] != 20 || got[1] != 40 {
-		t.Errorf("children of 10 = %v, want [20 40] in pid order", got)
+		t.Errorf("children of 10 = %v, want [20 40] in name order", got)
 	}
 	if got := pids(roots[0].Children[0].Children); len(got) != 1 || got[0] != 30 {
 		t.Errorf("children of 20 = %v, want [30]", got)
+	}
+}
+
+func TestSiblingsOrderByNameSoARestartHoldsItsSlot(t *testing.T) {
+	// pid 95 is a Node restarted long after its siblings; name order keeps it
+	// in the N slot instead of dropping it to the bottom, case aside. The two
+	// zsh rows fall back to pid order, which for same-named siblings is the
+	// natural reading: oldest first.
+	roots := procForest([]Proc{
+		{PID: 10, PPID: 1, Command: "zsh"},
+		{PID: 21, PPID: 10, Command: "vim"},
+		{PID: 95, PPID: 10, Command: "Node"},
+		{PID: 30, PPID: 10, Command: "go"},
+		{PID: 40, PPID: 10, Command: "zsh"},
+		{PID: 22, PPID: 10, Command: "zsh"},
+	})
+
+	want := []int{30, 95, 21, 22, 40}
+	got := pids(roots[0].Children)
+	if len(got) != len(want) {
+		t.Fatalf("children of 10 = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("children of 10 = %v, want %v: name order, ties by pid", got, want)
+		}
 	}
 }
 
