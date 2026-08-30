@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -1559,9 +1561,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 
 	// The chord counts it among the waiting, unlike an instance merely idle
 	// since launch.
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	if got := next.(model).status; got == "no agent is waiting" {
+	if got := chordKey(m, tea.KeyEnter).status; got == "no agent is waiting" {
 		t.Error("the chord passed over a blocked instance")
 	}
 }
@@ -1579,9 +1579,7 @@ func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
 		t.Errorf("row = %q, want a hollow marker on an instance idle since launch", row)
 	}
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	if got := next.(model).status; got != "no agent is waiting" {
+	if got := chordKey(m, tea.KeyEnter).status; got != "no agent is waiting" {
 		t.Errorf("status = %q, want the chord to find nothing owed", got)
 	}
 }
@@ -1604,9 +1602,9 @@ func TestARecycledPidDoesNotInheritAFinishedTurn(t *testing.T) {
 	}
 }
 
-func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
-	// ctrl+space ctrl+space is the summons: of everything waiting on its
-	// user, the one waiting longest is the answer owed first.
+func TestPrefixEnterCyclesTheWaitingAgents(t *testing.T) {
+	// ctrl+space enter is the summons: it goes to the next agent waiting on
+	// its user, and pressing it again continues around them in turn.
 	m := withProcList(96, 14,
 		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
 		[]Proc{
@@ -1619,13 +1617,19 @@ func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
 	})
 	m.worked = map[int]bool{700: true, 701: true}
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
+		t.Errorf("cursor on %+v, want the first waiting agent, pid 700", r)
+	}
 
-	r, ok := m.selected()
-	if !ok || r.kind != rowProc || r.node.PID != 701 {
-		t.Errorf("cursor on %+v, want the instance waiting an hour, pid 701", r)
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 701 {
+		t.Errorf("cursor on %+v, want the next waiting agent, pid 701", r)
+	}
+
+	m = chordKey(m, tea.KeyEnter)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
+		t.Errorf("cursor on %+v, want the cycle to wrap back to pid 700", r)
 	}
 }
 
@@ -1639,9 +1643,7 @@ func TestPrefixReachesOutOfAFocusedShell(t *testing.T) {
 	m.terms = map[int]*remoteTerm{900: {pid: 900}}
 	m.focus = 900
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chordKey(m, tea.KeyEnter)
 
 	if m.focus != 0 {
 		t.Error("the chord should leave the shell for the navigator")
@@ -1658,7 +1660,7 @@ func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
 	m.worked = map[int]bool{700: true}
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(typed("j"))
+	next, _ = next.(model).Update(typed("z"))
 	m = next.(model)
 
 	if m.pendingPrefix {
@@ -1669,17 +1671,235 @@ func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
 	}
 }
 
-func TestPrefixWithNothingWaitingSaysSo(t *testing.T) {
+// chord presses the prefix and then one key.
+func chord(m model, key string) model {
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(typed(key))
+	return next.(model)
+}
+
+// chordKey presses the prefix and then one non-printable key.
+func chordKey(m model, code rune) model {
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: code})
+	return next.(model)
+}
+
+// chordPrefix presses the prefix twice.
+func chordPrefix(m model) model {
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	return next.(model)
+}
+
+// twoShells is two repos, each with a shell scrn holds, plus a process it
+// does not own, focused on the first shell when pid is not zero.
+func twoShells(focus int) model {
+	m := withProcList(96, 14,
+		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/a"},
+			{PID: 800, PPID: 1, Command: "cargo", Dir: "/p/a"},
+			{PID: 701, PPID: 1, Command: "zsh", Dir: "/p/b"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}, 701: {pid: 701}}
+	m.focus = focus
+	return m
+}
+
+func TestPrefixJStepsToTheNextShell(t *testing.T) {
+	m := chord(twoShells(700), "j")
+
+	if m.focus != 701 {
+		t.Errorf("focus = %d, want the next shell 701", m.focus)
+	}
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 701 {
+		t.Errorf("cursor on %+v, want it moved with the attachment", r)
+	}
+
+	// The step skips the foreign process and wraps at the end.
+	if m = chord(m, "j"); m.focus != 700 {
+		t.Errorf("focus = %d, want the step to wrap back to 700", m.focus)
+	}
+}
+
+func TestPrefixKStepsBack(t *testing.T) {
+	if m := chord(twoShells(701), "k"); m.focus != 700 {
+		t.Errorf("focus = %d, want the previous shell 700", m.focus)
+	}
+}
+
+func TestPrefixJFromTheNavigatorAttaches(t *testing.T) {
+	// Not focused anywhere, cursor on the first repo row: the chord still
+	// means motion between shells, so it enters the nearest one ahead.
+	if m := chord(twoShells(0), "j"); m.focus != 700 {
+		t.Errorf("focus = %d, want the first shell 700", m.focus)
+	}
+}
+
+func TestPrefixJWithNoOtherShellSaysSo(t *testing.T) {
+	m := withProcList(96, 14,
+		[]Project{{Name: "a", Path: "/p/a"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/a"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m.focus = 700
+
+	m = chord(m, "j")
+	if m.focus != 700 {
+		t.Errorf("focus = %d, want it left where it was", m.focus)
+	}
+	if m.status != "nothing else to attach to" {
+		t.Errorf("status = %q, want it to say there is nowhere to go", m.status)
+	}
+}
+
+// pipeDaemon gives a model a daemon whose asks land on the returned channel.
+func pipeDaemon(t *testing.T, m model) (model, chan message) {
+	t.Helper()
+	ours, theirs := net.Pipe()
+	t.Cleanup(func() { ours.Close(); theirs.Close() })
+
+	asked := make(chan message, 8)
+	go func() {
+		c := newConn(ours)
+		for {
+			msg, err := c.read()
+			if err != nil {
+				return
+			}
+			asked <- msg
+		}
+	}()
+	m.daemon = &session{conn: newConn(theirs), events: make(chan tea.Msg, 4)}
+	return m, asked
+}
+
+// askedFor waits for the daemon to be asked something, or fails the test.
+func askedFor(t *testing.T, asked chan message) message {
+	t.Helper()
+	select {
+	case got := <-asked:
+		return got
+	case <-time.After(time.Second):
+		t.Fatal("the daemon was asked for nothing")
+		return message{}
+	}
+}
+
+func TestPrefixSOpensAShellBesideTheFocusedOne(t *testing.T) {
+	m := twoShells(700)
+	m.terms[700].dir = "/p/a"
+	m, asked := pipeDaemon(t, m)
+
+	chord(m, "s")
+	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != "" {
+		t.Fatalf("asked %+v, want a bare shell opened at /p/a", got)
+	}
+}
+
+func TestPrefixAStartsAnAgentBesideTheFocusedShell(t *testing.T) {
+	m := twoShells(700)
+	m.terms[700].dir = "/p/a"
+	m, asked := pipeDaemon(t, m)
+
+	chord(m, "a")
+	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != agentKinds[0].run {
+		t.Fatalf("asked %+v, want an agent started at /p/a", got)
+	}
+}
+
+func TestPrefixRRunsThePlanOfTheFocusedShellsPlace(t *testing.T) {
+	// The shell sits below the project root; the plan lives at the root, so
+	// the chord has to walk the dir up to its place before reading it.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".scrn"), []byte("web: npm run dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := withProcList(96, 14, []Project{{Name: "app", Path: dir}}, nil)
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: filepath.Join(dir, "src")}}
+	m.focus = 700
+	m, asked := pipeDaemon(t, m)
+
+	chord(m, "r")
+	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != dir || got.Name != "web" {
+		t.Fatalf("asked %+v, want the plan's web entry at the project root", got)
+	}
+}
+
+func TestPlaceAtPrefersTheInnermostPlace(t *testing.T) {
+	m := model{
+		projects: []Project{{Name: "mono", Path: "/p/mono"}},
+		subs:     map[string][]Project{"/p/mono": {{Name: "api", Path: "/p/mono/api"}}},
+		groups:   []Project{{Name: "p", Path: "/p"}},
+	}
+
+	if p, ok := m.placeAt("/p/mono/api/src"); !ok || p.Path != "/p/mono/api" {
+		t.Errorf("placeAt = %+v %v, want the sub-project", p, ok)
+	}
+	if p, ok := m.placeAt("/p/mono/cmd"); !ok || p.Path != "/p/mono" {
+		t.Errorf("placeAt = %+v %v, want the repository", p, ok)
+	}
+	if p, ok := m.placeAt("/p"); !ok || p.Path != "/p" {
+		t.Errorf("placeAt = %+v %v, want work at the group's own level to belong to the group", p, ok)
+	}
+	if p, ok := m.placeAt("/elsewhere"); ok {
+		t.Errorf("placeAt = %+v, want nothing outside every place", p)
+	}
+}
+
+func TestPrefixSlashOpensTheFilterFromAShell(t *testing.T) {
+	m := chord(twoShells(700), "/")
+
+	if !m.typing {
+		t.Error("^space / should start the filter")
+	}
+	if m.focus != 0 {
+		t.Error("the filter is typed in the navigator, so the shell should be left")
+	}
+}
+
+func TestPrefixEnterWithNothingWaitingSaysSo(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{
 		700: {PID: 700, Status: busyStatus},
 	})
 
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = next.(model)
-
-	if m.status != "no agent is waiting" {
+	if m = chordKey(m, tea.KeyEnter); m.status != "no agent is waiting" {
 		t.Errorf("status = %q, want it to say nothing is waiting", m.status)
+	}
+}
+
+func TestPrefixPrefixTogglesBetweenTheLastTwoShells(t *testing.T) {
+	m := chord(twoShells(700), "j") // over to 701; 700 is now the one before
+
+	if m = chordPrefix(m); m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle back to 700", m.focus)
+	}
+	if m = chordPrefix(m); m.focus != 701 {
+		t.Errorf("focus = %d, want the toggle forth to 701", m.focus)
+	}
+}
+
+func TestTheToggleResumesAShellLeftWithCtrlO(t *testing.T) {
+	next, _ := twoShells(700).Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m := next.(model)
+	if m.focus != 0 {
+		t.Fatalf("focus = %d, want ctrl+o to step out first", m.focus)
+	}
+
+	if m = chordPrefix(m); m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle to resume the shell just left", m.focus)
+	}
+}
+
+func TestTheToggleWithNothingBeforeSaysSo(t *testing.T) {
+	m := chordPrefix(twoShells(700))
+
+	if m.focus != 700 {
+		t.Errorf("focus = %d, want the toggle to stay put with nowhere to go", m.focus)
+	}
+	if m.status != "no shell to step back into" {
+		t.Errorf("status = %q, want it to explain", m.status)
 	}
 }
 
@@ -2304,7 +2524,7 @@ func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
 func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 	m := press(manyProjects(160, 24), "?")
 	view := stripANSI(m.View().Content)
-	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the waiting agent", "quit"} {
+	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the next waiting agent", "quit"} {
 		if !strings.Contains(view, key) {
 			t.Errorf("view does not show %q with the modal open", key)
 		}

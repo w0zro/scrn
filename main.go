@@ -4,19 +4,72 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
 
-func main() {
-	// The daemon is the same binary. It is started by the client when none is
-	// listening, so nothing has to be installed or launched by hand.
-	if len(os.Args) > 1 && os.Args[1] == "daemon" {
-		if err := runDaemon(); err != nil {
-			fmt.Fprintf(os.Stderr, "scrnd: %v\n", err)
-			os.Exit(1)
+// version is stamped by the release build. A build that came another way
+// answers from the module system instead, which go install fills with the tag
+// and a plain go build leaves as (devel).
+var version string
+
+func versionString() string {
+	v := version
+	if v == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			v = info.Main.Version
 		}
-		return
+	}
+	if v == "" {
+		v = "unknown"
+	}
+	return "scrn " + strings.TrimPrefix(v, "v")
+}
+
+// usage is the whole of scrn's command line. The detail — keys, config,
+// the daemon's life — belongs to the manual, not here.
+const usage = `scrn is a terminal UI for working on projects at the command line.
+
+usage:
+  scrn             open the window
+  scrn daemon      run the daemon that holds the shells (started for you)
+  scrn -h, --help  show this
+  scrn --version   report the version
+
+files:
+  ~/.config/scrn/config.json  configuration
+  ~/.local/state/scrn/        the daemon's socket and log
+
+environment:
+  SCRN_SOCKET  where the daemon listens, instead of the state directory
+`
+
+func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		// The daemon is the same binary. It is started by the client when
+		// none is listening, so nothing has to be installed or launched by
+		// hand.
+		case "daemon":
+			if err := runDaemon(); err != nil {
+				fmt.Fprintf(os.Stderr, "scrnd: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "-h", "--help", "help":
+			fmt.Print(usage)
+			return
+		case "--version", "version":
+			fmt.Println(versionString())
+			return
+		// Anything else is refused rather than shrugged off: a mistyped
+		// argument that silently opened the window would look like it worked.
+		default:
+			fmt.Fprintf(os.Stderr, "scrn: unknown argument %q\n\n%s", os.Args[1], usage)
+			os.Exit(2)
+		}
 	}
 
 	// The navigator's width is drawn from before the first paint, so it is the

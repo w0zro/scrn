@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -171,6 +172,20 @@ func startDaemon() error {
 
 	cmd := exec.Command(exe, "daemon")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, null, null
+
+	// The daemon's stderr goes to a file rather than the bit bucket, so a
+	// daemon that dies leaves its last words — a panic, a refused socket —
+	// where they can be read. It is truncated here, on a fresh start, and
+	// inherited across an upgrade's exec, so it only ever tells of the
+	// daemon now running. Failing to open it costs the death rattle, not
+	// the daemon.
+	logPath := daemonLogPath()
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o700)
+	if log, err := os.OpenFile(logPath,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600); err == nil {
+		defer log.Close()
+		cmd.Stderr = log
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

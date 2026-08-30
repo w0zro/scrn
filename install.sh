@@ -113,6 +113,19 @@ mv -f "$tmp/scrn" "$dir/scrn" ||
 
 printf 'installed scrn %s to %s/scrn\n' "$version" "$dir"
 
+# The manpage goes beside the binary in the way man expects: for a binary in
+# ~/.local/bin, man derives ~/.local/share/man from PATH on its own, so
+# `man scrn` works with nothing configured. Releases from before the manpage
+# simply do not have one in the archive, and that is not a failure.
+if [ -f "$tmp/scrn.1" ]; then
+	mandir="${SCRN_MAN_DIR:-${dir%/bin}/share/man}"
+	if mkdir -p "$mandir/man1" && mv -f "$tmp/scrn.1" "$mandir/man1/scrn.1"; then
+		printf 'installed scrn.1 to %s/man1\n' "$mandir"
+	else
+		printf 'could not install the manpage to %s/man1; the binary is unaffected\n' "$mandir" >&2
+	fi
+fi
+
 case ":$PATH:" in
 *":$dir:"*) ;;
 *)

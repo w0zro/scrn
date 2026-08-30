@@ -1,0 +1,247 @@
+.\" scrn(1) is written by hand in man(7) troff. The guide at
+.\" https://scrn.w0zro.com/guide tells the same story in walking order;
+.\" this page is the reference. Keep the two agreeing.
+.TH SCRN 1 2026-08-30 scrn "User Commands"
+.SH NAME
+scrn \- a terminal UI for working on projects at the command line
+.SH SYNOPSIS
+.B scrn
+.br
+.B scrn daemon
+.br
+.B scrn
+.RB [ \-h | \-\-help | \-\-version ]
+.SH DESCRIPTION
+.B scrn
+shows every git repository under your project roots, what is running in
+each, and the shells you open there. The shells live in a daemon, so they
+survive the window: close the terminal, come back, and everything is where
+it was.
+.PP
+There is nothing to set up. The first window starts the daemon \(em the
+same binary, as
+.B scrn daemon
+\(em and later windows attach to it. By default scrn looks for
+repositories under
+.IR ~/projects ;
+the config points it elsewhere.
+.PP
+The left column is a tree, at most four levels deep: group, repository,
+sub\-project, process. A folder holding two or more repositories groups
+them. In a monorepo, a directory with a manifest
+.RI ( .scrn ,
+.IR Procfile ,
+.IR package.json ,
+.IR go.mod ,
+.IR Cargo.toml ,
+and the like) is a project of its own. Processes are attributed to the
+innermost place they belong to and named by what you would call them \(em
+.BR "npm run dev" ,
+not
+.BR node .
+Dim rows are processes started outside scrn: listed and killable, but
+with no shell to step into.
+.SH KEYS
+.B ?
+shows this list inside scrn.
+.SS In the navigator
+.TP
+.B s
+open a shell at the selected place
+.TP
+.B a
+start Claude Code there
+.TP
+.B r
+run the plan's entries that are not already running
+.TP
+.B enter
+step into the selected shell
+.TP
+.B space
+fold or unfold the selected node
+.TP
+.B \-
+fold or unfold everything; unfolded rows also show pids
+.TP
+.B .
+toggle between everything and only what is running
+.TP
+.B /
+find a repository by name
+.TP
+.B x
+kill the selected process; on a repository or group, everything running
+in it
+.TP
+.B X
+kill the selected process and everything under it
+.TP
+.B R
+replace the daemon outright, ending the shells it holds
+.PP
+Every kill asks first \(em
+.BR x ,
+.B y
+or
+.B enter
+confirms, anything else cancels. Processes get SIGTERM, and the list
+never claims an exit it has not observed.
+.SS In a shell
+Keystrokes go to the shell. scrn keeps two keys for itself:
+.TP
+.B ctrl\-o
+step back out to the navigator
+.TP
+.B ctrl\-space
+the prefix; it reaches scrn from anywhere, even a focused shell
+.PP
+The chords keep their letters' meanings:
+.B j
+and
+.B k
+after the prefix attach to the next and previous shell,
+.B /
+opens the filter,
+.BR s ,
+.B a
+and
+.B r
+act where you are,
+.B ?
+shows the keys, and
+.B ctrl\-space
+again jumps to the agent that has been waiting on you longest. Anything
+unbound cancels the prefix.
+.PP
+Scroll up to read what has scrolled away;
+.B j
+and
+.B k
+move,
+.B esc
+returns to live. Each shell keeps 10,000 lines of transcript unless the
+config says otherwise.
+.SH AGENTS
+.B a
+starts Claude Code in a shell like any other. scrn reads the session
+files Claude leaves behind, and the navigator marks each instance's
+state: a spinner while it works, a diamond (\[u25C6]) when it is blocked
+mid\-turn on a permission prompt or a question, a filled dot (\[u25CF])
+when it has finished its turn, a hollow dot (\[u25CB]) when it has been
+idle since it started. The diamond is the one worth crossing the room
+for: answering it resumes work already underway.
+.SH PLANS
+A project writes down its usual processes in
+.IR .scrn ,
+Procfile format, a name and a command per line:
+.PP
+.EX
+dev:   npm run dev
+api:   go run ./cmd/api
+agent: claude
+.EE
+.PP
+Without one, a
+.I Procfile
+means every line is a process, and a
+.I package.json
+contributes its
+.B dev
+or
+.B start
+script, whichever exists first.
+.B r
+starts the entries that are not running, each in its own shell named for
+its entry. It is a list to run, not a supervisor: nothing restarts on its
+own.
+.SH CONFIGURATION
+One JSON file, entirely optional, at
+.IR ~/.config/scrn/config.json .
+.TP
+.B projectsDir
+the directory searched for repositories (default
+.IR $HOME/projects );
+.B ~
+and
+.B $VARS
+expand
+.TP
+.B projectsDirs
+several roots; when set,
+.B projectsDir
+is ignored. A root that only exists on another machine is fine.
+.TP
+.B scrollback
+transcript lines each shell keeps (default 10000). Read at daemon start,
+so raising it takes
+.B R
+to reach running shells.
+.TP
+.B navWidth
+the navigator column's width, 16\(en60 (default 28)
+.TP
+.B skipDirs
+directory names the repository scan never enters, on top of the built\-in
+list
+.RI ( node_modules ,
+.IR vendor ,
+.IR target ,
+and the like)
+.SH DAEMON
+The daemon owns the ptys, holds the transcripts, and serves every window
+over a unix socket. One daemon per user, for all projects. Holding no
+shells and watched by no window for a minute, it exits.
+.PP
+After an upgrade, the next window to open notices the daemon is older
+than its own build and asks it to carry its shells into the new binary by
+exec \(em pids, ptys, transcripts and screen state all cross, and the
+programs in the shells never notice. A daemon too old to know how is
+offered
+.BR R ,
+which replaces it outright and ends its shells.
+.SH FILES
+.TP
+.I ~/.config/scrn/config.json
+configuration; see
+.B CONFIGURATION
+.TP
+.I ~/.local/state/scrn/scrnd\-<uid>.sock
+the daemon's socket
+.TP
+.I ~/.local/state/scrn/scrnd.log
+the daemon's stderr: its last words, if it died with any, and nothing
+else. Truncated when a fresh daemon starts.
+.TP
+.I .scrn
+a project's plan; see
+.B PLANS
+.SH ENVIRONMENT
+.TP
+.B SCRN_SOCKET
+where the daemon listens, instead of the state directory
+.TP
+.B XDG_CONFIG_HOME
+where the config lives, instead of
+.I ~/.config
+.TP
+.B XDG_STATE_HOME
+where the daemon's socket and log live, instead of
+.I ~/.local/state
+.TP
+.B SHELL
+the shell opened in each pane
+.TP
+.B CLAUDE_CONFIG_DIR
+where Claude Code's session files are read from, instead of
+.I ~/.claude
+.SH EXIT STATUS
+0 on a clean exit, 1 when scrn or its daemon fails, 2 for an argument it
+does not understand.
+.SH SEE ALSO
+.BR lsof (1),
+.BR git (1)
+.PP
+.UR https://scrn.w0zro.com/guide
+The guide, which tells the same story in walking order
+.UE .
