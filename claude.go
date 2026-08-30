@@ -283,8 +283,14 @@ type transcriptLine struct {
 // branch the session started on, how much context the last request carried,
 // what the session says it is doing, and the last thing the user asked for.
 //
-// It reads backwards from the end and stops as soon as every field is filled,
-// because the most recent record is the one that matters for all of them.
+// It reads backwards from the end, because for every one of those the most
+// recent record is the one that matters, and takes the first answer it finds.
+//
+// It reads the whole window even so, rather than stopping once it has them.
+// The subagents are the reason: which record means an agent has finished
+// depends on how it was started, and the call that says so is older than
+// everything answering it — so an early exit would leave the last few agents
+// weighed against a question that had not been reached yet.
 func readTranscript(path string, s *claudeSession) {
 	lines, err := tailLines(path, transcriptTail)
 	if err != nil {

@@ -2314,3 +2314,43 @@ func TestPortsAreOrderedByNumber(t *testing.T) {
 		}
 	}
 }
+
+func TestASpaceInTheSearchDoesNotMoveTheCursor(t *testing.T) {
+	// A filter is trimmed before it is matched against, so a space narrows
+	// nothing. Sending the selection back to the top for one is the cursor
+	// jumping in the middle of a name being typed.
+	m := withProcList(90, 20, []Project{
+		{Name: "alpha", Path: "/p/alpha"},
+		{Name: "vim pro", Path: "/p/vim pro"},
+		{Name: "vim proxy", Path: "/p/vim proxy"},
+	}, nil)
+
+	m = press(m, "/")
+	for _, r := range "vim" {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(model)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(model)
+
+	was, _ := m.selected()
+	rows := len(m.rows)
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(model)
+
+	if len(m.rows) != rows {
+		t.Fatalf("the space changed the list from %d rows to %d", rows, len(m.rows))
+	}
+	if got, _ := m.selected(); got.project.Path != was.project.Path {
+		t.Errorf("the space moved the cursor from %q to %q",
+			was.project.Name, got.project.Name)
+	}
+
+	// A letter still does start again from the top: those rows really have
+	// changed under the cursor.
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	if m = next.(model); m.cursor != 0 {
+		t.Errorf("cursor = %d after narrowing the list, want the top", m.cursor)
+	}
+}

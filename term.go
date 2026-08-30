@@ -5,9 +5,12 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 )
@@ -53,6 +56,19 @@ type terminal struct {
 	// teardown: a shell ended by hand is torn down again when its output stops.
 	done    chan struct{}
 	closing sync.Once
+
+	// sendMu is held while input is being handed to the emulator, and gone is
+	// set under it before the emulator is closed. Together they are what stops
+	// a keystroke arriving at an emulator whose answers nothing is draining
+	// any more, which would block on the pipe while holding the screen.
+	sendMu sync.RWMutex
+	gone   bool
+
+	// sizeMu guards cols. One client's resize can arrive while a screen is
+	// being rendered for another, and the render needs the width the grid
+	// actually has.
+	sizeMu sync.Mutex
+	cols   int
 }
 
 // hangupGrace is how long a shell is given to act on losing its terminal
@@ -118,6 +134,7 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 		cmd:    c,
 		pty:    f,
 		vt:     vt.NewSafeEmulator(width, height),
+		cols:   width,
 		output: make(chan struct{}, 1),
 		done:   make(chan struct{}),
 	}
@@ -191,13 +208,65 @@ func waitForOutput(t *terminal) tea.Cmd {
 	}
 }
 
-// write sends what the user typed to the shell. A write to a shell that has
-// just exited fails harmlessly, which is the right answer for a keystroke that
-// raced the exit.
-func (t *terminal) write(b []byte) {
-	if len(b) > 0 {
-		_, _ = t.pty.Write(b)
+// send hands what the user did to the emulator, which writes the bytes the
+// program in the pane is expecting and hands them out through reply.
+//
+// This is the whole reason the input crosses as an event. The emulator is
+// tracking what the program has asked for — application cursor keys, which
+// mouse reporting mode, whether the kitty protocol is on — and those decide
+// what an arrow key or a click is on the wire. Nothing on the window's side
+// knows any of it.
+//
+// A keystroke that raced the close is dropped. The emulator answers into a
+// pipe and blocks there while holding its screen, so handing it a key with
+// reply no longer draining would wedge it and the shell's own goroutines with
+// it. Losing the last keystroke of a shell being closed costs nothing.
+func (t *terminal) send(m message) {
+	t.sendMu.RLock()
+	defer t.sendMu.RUnlock()
+	if t.gone {
+		return
 	}
+
+	switch {
+	case m.Paste != "":
+		// Paste rather than a run of keystrokes, so that a program with
+		// bracketed paste on is told where the pasted text begins and ends
+		// rather than being made to believe someone typed all of it.
+		t.vt.Paste(m.Paste)
+	case m.Key != nil:
+		t.vt.SendKey(uv.KeyPressEvent{
+			Code: m.Key.Code,
+			Text: m.Key.Text,
+			Mod:  uv.KeyMod(m.Key.Mod),
+		})
+	case m.Mouse != nil:
+		t.vt.SendMouse(m.Mouse.event())
+	}
+}
+
+// event is the mouse event the emulator understands. The buttons are numbered
+// the same on both sides, from the X11 codes.
+func (m *mousePress) event() uv.MouseEvent {
+	mouse := uv.Mouse{
+		X:      m.X,
+		Y:      m.Y,
+		Button: uv.MouseButton(m.Button),
+		Mod:    uv.KeyMod(m.Mod),
+	}
+	switch m.Action {
+	case actRelease:
+		return uv.MouseReleaseEvent(mouse)
+	case actMotion:
+		return uv.MouseMotionEvent(mouse)
+	}
+	// A wheel turn is reported as a press of a button only a wheel has, and
+	// the emulator wants it as the wheel event it is.
+	switch mouse.Button {
+	case uv.MouseWheelUp, uv.MouseWheelDown, uv.MouseWheelLeft, uv.MouseWheelRight:
+		return uv.MouseWheelEvent(mouse)
+	}
+	return uv.MouseClickEvent(mouse)
 }
 
 // Window-scoped sequences. A program addresses these to the terminal it is in,
@@ -254,39 +323,77 @@ func (t *terminal) resize(width, height int) {
 	}
 	_ = pty.Setsize(t.pty, winsize(width, height))
 	t.vt.Resize(width, height)
+	t.sizeMu.Lock()
+	t.cols = width
+	t.sizeMu.Unlock()
 }
 
 // close ends the shell and releases the pty.
 //
-// Closing the pty is a hangup, which is what ending a shell actually looks
-// like: an interactive shell ignores SIGTERM by design, so signalling one does
-// nothing at all. Losing its terminal is the thing it listens to. Only a shell
-// that will not go even then is killed outright.
+// A hangup is what ending a shell looks like: an interactive shell ignores
+// SIGTERM by design, so signalling one that way does nothing at all. Losing
+// its terminal is the thing it listens to. Only a shell that will not go even
+// then is killed outright.
+//
+// The hangup has to be sent rather than implied. Closing the master end of the
+// pty reads like taking the terminal away, but no shell notices it — zsh, bash
+// and sh all sit there indefinitely — so a close that only closed the pty
+// waited out the whole grace and killed every shell it was trying to be gentle
+// with. SIGHUP is the same message said out loud.
+//
+// It goes to the process group rather than the shell, which is what setsid put
+// the shell at the head of. A plan entry is a shell running an npm running a
+// node, and it is the node that has to hear about it; signalling the shell
+// alone would leave what it started behind.
 //
 // Closing the emulator is what lets the goroutine waiting on its answers
 // finish, rather than sitting on a pipe nothing will ever write to again.
 func (t *terminal) close() {
 	t.closing.Do(func() {
-		_ = t.vt.Close()
-		_ = t.pty.Close()
+		// Stop taking input first, and wait out anything already inside send:
+		// past this the emulator is going, and nothing may be left holding it.
+		t.sendMu.Lock()
+		t.gone = true
+		t.sendMu.Unlock()
 
+		// A shell already reaped has no group left to signal, and its pid is
+		// free to have been given to something else — which must not be sent
+		// a hangup meant for a process that has already gone.
 		select {
 		case <-t.done:
-		case <-time.After(hangupGrace):
-			if t.cmd.Process != nil {
-				_ = t.cmd.Process.Kill()
+		default:
+			_ = syscall.Kill(-t.pid, syscall.SIGHUP)
+			select {
+			case <-t.done:
+			case <-time.After(hangupGrace):
+				if t.cmd.Process != nil {
+					_ = t.cmd.Process.Kill()
+				}
 			}
 		}
+
+		_ = t.vt.Close()
+		_ = t.pty.Close()
 	})
 }
 
-// lines is the emulator's screen, one string per row, ready to be drawn.
-func (t *terminal) lines(height int) []string {
+// screen is the emulator's pane, every row padded back out to the width of
+// the grid it stands for. Render writes for a real terminal, which keeps a
+// grid of its own and needs no trailing blanks, so it drops them. On the wire
+// this string is the only grid there is: the client cuts columns out of it to
+// mark the cursor cell, and a row that stops short of the edge puts that cell
+// somewhere the cursor is not.
+func (t *terminal) screen() string {
 	rows := strings.Split(t.vt.Render(), "\n")
-	if len(rows) > height {
-		rows = rows[:height]
+	t.sizeMu.Lock()
+	cols := t.cols
+	t.sizeMu.Unlock()
+	for i, row := range rows {
+		if pad := cols - ansi.StringWidth(row); pad > 0 {
+			rows[i] = row + strings.Repeat(" ", pad)
+		}
 	}
-	return rows
+	return strings.Join(rows, "\n")
 }
 
 // cursor is where the shell's cursor sits within the pane.

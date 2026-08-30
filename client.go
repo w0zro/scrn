@@ -265,16 +265,26 @@ func answered(d time.Duration) bool {
 
 // signalDaemon ends whatever is holding the socket. The shells go with it:
 // they are its children and it holds the other end of their terminals.
+//
+// Every process named is considered rather than only the first, and this one
+// is passed over. A client has the socket open as well as the daemon does, and
+// which of them lsof names first is not something to stake the window on:
+// signalling ourselves here would close the window and leave the daemon that
+// was being replaced still holding everything. The kill path refuses the same
+// thing for the same reason.
 func signalDaemon() error {
 	out, err := exec.Command("lsof", "-t", socketPath()).Output()
 	if err != nil {
 		return errors.New("could not find the daemon to end it")
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]))
-	if err != nil || pid <= 1 {
-		return errors.New("could not find the daemon to end it")
+	for _, line := range strings.Split(string(out), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid <= 1 || pid == os.Getpid() {
+			continue
+		}
+		return syscall.Kill(pid, syscall.SIGTERM)
 	}
-	return syscall.Kill(pid, syscall.SIGTERM)
+	return errors.New("could not find the daemon to end it")
 }
 
 // builtAt is when this scrn was built. A daemon that started before its own
@@ -295,9 +305,26 @@ func (s *session) attach(pid, w, h int) {
 	s.ask(message{Kind: kindAttach, PID: pid, Width: w, Height: h})
 }
 
-func (s *session) input(pid int, b []byte) {
-	if len(b) > 0 {
-		s.ask(message{Kind: kindInput, PID: pid, Data: b})
+// key sends a keystroke to a shell, as the keystroke it was. The bytes are
+// the emulator's to decide, which is why it is not sent any.
+func (s *session) key(pid int, k *keyPress) {
+	if k != nil {
+		s.ask(message{Kind: kindInput, PID: pid, Key: k})
+	}
+}
+
+// mouse sends a click, a drag or a wheel turn to a shell.
+func (s *session) mouse(pid int, m *mousePress) {
+	if m != nil {
+		s.ask(message{Kind: kindInput, PID: pid, Mouse: m})
+	}
+}
+
+// paste sends pasted text as a paste, so that a program with bracketed paste
+// on can tell it from someone typing very fast.
+func (s *session) paste(pid int, text string) {
+	if text != "" {
+		s.ask(message{Kind: kindInput, PID: pid, Paste: text})
 	}
 }
 

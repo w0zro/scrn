@@ -1,0 +1,40 @@
+# The tests, on every push and pull request.
+#
+# The release workflow runs them too, but only once a tag is pushed — which is
+# the worst moment to learn of a break, because the tag is already cut. This is
+# the same check, run while it is still cheap to act on.
+#
+# macOS for the same reason the release runs there: scrn reads the process list
+# through lsof and opens real ptys, so the tests are only meaningful on the
+# platform it is developed for.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Format
+        run: |
+          unformatted=$(gofmt -l .)
+          [ -z "$unformatted" ] || {
+            echo "not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...

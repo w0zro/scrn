@@ -19,7 +19,15 @@ func main() {
 		return
 	}
 
-	p := tea.NewProgram(newModel(), tea.WithAltScreen())
+	// The mouse is asked for so that it can be handed on. A program in the pane
+	// that wants clicks and wheel turns cannot ask the real terminal for them —
+	// it is talking to scrn's emulator, which has no window — so scrn asks on
+	// its behalf and passes on what arrives.
+	//
+	// Cell motion rather than every movement: it covers clicking, dragging and
+	// the wheel, which is what the programs that want a mouse are after, without
+	// a message for every pixel the pointer crosses.
+	p := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 		os.Exit(1)

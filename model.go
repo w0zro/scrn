@@ -479,6 +479,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case tea.MouseMsg:
+		// The mouse belongs to whatever is drawing in the pane. Only a focused
+		// shell gets it: an unfocused pane is something being looked at rather
+		// than worked in, and a click meant for the list would land in it.
+		if t := m.focused(); t != nil && m.showDetail() {
+			m.daemon.mouse(t.pid, mouseEvent(msg, navWidth+1, 0))
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// A focused shell takes every keystroke except the one that leaves it.
 		// That has to come before everything else: ctrl+c belongs to whatever
@@ -488,7 +497,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = 0
 				return m, m.detailCmd()
 			}
-			m.daemon.input(t.pid, keyBytes(msg))
+			// Pasted text goes as a paste rather than as the keystrokes it
+			// would have taken to type, so a program that asked for bracketed
+			// paste is told where it starts and stops.
+			if msg.Paste {
+				m.daemon.paste(t.pid, string(msg.Runes))
+				return m, nil
+			}
+			m.daemon.key(t.pid, keyEvent(msg))
 			return m, nil
 		}
 
@@ -712,10 +728,22 @@ func (m *model) selectProject(path string) {
 
 // setFilter narrows the list and starts again from the top, because the rows
 // under the cursor are not the ones that were there a keystroke ago.
+//
+// Unless they are. A filter is trimmed and folded before anything is matched
+// against it, so a space does not narrow anything — and typing one in the
+// middle of "vim pro" sent the selection back to the top of a list that had
+// not moved, which from the typist's side is the cursor jumping for no reason
+// at all. When the rows cannot have changed, neither does the cursor.
 func (m *model) setFilter(s string) {
+	narrowed := !strings.EqualFold(strings.TrimSpace(m.filter), strings.TrimSpace(s))
+
 	m.filter = s
+	// rebuild keeps the cursor on the subject it was on where that subject is
+	// still listed, which is the whole of what is wanted when nothing changed.
 	m.rebuild()
-	m.cursor = 0
+	if narrowed {
+		m.cursor = 0
+	}
 	m.scrollToCursor()
 }
 
@@ -1195,8 +1223,14 @@ func (m *model) pruneDying() {
 
 // bodyHeight is the number of navigator rows that fit between scrn's name and
 // its keys, which is what the cursor scrolls within.
+//
+// It counts the keys as they are actually drawn, not as they were asked for. A
+// hint block too tall for the window is cut down to leave the list a row, and
+// measuring the untrimmed block instead made this say nought where the column
+// still drew one — so the cursor scrolled within a list a row shorter than the
+// one on screen, and could sit off the end of it.
 func (m model) bodyHeight() int {
-	if h := m.height - 1 - len(m.hintLines(m.hintWidth(), m.height)); h > 0 {
+	if h := m.height - 1 - len(m.trimmedHint(m.height)); h > 0 {
 		return h
 	}
 	return 0

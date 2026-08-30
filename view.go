@@ -133,15 +133,8 @@ func (m model) layout() string {
 // leftColumn is scrn's own column: its name, the navigator, and its keys held
 // down at the bottom.
 func (m model) leftColumn(rows int) []string {
-	hint := m.hintLines(m.hintWidth(), rows)
-	// Whatever is being said, the list keeps a row.
-	if max := rows - 2; max > 0 && len(hint) > max {
-		hint = hint[:max]
-	}
-	body := rows - 1 - len(hint)
-	if body < 0 {
-		body = 0
-	}
+	hint := m.trimmedHint(rows)
+	body := m.bodyHeight()
 
 	lines := make([]string, 0, rows)
 	lines = append(lines, titleStyle.Render("scrn"))
@@ -158,6 +151,18 @@ func (m model) leftColumn(rows int) []string {
 		lines = append(lines, "")
 	}
 	return append(lines, hint...)
+}
+
+// trimmedHint is what scrn has to say at the foot of its column, cut to what
+// the window can spare for it. Whatever is being said, the list keeps a row:
+// a confirmation that wrapped over a short window would otherwise take the
+// whole column, leaving nothing to say what is being confirmed about.
+func (m model) trimmedHint(rows int) []string {
+	hint := m.hintLines(m.hintWidth(), rows)
+	if max := rows - 2; max > 0 && len(hint) > max {
+		hint = hint[:max]
+	}
+	return hint
 }
 
 // hintWidth is the room scrn's keys have: its own column, or the whole window
@@ -547,7 +552,9 @@ func (m model) paneLines(width, rows int) []string {
 
 // withCursor marks the cell the shell's cursor is on. The line already carries
 // the shell's own styling, so it is cut around the cell rather than indexed
-// into: a byte offset would land in the middle of an escape sequence.
+// into: a byte offset would land in the middle of an escape sequence. The cut
+// leans on the protocol's shape — every row arrives as wide as the pane — so
+// column x is always a cell the row actually has.
 func withCursor(line string, x, width int) string {
 	if x < 0 || x >= width {
 		return line
@@ -665,6 +672,13 @@ func wrapField(f field, labelW, width int) []string {
 
 // wrapValue breaks a value at spaces where it can, and mid-token when a single
 // token is longer than the pane — paths and command lines usually are.
+//
+// Everything is measured in the columns a terminal will give it, the way the
+// rest of this file measures. Counting bytes instead wraps a line of accented
+// text a third of the way early, and cutting at a byte offset lands inside a
+// character, leaving half of it on each of two lines where it draws as neither
+// — which the ellipsis on a truncated prompt and the › between the processes
+// of a run are both enough to trigger.
 func wrapValue(s string, width int) []string {
 	if width <= 0 {
 		return nil
@@ -674,19 +688,39 @@ func wrapValue(s string, width int) []string {
 		switch {
 		case len(lines) == 0:
 			lines = append(lines, word)
-		case len(lines[len(lines)-1])+1+len(word) <= width:
+		case lipgloss.Width(lines[len(lines)-1])+1+lipgloss.Width(word) <= width:
 			lines[len(lines)-1] += " " + word
 		default:
 			lines = append(lines, word)
 		}
 		// Split anything still too wide for the pane.
-		for len(lines[len(lines)-1]) > width {
-			cur := lines[len(lines)-1]
-			lines[len(lines)-1] = cur[:width]
-			lines = append(lines, cur[width:])
+		for lipgloss.Width(lines[len(lines)-1]) > width {
+			head, tail := cutColumns(lines[len(lines)-1], width)
+			lines[len(lines)-1] = head
+			if tail == "" {
+				break // a single character wider than the whole pane
+			}
+			lines = append(lines, tail)
 		}
 	}
 	return lines
+}
+
+// cutColumns splits s after the last character that still fits in width
+// columns. A character too wide for the pane on its own is kept whole and
+// overflows, because the alternative is to cut it into bytes that are not a
+// character at all — and returning it uncut is what lets the caller stop
+// rather than ask again for the same string.
+func cutColumns(s string, width int) (head, tail string) {
+	col := 0
+	for i, r := range s {
+		w := lipgloss.Width(string(r))
+		if i > 0 && col+w > width {
+			return s[:i], s[i:]
+		}
+		col += w
+	}
+	return s, ""
 }
 
 // at returns the line at i, or blank past the end.

@@ -110,9 +110,19 @@ func (d *daemon) stop() {
 	d.sessions = map[int]*terminal{}
 	d.mu.Unlock()
 
+	// Together rather than one after another. Each shell is given a grace to
+	// go in, and taking them in turn spends that grace once per shell: a
+	// daemon holding five of them took five graces to stand down, with the
+	// window that asked waiting on all of it.
+	var wg sync.WaitGroup
 	for _, t := range held {
-		t.close()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t.close()
+		}()
 	}
+	wg.Wait()
 }
 
 // watchIdle stops a daemon that is holding nothing and serving nobody, so a
@@ -173,7 +183,7 @@ func (d *daemon) handle(cl *client, m message) {
 		cl.unwatch(m.PID)
 	case kindInput:
 		if t := d.session(m.PID); t != nil {
-			t.write(m.Data)
+			t.send(m)
 		}
 	case kindResize:
 		if t := d.session(m.PID); t != nil {
@@ -355,7 +365,7 @@ func (t *terminal) screenMsg() message {
 	return message{
 		Kind:     kindScreen,
 		PID:      t.pid,
-		Screen:   t.vt.Render(),
+		Screen:   t.screen(),
 		CursorX:  x,
 		CursorY:  y,
 		Title:    title,

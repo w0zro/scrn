@@ -2,11 +2,15 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // waitFor polls until cond holds, so tests do not race the daemon's goroutines.
@@ -18,6 +22,19 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// typeInto types a string at a shell one keystroke at a time, which is how
+// input crosses now: the bytes are the emulator's to decide, so a test cannot
+// hand over a string of them either.
+func typeInto(c *conn, pid int, s string) {
+	for _, r := range s {
+		k := &keyPress{Code: r, Text: string(r)}
+		if r == '\n' {
+			k = &keyPress{Code: uv.KeyEnter}
+		}
+		c.write(message{Kind: kindInput, PID: pid, Key: k})
 	}
 }
 
@@ -63,7 +80,7 @@ func TestAShellOutlivesTheWindowThatOpenedIt(t *testing.T) {
 	}
 
 	// Leave a mark in the shell that a later window can look for.
-	c1.write(message{Kind: kindInput, PID: pid, Data: []byte("PS1=; echo marker-survives\n")})
+	typeInto(c1, pid, "PS1=; echo marker-survives\n")
 	awaitScreen(t, c1, "marker-survives")
 
 	// The window goes away. The shell should not.
@@ -173,9 +190,55 @@ func TestAStaleSocketIsCleared(t *testing.T) {
 	d.stop()
 }
 
+func TestClosingAShellTakesWhatItStartedWithIt(t *testing.T) {
+	// A plan entry is a shell running something, and it is the something that
+	// is the point of it. The hangup goes to the process group so that what
+	// the shell started hears it too, rather than being left behind holding
+	// the port the entry was started for.
+	term, err := startTerm("/tmp", "sleep 41", "web", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var inner int
+	waitFor(t, "the shell to start what it was given", func() bool {
+		inner = pidOf(t, "sleep 41")
+		return inner != 0
+	})
+
+	term.close()
+	waitFor(t, "the sleep to go with the shell that started it", func() bool {
+		return !alive(inner)
+	})
+}
+
+// pidOf finds a process by the command line it was run with, so a test can ask
+// after something a shell started rather than the shell itself.
+func pidOf(t *testing.T, command string) int {
+	t.Helper()
+	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		// The shell's own "-c sleep 41; exec ..." names it too, and is not it.
+		if !strings.HasSuffix(line, command) {
+			continue
+		}
+		if pid, err := strconv.Atoi(strings.Fields(line)[0]); err == nil {
+			return pid
+		}
+	}
+	return 0
+}
+
+// alive reports whether a pid is still there. Signal 0 asks without sending.
+func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
 func TestAnInteractiveShellIsHungUpRatherThanSignalled(t *testing.T) {
 	// zsh and bash ignore SIGTERM when interactive, by design. Ending one
-	// means taking its terminal away, which is what closing the pty does.
+	// means taking its terminal away, which is the message the hangup carries.
 	t.Setenv("SHELL", "/bin/zsh")
 	term, err := startTerm("/tmp", "", "", 40, 8)
 	if err != nil {
@@ -198,12 +261,15 @@ func TestAnInteractiveShellIsHungUpRatherThanSignalled(t *testing.T) {
 	default:
 	}
 
-	// Now hang it up.
+	// Now hang it up. It has to go on the hangup rather than on the kill that
+	// backs it up, so the wait is well inside the grace: a shell that only
+	// goes once the grace has run out has not heard the hangup at all, which
+	// is what closing the pty without sending one looked like.
 	go term.close()
 	select {
 	case <-term.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the shell survived losing its terminal")
+	case <-time.After(hangupGrace / 2):
+		t.Fatal("the shell survived the hangup and had to be killed")
 	}
 }
 

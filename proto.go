@@ -35,11 +35,17 @@ type message struct {
 	Width  int    `json:"w,omitempty"`
 	Height int    `json:"h,omitempty"`
 
-	// Data is keystrokes going to a shell. Go encodes a byte slice as base64,
-	// which keeps a line of JSON a line of JSON.
-	Data []byte `json:"data,omitempty"`
+	// What the user did, on its way to a shell. It travels as the event it was
+	// rather than as the bytes it should become, because only the daemon's
+	// emulator knows what those bytes are: see keyPress below.
+	Key   *keyPress   `json:"key,omitempty"`
+	Mouse *mousePress `json:"mouse,omitempty"`
+	Paste string      `json:"paste,omitempty"`
 
-	// Screen is a rendered pane, with the cursor the shell would be showing.
+	// Screen is a rendered pane, and its shape is part of the contract: every
+	// row is exactly as wide as the pane, blanks and all. The cursor crosses
+	// as a column in that grid, and the client cuts the row at the column to
+	// mark it — geometry the rows do not carry cannot be cut to.
 	Screen  string `json:"screen,omitempty"`
 	CursorX int    `json:"cx,omitempty"`
 	CursorY int    `json:"cy,omitempty"`
@@ -63,6 +69,50 @@ type message struct {
 	Force bool   `json:"force,omitempty"`
 	Err   string `json:"err,omitempty"`
 }
+
+// keyPress is a keystroke as the window saw it: which key, which modifiers,
+// and what it types if it types anything.
+//
+// It crosses as an event rather than as bytes because the bytes are not a
+// property of the key. An up arrow is "\x1b[A" most of the time and "\x1bOA"
+// to a program that has asked for application cursor keys, which is what vim,
+// readline and less all do; ctrl+a is one byte under the usual encoding and a
+// CSI sequence under the kitty protocol. Which of those is right is a fact
+// about the emulator's current modes, and the emulator is on the far side of
+// this connection. A client that decided for itself would be guessing at
+// exactly the programs most likely to be running in the pane.
+//
+// Code is the key: a printable rune for the ones that type, and one of the
+// emulator's own symbols for the ones that do not.
+type keyPress struct {
+	Code rune   `json:"code"`
+	Text string `json:"text,omitempty"`
+	Mod  int    `json:"mod,omitempty"`
+}
+
+// mousePress is a mouse event in the pane's own coordinates, which is what the
+// program drawing there believes it is being told about.
+//
+// It crosses as an event for the same reason a keystroke does, and more so:
+// what a mouse event looks like on the wire depends on which reporting mode
+// the program asked for, and there are several. The emulator tracks that; the
+// window has no way to know it.
+type mousePress struct {
+	X      int    `json:"x"`
+	Y      int    `json:"y"`
+	Button int    `json:"btn,omitempty"`
+	Mod    int    `json:"mod,omitempty"`
+	Action string `json:"act,omitempty"`
+}
+
+// What a mouse can be doing. A wheel turn is a press of a button that only a
+// wheel has, which is how X11 numbered them and how every terminal has
+// reported them since.
+const (
+	actPress   = "press"
+	actRelease = "release"
+	actMotion  = "motion"
+)
 
 // sessionInfo is a shell the daemon is holding.
 //

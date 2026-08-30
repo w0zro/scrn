@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"unicode/utf8"
+)
 
 func TestACommandLineReadsAsWhatWasRun(t *testing.T) {
 	cases := map[string]string{
@@ -49,5 +52,37 @@ func TestACommandIsCutFromTheEnd(t *testing.T) {
 	}
 	if got := truncate("w0zro/archive/scrn", 12); got != "…rchive/scrn" {
 		t.Errorf("truncate = %q, want the end kept", got)
+	}
+}
+
+func TestAValueIsWrappedByColumnsNotBytes(t *testing.T) {
+	// A pane is as many columns wide as it is; bytes are not columns. Counting
+	// them wrapped anything but plain ASCII early, and cutting at one landed
+	// inside a character — which the › between the processes of a run and the
+	// ellipsis on a truncated prompt were both enough to reach.
+	if got := wrapValue("ünïcödé-päth-hërë", 20); len(got) != 1 {
+		t.Errorf("wrapValue = %q, want a 17-column word to fit in 20 columns", got)
+	}
+
+	for _, tc := range []struct {
+		value string
+		width int
+	}{
+		{"zsh 101 › npm 102 › node 103", 14},
+		{"………………", 5},
+		{"字字字字", 3},
+		{"字", 1}, // narrower than a single character
+	} {
+		got := wrapValue(tc.value, tc.width)
+		for _, line := range got {
+			if !utf8.ValidString(line) {
+				t.Errorf("wrapValue(%q, %d) = %q, which cut a character in half",
+					tc.value, tc.width, got)
+			}
+			if line == "" {
+				t.Errorf("wrapValue(%q, %d) = %q, which made no progress",
+					tc.value, tc.width, got)
+			}
+		}
 	}
 }

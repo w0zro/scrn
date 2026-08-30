@@ -9,6 +9,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/vt"
 )
 
 // startDaemonFor runs a daemon on a socket of this test's own, so tests never
@@ -265,6 +268,43 @@ func TestResizingReachesTheShell(t *testing.T) {
 	}
 }
 
+// --- the screen keeps its grid ------------------------------------------
+
+// paddedTerm is an emulator with no shell behind it, fed by hand: the grid
+// contract is the emulator's and the padding's, and a real pty would only add
+// timing to a test about geometry.
+func paddedTerm(width, height int) *terminal {
+	return &terminal{vt: vt.NewSafeEmulator(width, height), cols: width}
+}
+
+func TestEveryScreenRowIsAsWideAsThePane(t *testing.T) {
+	term := paddedTerm(12, 3)
+	term.vt.Write([]byte("ab "))
+
+	for i, row := range strings.Split(term.screen(), "\n") {
+		if got := lipgloss.Width(row); got != 12 {
+			t.Errorf("row %d is %d columns wide, want 12", i, got)
+		}
+	}
+}
+
+func TestTheCursorColumnIsACellTheRowActuallyHas(t *testing.T) {
+	// A trailing space is the whole point: it moves the cursor without
+	// leaving anything visible behind it, which is exactly what a render
+	// that trims trailing blanks loses.
+	term := paddedTerm(12, 3)
+	term.vt.Write([]byte("ab "))
+
+	msg := term.screenMsg()
+	if msg.CursorX != 3 {
+		t.Fatalf("cursor at column %d after typing three cells, want 3", msg.CursorX)
+	}
+	row := strings.Split(msg.Screen, "\n")[msg.CursorY]
+	if got := lipgloss.Width(row); got <= msg.CursorX {
+		t.Errorf("the row is %d columns wide with the cursor at %d — the cell under the cursor is not in it", got, msg.CursorX)
+	}
+}
+
 // --- what can be stepped into -------------------------------------------
 
 func dimmed(m model, r navRow, selected bool) bool {
@@ -433,7 +473,7 @@ func TestWhatIsStartedOutlivesItsCommand(t *testing.T) {
 	}
 
 	// Still alive and still taking input once the command is done.
-	term.write([]byte("echo still-here\n"))
+	typeAt(term, "echo still-here\n")
 	after := time.After(5 * time.Second)
 	for {
 		select {
@@ -702,7 +742,7 @@ func TestWhatTheProcessAsksOfTheWindowIsCarriedOut(t *testing.T) {
 	}
 	defer term.close()
 
-	term.write([]byte("printf '\\033]0;a title\\007\\033]9;4;3;50\\007'\n"))
+	typeAt(term, "printf '\\033]0;a title\\007\\033]9;4;3;50\\007'\n")
 
 	deadline := time.After(5 * time.Second)
 	for {
@@ -1240,4 +1280,61 @@ func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
 	if !m.typing {
 		t.Error("typing a letter should not have ended the search")
 	}
+}
+
+// typeAt types a string at a shell the way a window does: one keystroke at a
+// time, handed to the emulator, which decides the bytes.
+func typeAt(t *terminal, s string) {
+	for _, r := range s {
+		k := &keyPress{Code: r, Text: string(r)}
+		if r == '\n' {
+			k = &keyPress{Code: uv.KeyEnter}
+		}
+		t.send(message{Key: k})
+	}
+}
+
+func TestWhatTheShellReceivesFollowsTheModesItAskedFor(t *testing.T) {
+	// The whole journey: a keystroke in the window, translated, handed to the
+	// emulator, out of the pty, and shown by a program that prints the bytes it
+	// was given. What those bytes are depends on what the program has asked
+	// for, which is why the window sends the key rather than the bytes.
+	term, err := startTerm("/tmp", "", "", 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	await := func(what, when string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(term.vt.Render(), what) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("%s: never saw %q; the screen was:\n%s", when, what, term.vt.Render())
+	}
+
+	// cat -v prints what it is given rather than acting on it.
+	typeAt(term, "PS1=; cat -v\n")
+	waitFor(t, "cat to be reading", func() bool {
+		return strings.Contains(term.vt.Render(), "cat -v")
+	})
+
+	term.send(message{Key: keyEvent(tea.KeyMsg{Type: tea.KeyUp})})
+	await("^[[A", "an arrow with nothing asked for")
+
+	// Application cursor keys, which vim, readline and less all turn on.
+	term.vt.Write([]byte("\x1b[?1h"))
+	term.send(message{Key: keyEvent(tea.KeyMsg{Type: tea.KeyUp})})
+	await("^[OA", "an arrow under application cursor keys")
+
+	// And a click, with the program asking to hear about the mouse at all.
+	term.vt.Write([]byte("\x1b[?1000h\x1b[?1006h"))
+	term.send(message{Mouse: mouseEvent(
+		tea.MouseMsg{X: navWidth + 1 + 9, Y: 4, Button: tea.MouseButtonLeft},
+		navWidth+1, 0)})
+	await("^[[<0;10;5M", "a left click nine columns into the pane")
 }
