@@ -171,6 +171,10 @@ type model struct {
 	// for the key that confirms it. Stopping is a kill like any other.
 	pendingDown *Project
 
+	// scroll is the focused pane's transcript being read back through, and
+	// nil while the pane is live.
+	scroll *scrollView
+
 	// dying holds the processes that have been signalled and are still listed.
 	// They keep their place, marked, until a rescan finds them gone: a row that
 	// vanished on the keystroke would claim an exit scrn has not seen yet.
@@ -279,6 +283,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
+		// A transcript being read was cut to a pane that no longer exists.
+		// Nothing rewraps; the reading ends and can be begun again.
+		m.scroll = nil
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
 		for pid := range m.terms {
@@ -384,6 +391,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		t.screen, t.curX, t.curY = msg.screen, msg.curX, msg.curY
 		t.title, t.progress = msg.title, msg.progress
+		t.sb, t.mouse, t.alt = msg.sb, msg.mouse, msg.alt
 
 		// Only the shell being looked at speaks for the window. Another one
 		// finishing a build should not retitle a tab showing something else.
@@ -392,10 +400,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nextEvent(m.daemon)
 
+	case historyMsg:
+		s := m.scroll
+		t, ok := m.terms[msg.pid]
+		if s == nil || s.pid != msg.pid || !ok {
+			// Asked for and no longer wanted; the reading has already ended.
+			return m, nextEvent(m.daemon)
+		}
+		// The transcript plus the screen as it stands is the whole document.
+		// The screen is frozen into it on purpose: output only appends, so a
+		// snapshot is a true prefix of the live transcript — never wrong,
+		// merely not growing — and it holds still under the reader.
+		s.doc = strings.Split(t.screen, "\n")
+		if msg.history != "" {
+			s.doc = append(strings.Split(msg.history, "\n"), s.doc...)
+		}
+		if max := m.scrollMax(); s.above > max {
+			s.above = max
+		}
+		if s.above <= 0 {
+			m.scroll = nil // nothing above after all
+		}
+		return m, nextEvent(m.daemon)
+
 	case termGoneMsg:
 		delete(m.terms, msg.pid)
 		if m.focus == msg.pid {
 			m.focus = 0
+		}
+		if m.scroll != nil && m.scroll.pid == msg.pid {
+			m.scroll = nil
 		}
 		m.rebuild()
 		// Asking again is what notices a daemon that has just become
@@ -483,12 +517,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The mouse belongs to whatever is drawing in the pane. Only a focused
 		// shell gets it: an unfocused pane is something being looked at rather
 		// than worked in, and a click meant for the list would land in it.
-		if t := m.focused(); t != nil && m.showDetail() {
-			m.daemon.mouse(t.pid, mouseEvent(msg, navWidth+1, 0))
+		t := m.focused()
+		if t == nil || !m.showDetail() {
+			return m, nil
 		}
+		ev := mouseEvent(msg, navWidth+1, 0)
+		if ev == nil {
+			return m, nil
+		}
+
+		// While the transcript is being read the wheel moves it, and nothing
+		// reaches the shell.
+		if m.scroll != nil {
+			m.scrollBy(wheelDelta(msg))
+			return m, nil
+		}
+		// A wheel turned up over a pane whose program is not listening for
+		// the mouse starts reading the transcript — on the primary screen,
+		// which is the one a transcript is above. The alternate screen's
+		// wheel still crosses: the daemon turns it into arrows.
+		if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
+			m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg)}
+			m.daemon.history(t.pid)
+			return m, nil
+		}
+		m.daemon.mouse(t.pid, ev)
 		return m, nil
 
 	case tea.KeyMsg:
+		// Reading the transcript takes every key: the reader is looking, not
+		// typing, so none of them are the shell's. What is not a motion is
+		// swallowed, the way a half-finished gg swallows.
+		if m.scroll != nil {
+			return m, m.scrollKey(msg)
+		}
+
 		// A focused shell takes every keystroke except the one that leaves it.
 		// That has to come before everything else: ctrl+c belongs to whatever
 		// is running in the shell, not to scrn.
@@ -504,7 +567,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.daemon.paste(t.pid, string(msg.Runes))
 				return m, nil
 			}
-			m.daemon.key(t.pid, keyEvent(msg))
+			for _, k := range keyEvents(msg) {
+				m.daemon.key(t.pid, k)
+			}
 			return m, nil
 		}
 
@@ -1243,6 +1308,96 @@ func (m model) paneHeight() int {
 		return m.height
 	}
 	return 1
+}
+
+// scrollView is a pane's transcript being read rather than followed: the
+// lines that had scrolled away plus the screen as it stood when the reading
+// began, and how far back up the reader has gone.
+type scrollView struct {
+	pid   int
+	doc   []string // nil until the transcript arrives
+	above int      // lines between the bottom of the viewport and the live tail
+}
+
+// wheelLines is how many lines one wheel notch moves the transcript, the same
+// distance the notch would have scrolled anywhere else.
+const wheelLines = 3
+
+// wheelDelta is how far a mouse event asks the transcript to move: up for
+// positive, and nothing for anything that is not a turn of the wheel.
+func wheelDelta(msg tea.MouseMsg) int {
+	if msg.Action != tea.MouseActionPress {
+		return 0
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		return wheelLines
+	case tea.MouseButtonWheelDown:
+		return -wheelLines
+	}
+	return 0
+}
+
+// scrollBy moves the reading position, up for positive. Falling below the
+// live tail ends the reading: rolling past the bottom is how a wheel says
+// back to now.
+func (m *model) scrollBy(delta int) {
+	s := m.scroll
+	if s == nil || delta == 0 {
+		return
+	}
+	s.above += delta
+	if s.above <= 0 {
+		m.scroll = nil
+		return
+	}
+	if max := m.scrollMax(); s.doc != nil && s.above > max {
+		s.above = max
+	}
+}
+
+// scrollMax is as far up as the transcript goes: the lines that do not fit
+// the pane.
+func (m *model) scrollMax() int {
+	if n := len(m.scroll.doc) - m.paneHeight(); n > 0 {
+		return n
+	}
+	return 0
+}
+
+// scrollKey is a keystroke while the transcript is being read: vim's motions,
+// the ends, and the ways out.
+func (m *model) scrollKey(msg tea.KeyMsg) tea.Cmd {
+	page := m.paneHeight()
+	switch msg.String() {
+	case "esc", "q", "G":
+		// The bottom of the transcript is the live screen, so going to the
+		// end and leaving are the same place.
+		m.scroll = nil
+	case "ctrl+o":
+		// Out means all the way out: the reading ends and so does being in
+		// the shell.
+		m.scroll = nil
+		m.focus = 0
+		return m.detailCmd()
+	case "up", "k":
+		m.scrollBy(1)
+	case "down", "j":
+		m.scrollBy(-1)
+	case "pgup", "ctrl+b":
+		m.scrollBy(page)
+	case "pgdown", "ctrl+f":
+		m.scrollBy(-page)
+	case "ctrl+u":
+		m.scrollBy(page / 2)
+	case "ctrl+d":
+		m.scrollBy(-page / 2)
+	case "g":
+		if m.scroll.doc != nil {
+			m.scroll.above = m.scrollMax()
+		}
+	}
+	return nil
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back

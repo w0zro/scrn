@@ -69,6 +69,18 @@ type terminal struct {
 	// actually has.
 	sizeMu sync.Mutex
 	cols   int
+
+	// vtMu orders the pump's writes against a walk of the scrollback. The
+	// emulator locks each of its own calls, but the scrollback is handed out
+	// as the live buffer, and iterating it while the pump pushes lines onto
+	// it is a race the emulator cannot see.
+	vtMu sync.RWMutex
+
+	// modeMu guards mouse, the mouse-reporting modes the program has turned
+	// on. They are tracked here because they decide whose a wheel turn is,
+	// and the emulator does not answer that question — it only acts on it.
+	modeMu sync.Mutex
+	mouse  map[ansi.DECMode]bool
 }
 
 // hangupGrace is how long a shell is given to act on losing its terminal
@@ -139,6 +151,7 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 		done:   make(chan struct{}),
 	}
 	t.watchWindow()
+	t.watchModes()
 	go func() {
 		_ = c.Wait()
 		close(t.done)
@@ -159,7 +172,9 @@ func (t *terminal) pump() {
 	for {
 		n, err := t.pty.Read(buf)
 		if n > 0 {
+			t.vtMu.Lock()
 			t.vt.Write(buf[:n])
+			t.vtMu.Unlock()
 			select {
 			case t.output <- struct{}{}:
 			default: // a wake is already pending; one is enough
@@ -241,8 +256,37 @@ func (t *terminal) send(m message) {
 			Mod:  uv.KeyMod(m.Key.Mod),
 		})
 	case m.Mouse != nil:
+		// A wheel turned over the alternate screen, with the program not
+		// listening for the mouse, becomes the arrow keys it would have
+		// meant. It is how less and man scroll under any terminal that
+		// implements alternate scroll, and here scrn is the terminal.
+		if key, ok := wheelAsArrow(m.Mouse); ok && !t.mouseWanted() && t.vt.IsAltScreen() {
+			for range wheelArrowCount {
+				t.vt.SendKey(uv.KeyPressEvent{Code: key})
+			}
+			return
+		}
 		t.vt.SendMouse(m.Mouse.event())
 	}
+}
+
+// wheelArrowCount is how many arrow presses one wheel notch stands for, which
+// is the count xterm's alternate scroll settled on.
+const wheelArrowCount = 3
+
+// wheelAsArrow is the arrow key a vertical wheel turn stands for, when it is
+// to be translated rather than reported.
+func wheelAsArrow(m *mousePress) (rune, bool) {
+	if m.Action != actPress {
+		return 0, false
+	}
+	switch uv.MouseButton(m.Button) {
+	case uv.MouseWheelUp:
+		return uv.KeyUp, true
+	case uv.MouseWheelDown:
+		return uv.KeyDown, true
+	}
+	return 0, false
 }
 
 // event is the mouse event the emulator understands. The buttons are numbered
@@ -307,6 +351,50 @@ func (t *terminal) setWindow(field *string, data string) {
 	}
 }
 
+// mouseModes are the reporting modes a program can turn on, any of which
+// makes the wheel and the buttons the program's rather than the terminal's.
+var mouseModes = map[ansi.DECMode]bool{
+	ansi.ModeMouseX10:         true,
+	ansi.ModeMouseNormal:      true,
+	ansi.ModeMouseHighlight:   true,
+	ansi.ModeMouseButtonEvent: true,
+	ansi.ModeMouseAnyEvent:    true,
+}
+
+// watchModes tracks the mouse-reporting modes as the program sets and resets
+// them. The callback runs inside the emulator's own processing, so it touches
+// nothing but the map.
+func (t *terminal) watchModes() {
+	t.vt.SetCallbacks(vt.Callbacks{
+		EnableMode:  func(m ansi.Mode) { t.trackMouse(m, true) },
+		DisableMode: func(m ansi.Mode) { t.trackMouse(m, false) },
+	})
+}
+
+func (t *terminal) trackMouse(mode ansi.Mode, on bool) {
+	dec, ok := mode.(ansi.DECMode)
+	if !ok || !mouseModes[dec] {
+		return
+	}
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
+	if on {
+		if t.mouse == nil {
+			t.mouse = map[ansi.DECMode]bool{}
+		}
+		t.mouse[dec] = true
+		return
+	}
+	delete(t.mouse, dec)
+}
+
+// mouseWanted reports whether the program has asked to hear about the mouse.
+func (t *terminal) mouseWanted() bool {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
+	return len(t.mouse) > 0
+}
+
 // window returns what the program has asked of the terminal window.
 func (t *terminal) window() (title, progress string) {
 	t.windowMu.Lock()
@@ -322,7 +410,9 @@ func (t *terminal) resize(width, height int) {
 		return
 	}
 	_ = pty.Setsize(t.pty, winsize(width, height))
+	t.vtMu.Lock()
 	t.vt.Resize(width, height)
+	t.vtMu.Unlock()
 	t.sizeMu.Lock()
 	t.cols = width
 	t.sizeMu.Unlock()
@@ -392,6 +482,27 @@ func (t *terminal) screen() string {
 		if pad := cols - ansi.StringWidth(row); pad > 0 {
 			rows[i] = row + strings.Repeat(" ", pad)
 		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+// history is everything that has scrolled off the top of the pane, oldest
+// first, styled the way it was drawn. It is the emulator's scrollback made
+// into the kind of string a screen crosses the wire as — one row per line —
+// but without the padding: no cursor is ever cut into these rows, so nothing
+// leans on their width.
+func (t *terminal) history() string {
+	t.vtMu.RLock()
+	defer t.vtMu.RUnlock()
+
+	sb := t.vt.Scrollback()
+	n := sb.Len()
+	if n == 0 {
+		return ""
+	}
+	rows := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		rows = append(rows, sb.Line(i).Render())
 	}
 	return strings.Join(rows, "\n")
 }

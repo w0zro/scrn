@@ -50,6 +50,19 @@ type message struct {
 	CursorX int    `json:"cx,omitempty"`
 	CursorY int    `json:"cy,omitempty"`
 
+	// Facts about the pane a screen also carries: how many lines have scrolled
+	// off the top, whether the program has asked to hear about the mouse, and
+	// whether it is drawing on the alternate screen. Together they are what a
+	// client needs to decide whose a wheel turn is.
+	Scrollback int  `json:"sb,omitempty"`
+	MouseOn    bool `json:"mouseon,omitempty"`
+	Alt        bool `json:"alt,omitempty"`
+
+	// History is the transcript that has scrolled off the top of a pane,
+	// oldest line first. Unlike a screen its rows are not padded to the pane:
+	// nothing cuts a cursor into what has already happened.
+	History string `json:"history,omitempty"`
+
 	// Title and Progress are what the program running in the pane has asked of
 	// the terminal window. The daemon has no window, so they are carried out to
 	// the client, which does.
@@ -128,14 +141,15 @@ type sessionInfo struct {
 // What each side can say.
 const (
 	// Client to daemon.
-	kindOpen   = "open"      // start a shell in Dir
-	kindList   = "list"      // what shells are there
-	kindAttach = "attach"    // send me this shell's screen, and keep sending
-	kindDetach = "detach"    // stop sending, but keep it running
-	kindInput  = "input"     // these keystrokes are for this shell
-	kindResize = "resize"    // the pane changed shape
-	kindClose  = "close"     // end this shell
-	kindStand  = "standdown" // stop, if you are holding nothing
+	kindOpen    = "open"      // start a shell in Dir
+	kindList    = "list"      // what shells are there
+	kindAttach  = "attach"    // send me this shell's screen, and keep sending
+	kindDetach  = "detach"    // stop sending, but keep it running
+	kindInput   = "input"     // these keystrokes are for this shell
+	kindResize  = "resize"    // the pane changed shape
+	kindClose   = "close"     // end this shell
+	kindStand   = "standdown" // stop, if you are holding nothing
+	kindHistory = "history"   // asked: this shell's transcript; answered: here it is
 
 	// Daemon to client.
 	kindOpened   = "opened"   // the shell you just asked for, and its pid

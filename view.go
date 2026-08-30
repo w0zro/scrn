@@ -224,6 +224,12 @@ func (m model) hintLines(width, rows int) []string {
 			hintBlock("/"+m.filter+"█", width, itemStyle),
 			hintBlock(below, width, style)...)
 
+	case m.scroll != nil && m.scroll.doc != nil:
+		return append(
+			hintBlock("scrollback", width, warnStyle),
+			hintBlock(strconv.Itoa(m.scroll.above)+" up · j k scroll · esc live",
+				width, hintStyle)...)
+
 	case m.focused() != nil:
 		return append(
 			hintBlock("shell", width, warnStyle),
@@ -539,6 +545,10 @@ func (m model) paneLines(width, rows int) []string {
 		return m.detailLines(width, rows)
 	}
 
+	if s := m.scroll; s != nil && s.doc != nil && s.pid == t.pid {
+		return scrollWindow(s, width, rows)
+	}
+
 	lines := t.lines(rows)
 
 	// The cursor is only drawn where the keystrokes are going. On an unfocused
@@ -547,6 +557,26 @@ func (m model) paneLines(width, rows int) []string {
 		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
 	}
 	return lines
+}
+
+// scrollWindow is the transcript as the reader has it: the rows that fit the
+// pane, stopping above lines short of the live tail. No cursor is drawn —
+// typing lands nowhere while reading — and rows older than a narrowing
+// resize can be wider than the pane, so each is cut to it.
+func scrollWindow(s *scrollView, width, rows int) []string {
+	top := len(s.doc) - rows - s.above
+	if top < 0 {
+		top = 0
+	}
+	end := top + rows
+	if end > len(s.doc) {
+		end = len(s.doc)
+	}
+	out := make([]string, 0, rows)
+	for _, row := range s.doc[top:end] {
+		out = append(out, ansi.Truncate(row, width, ""))
+	}
+	return out
 }
 
 // withCursor marks the cell the shell's cursor is on. The line already carries

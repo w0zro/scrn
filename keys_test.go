@@ -131,3 +131,27 @@ func TestAMouseEventArrivesInThePanesOwnCoordinates(t *testing.T) {
 		t.Errorf("a click in the navigator reached the pane as %+v", got)
 	}
 }
+
+func TestABurstOfTypedRunesIsEveryOneOfThem(t *testing.T) {
+	// Input arriving faster than it is read comes as one message with all the
+	// runes in it, and "seq" typed quickly must not reach the shell as "s".
+	keys := keyEvents(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("seq")})
+	if len(keys) != 3 {
+		t.Fatalf("events = %d, want one per rune", len(keys))
+	}
+	for i, want := range []rune("seq") {
+		if keys[i].Code != want || keys[i].Text != string(want) {
+			t.Errorf("event %d = %+v, want the rune %q", i, keys[i], want)
+		}
+	}
+}
+
+func TestASingleKeystrokeIsStillOneEvent(t *testing.T) {
+	keys := keyEvents(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if len(keys) != 1 || keys[0].Code != 's' {
+		t.Fatalf("events = %+v, want the one keystroke", keys)
+	}
+	if keyEvents(tea.KeyMsg{Type: tea.KeyCtrlUnderscore}) != nil {
+		t.Error("a key the emulator has no name for should stay nil")
+	}
+}

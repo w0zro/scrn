@@ -30,6 +30,14 @@ type remoteTerm struct {
 	curX   int
 	curY   int
 
+	// What the last screen said about the pane: how much has scrolled off the
+	// top, whether the program wants the mouse, and whether it is on the
+	// alternate screen. They decide whether a wheel turn is the program's,
+	// the transcript's, or — on the alternate screen — a pair of arrow keys.
+	sb    int
+	mouse bool
+	alt   bool
+
 	// What the program in it has asked of the terminal window. scrn is the one
 	// with a window, so it is scrn that has to ask for it.
 	title    string
@@ -71,6 +79,16 @@ type (
 		curY     int
 		title    string
 		progress string
+		sb       int
+		mouse    bool
+		alt      bool
+	}
+
+	// historyMsg is a shell's transcript, asked for when someone starts
+	// reading back through it.
+	historyMsg struct {
+		pid     int
+		history string
 	}
 
 	// termGoneMsg says a shell has finished.
@@ -180,7 +198,10 @@ func (s *session) receive() {
 			s.events <- screenMsg{
 				pid: m.PID, screen: m.Screen, curX: m.CursorX, curY: m.CursorY,
 				title: m.Title, progress: m.Progress,
+				sb: m.Scrollback, mouse: m.MouseOn, alt: m.Alt,
 			}
+		case kindHistory:
+			s.events <- historyMsg{pid: m.PID, history: m.History}
 		case kindExited:
 			s.events <- termGoneMsg{pid: m.PID}
 		case kindError:
@@ -303,6 +324,11 @@ func builtAt() time.Time {
 
 func (s *session) attach(pid, w, h int) {
 	s.ask(message{Kind: kindAttach, PID: pid, Width: w, Height: h})
+}
+
+// history asks for a shell's transcript, which comes back as a historyMsg.
+func (s *session) history(pid int) {
+	s.ask(message{Kind: kindHistory, PID: pid})
 }
 
 // key sends a keystroke to a shell, as the keystroke it was. The bytes are

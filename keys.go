@@ -73,6 +73,25 @@ var modified = map[tea.KeyType]keyPress{
 	tea.KeyShiftEnd:   {Code: uv.KeyEnd, Mod: int(uv.ModShift)},
 }
 
+// keyEvents turns a key message into the events the emulator will encode. It
+// is almost always one event; the exception is a burst of typed runes, which
+// Bubble Tea hands over as a single message when input arrives faster than it
+// is read. Only the first rune would survive being made one keystroke, and
+// each of them was a keystroke of its own.
+func keyEvents(msg tea.KeyMsg) []*keyPress {
+	if msg.Type == tea.KeyRunes && !msg.Alt && len(msg.Runes) > 1 {
+		out := make([]*keyPress, 0, len(msg.Runes))
+		for _, r := range msg.Runes {
+			out = append(out, &keyPress{Code: r, Text: string(r)})
+		}
+		return out
+	}
+	if k := keyEvent(msg); k != nil {
+		return []*keyPress{k}
+	}
+	return nil
+}
+
 // keyEvent turns a keystroke into the event the emulator will encode, or nil
 // for one it has no idea what to do with.
 func keyEvent(msg tea.KeyMsg) *keyPress {

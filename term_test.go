@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1352,4 +1353,263 @@ func TestWhatTheShellReceivesFollowsTheModesItAskedFor(t *testing.T) {
 		tea.MouseMsg{X: navWidth + 1 + 9, Y: 4, Button: tea.MouseButtonLeft},
 		navWidth+1, 0)})
 	await("^[[<0;10;5M", "a left click nine columns into the pane")
+}
+
+// --- the transcript --------------------------------------------------------
+
+func TestHistoryIsWhatScrolledOffTheTop(t *testing.T) {
+	// Five rows of screen, twelve lines printed: the first seven are in the
+	// scrollback and the rest are still the screen's business.
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
+	for i := 1; i <= 12; i++ {
+		term.vt.Write([]byte("line-" + strconv.Itoa(i) + "\r\n"))
+	}
+
+	h := term.history()
+	if !strings.Contains(h, "line-1") || !strings.Contains(h, "line-7") {
+		t.Errorf("history = %q, want the lines that scrolled away", h)
+	}
+	if strings.Contains(h, "line-12") {
+		t.Errorf("history = %q, want nothing the screen still shows", h)
+	}
+}
+
+func TestHistoryOfAQuietShellIsEmpty(t *testing.T) {
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
+	term.vt.Write([]byte("just a prompt"))
+
+	if h := term.history(); h != "" {
+		t.Errorf("history = %q, want nothing before anything scrolls", h)
+	}
+}
+
+func TestAScreenSaysWhatKindOfPaneItIs(t *testing.T) {
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5), cols: 20}
+	term.watchModes()
+
+	if m := term.screenMsg(); m.Scrollback != 0 || m.MouseOn || m.Alt {
+		t.Errorf("a fresh pane should have nothing scrolled and nothing asked for, got %+v", m)
+	}
+
+	for i := 1; i <= 12; i++ {
+		term.vt.Write([]byte("line-" + strconv.Itoa(i) + "\r\n"))
+	}
+	if m := term.screenMsg(); m.Scrollback == 0 {
+		t.Error("a pane that has scrolled should say so")
+	}
+
+	term.vt.Write([]byte("\x1b[?1000h\x1b[?1006h"))
+	if m := term.screenMsg(); !m.MouseOn {
+		t.Error("a program that asked for the mouse should be reported")
+	}
+	term.vt.Write([]byte("\x1b[?1000l"))
+	if m := term.screenMsg(); m.MouseOn {
+		t.Error("a program that let the mouse go should be reported too")
+	}
+
+	term.vt.Write([]byte("\x1b[?1049h"))
+	if m := term.screenMsg(); !m.Alt {
+		t.Error("the alternate screen should be reported")
+	}
+}
+
+// wheelUp is one upward wheel notch in pane coordinates.
+func wheelUp() *mousePress {
+	return &mousePress{X: 1, Y: 1, Button: int(uv.MouseWheelUp), Action: actPress}
+}
+
+// drainVT collects what the emulator writes back until want appears or the
+// wait runs out, because the emulator's answers block until they are read.
+func drainVT(t *testing.T, term *terminal, want string) string {
+	t.Helper()
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 256)
+		var out []byte
+		for {
+			n, err := term.vt.Read(buf)
+			out = append(out, buf[:n]...)
+			if strings.Contains(string(out), want) || err != nil {
+				got <- string(out)
+				return
+			}
+		}
+	}()
+	select {
+	case s := <-got:
+		return s
+	case <-time.After(2 * time.Second):
+		t.Fatalf("never saw %q from the emulator", want)
+		return ""
+	}
+}
+
+func TestAWheelOnTheAlternateScreenBecomesArrows(t *testing.T) {
+	// less and man scroll under alternate scroll without ever asking for the
+	// mouse, and scrn is the terminal that has to provide it.
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
+	term.watchModes()
+	term.vt.Write([]byte("\x1b[?1049h"))
+
+	go term.send(message{Mouse: wheelUp()})
+	if out := drainVT(t, term, "\x1b[A\x1b[A\x1b[A"); !strings.Contains(out, "\x1b[A\x1b[A\x1b[A") {
+		t.Errorf("emulator wrote %q, want three arrow presses", out)
+	}
+}
+
+func TestAWheelStaysAWheelWhenTheProgramAskedForIt(t *testing.T) {
+	term := &terminal{vt: vt.NewSafeEmulator(20, 5)}
+	term.watchModes()
+	term.vt.Write([]byte("\x1b[?1049h\x1b[?1000h\x1b[?1006h"))
+
+	go term.send(message{Mouse: wheelUp()})
+	// SGR reports a wheel-up as button 64.
+	if out := drainVT(t, term, "\x1b[<64;"); !strings.Contains(out, "\x1b[<64;") {
+		t.Errorf("emulator wrote %q, want the wheel reported to the program", out)
+	}
+}
+
+// wheelMsg is a wheel notch over the pane, in window coordinates.
+func wheelMsg(btn tea.MouseButton) tea.MouseMsg {
+	return tea.MouseMsg{X: navWidth + 2, Y: 2, Button: btn, Action: tea.MouseActionPress}
+}
+
+// watchingTail is a model focused on a shell with forty lines of transcript
+// above a full screen, not yet reading back.
+func watchingTail(t *testing.T) model {
+	t.Helper()
+	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, nil)
+	rows := make([]string, m.paneHeight())
+	for i := range rows {
+		rows[i] = "srow"
+	}
+	rows[len(rows)-1] = "live-tail-marker"
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n"), sb: 40}}
+	m.focus = 700
+	return m
+}
+
+// readingBack is watchingTail with the wheel turned and the transcript
+// arrived: h-1 oldest through h-40 newest, three lines up.
+func readingBack(t *testing.T) model {
+	t.Helper()
+	m := watchingTail(t)
+	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	m = next.(model)
+	if m.scroll == nil {
+		t.Fatal("a wheel up at the prompt should start reading back")
+	}
+
+	hist := make([]string, 40)
+	for i := range hist {
+		hist[i] = "h-" + strconv.Itoa(i+1)
+	}
+	next, _ = m.Update(historyMsg{pid: 700, history: strings.Join(hist, "\n")})
+	return next.(model)
+}
+
+func TestAWheelUpAtThePromptReadsTheTranscript(t *testing.T) {
+	m := readingBack(t)
+
+	if m.scroll == nil || m.scroll.above != wheelLines {
+		t.Fatalf("scroll = %+v, want the reader a notch up", m.scroll)
+	}
+	pane := paneText(m)
+	if !strings.Contains(pane, "h-40") {
+		t.Errorf("pane should show the transcript above the screen:\n%s", pane)
+	}
+	if strings.Contains(pane, "live-tail-marker") {
+		t.Errorf("the live tail should be below the viewport:\n%s", pane)
+	}
+}
+
+func TestTheMotionsMoveTheReading(t *testing.T) {
+	m := readingBack(t)
+
+	m = press(m, "k")
+	if m.scroll.above != wheelLines+1 {
+		t.Errorf("above = %d, want k to have gone a line up", m.scroll.above)
+	}
+	m = press(m, "j")
+	if m.scroll.above != wheelLines {
+		t.Errorf("above = %d, want j to have come a line back", m.scroll.above)
+	}
+
+	m = press(m, "g")
+	if !strings.Contains(paneText(m), "h-1") {
+		t.Errorf("g should reach the oldest line:\n%s", paneText(m))
+	}
+	m = press(m, "G")
+	if m.scroll != nil {
+		t.Error("G should end at the live screen, which is where leaving goes")
+	}
+}
+
+func TestRollingPastTheBottomReturnsToLive(t *testing.T) {
+	m := readingBack(t)
+
+	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelDown))
+	m = next.(model)
+
+	if m.scroll != nil {
+		t.Fatal("rolling past the tail should return to the live pane")
+	}
+	if !strings.Contains(paneText(m), "live-tail-marker") {
+		t.Errorf("the pane should be live again:\n%s", paneText(m))
+	}
+}
+
+func TestReadingSwallowsWhatIsNotAMotion(t *testing.T) {
+	m := readingBack(t)
+
+	m = press(m, "x")
+	if m.pendingKill != nil {
+		t.Error("x while reading should not arm a kill")
+	}
+	if m.scroll == nil {
+		t.Error("a swallowed key should not end the reading")
+	}
+
+	m = press(m, "esc")
+	if m.scroll != nil {
+		t.Error("esc should end the reading")
+	}
+}
+
+func TestCtrlOWhileReadingGoesAllTheWayOut(t *testing.T) {
+	m := readingBack(t)
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = next.(model)
+
+	if m.scroll != nil || m.focus != 0 {
+		t.Errorf("scroll = %v focus = %d, want the reading and the shell both left", m.scroll, m.focus)
+	}
+}
+
+func TestTheWheelIsTheProgramsWhenItAskedForIt(t *testing.T) {
+	m := watchingTail(t)
+	m.terms[700].mouse = true
+
+	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	if next.(model).scroll != nil {
+		t.Error("a program listening for the mouse should keep its wheel")
+	}
+}
+
+func TestTheWheelDoesNotReadOverTheAlternateScreen(t *testing.T) {
+	m := watchingTail(t)
+	m.terms[700].alt = true
+
+	next, _ := m.Update(wheelMsg(tea.MouseButtonWheelUp))
+	if next.(model).scroll != nil {
+		t.Error("the alternate screen has no transcript above it to read")
+	}
+}
+
+func TestTheHintSaysTheTranscriptIsBeingRead(t *testing.T) {
+	m := readingBack(t)
+	if f := footer(m); !strings.Contains(f, "scrollback") {
+		t.Errorf("footer = %q, want it to say where the keys went", f)
+	}
 }

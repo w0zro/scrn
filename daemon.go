@@ -211,6 +211,13 @@ func (d *daemon) handle(cl *client, m message) {
 		if t := d.session(m.PID); t != nil {
 			go t.close()
 		}
+
+	case kindHistory:
+		// The transcript is rendered fresh on every ask: it is wanted at the
+		// moment of asking, not as it stood some earlier time.
+		if t := d.session(m.PID); t != nil {
+			cl.send(message{Kind: kindHistory, PID: m.PID, History: t.history()})
+		}
 	}
 }
 
@@ -363,12 +370,15 @@ func (t *terminal) screenMsg() message {
 	x, y := t.cursor()
 	title, progress := t.window()
 	return message{
-		Kind:     kindScreen,
-		PID:      t.pid,
-		Screen:   t.screen(),
-		CursorX:  x,
-		CursorY:  y,
-		Title:    title,
-		Progress: progress,
+		Kind:       kindScreen,
+		PID:        t.pid,
+		Screen:     t.screen(),
+		CursorX:    x,
+		CursorY:    y,
+		Title:      title,
+		Progress:   progress,
+		Scrollback: t.vt.ScrollbackLen(),
+		MouseOn:    t.mouseWanted(),
+		Alt:        t.vt.IsAltScreen(),
 	}
 }

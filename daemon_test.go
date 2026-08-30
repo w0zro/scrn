@@ -408,3 +408,46 @@ func TestAToldDaemonGoesAndTakesItsShellsWithIt(t *testing.T) {
 		return syscall.Kill(pid, 0) != nil
 	})
 }
+
+func TestTheTranscriptCrossesTheWireWhenAsked(t *testing.T) {
+	startDaemonFor(t)
+
+	c, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := newConn(c)
+	defer conn.close()
+	conn.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+
+	var pid int
+	deadline := time.Now().Add(5 * time.Second)
+	for pid == 0 {
+		m, err := conn.readBy(deadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Kind == kindOpened {
+			pid = m.PID
+		}
+	}
+
+	// Enough lines that the first has scrolled off an 8-row pane.
+	typeInto(conn, pid, "PS1=; for i in $(seq 1 20); do echo mark-$i; done\n")
+	awaitScreen(t, conn, "mark-20")
+
+	conn.write(message{Kind: kindHistory, PID: pid})
+	for {
+		m, err := conn.readBy(deadline)
+		if err != nil {
+			t.Fatalf("waiting for the transcript: %v", err)
+		}
+		if m.Kind != kindHistory {
+			continue // screens keep arriving; they are not what was asked
+		}
+		if !strings.Contains(m.History, "mark-1") {
+			t.Errorf("history = %q, want the lines that scrolled away", m.History)
+		}
+		return
+	}
+}
