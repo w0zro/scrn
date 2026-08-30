@@ -209,10 +209,6 @@ configuration; see
 .I ~/.local/state/scrn/scrnd\-<uid>.sock
 the daemon's socket
 .TP
-.I ~/.local/state/scrn/scrnd.log
-the daemon's stderr: its last words, if it died with any, and nothing
-else. Truncated when a fresh daemon starts.
-.TP
 .I .scrn
 a project's plan; see
 .B PLANS
@@ -224,10 +220,6 @@ where the daemon listens, instead of the state directory
 .B XDG_CONFIG_HOME
 where the config lives, instead of
 .I ~/.config
-.TP
-.B XDG_STATE_HOME
-where the daemon's socket and log live, instead of
-.I ~/.local/state
 .TP
 .B SHELL
 the shell opened in each pane

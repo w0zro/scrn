@@ -40,7 +40,7 @@ usage:
 
 files:
   ~/.config/scrn/config.json  configuration
-  ~/.local/state/scrn/        the daemon's socket and log
+  ~/.local/state/scrn/        the daemon's socket
 
 environment:
   SCRN_SOCKET  where the daemon listens, instead of the state directory

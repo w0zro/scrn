@@ -103,7 +103,7 @@
 <section id="shells">
   <div class="kicker">§ 4</div>
   <h2>Shells</h2>
-  <p><b>s</b> opens a shell at the selected place. <b>enter</b> on a shell's row steps into it: keystrokes go to the shell. scrn keeps two keys for itself: <b>ctrl-o</b> steps back out, and <b>ctrl-space</b> is scrn's prefix — it reaches scrn from anywhere, even a focused shell. The chords keep their letters' meanings: <b>j</b> and <b>k</b> after it attach to the next and previous shell, another <b>ctrl-space</b> toggles back to the shell you were in before, <b>/</b> opens the filter, <b>s</b> <b>a</b> <b>r</b> open a shell, start an agent, or run the plan where you are, <b>?</b> shows the keys. Anything unbound after it cancels it.</p>
+  <p><b>s</b> opens a shell at the selected place. <b>enter</b> on a shell's row steps into it: keystrokes go to the shell. scrn keeps two keys for itself: <b>ctrl-o</b> steps back out, and <b>ctrl-space</b> is scrn's prefix — it reaches scrn from anywhere, even a focused shell. The chords keep their letters' meanings: <b>j</b> and <b>k</b> after it attach to the next and previous shell, <b>/</b> opens the filter, <b>s</b> <b>a</b> <b>r</b> open a shell, start an agent, or run the plan where you are, <b>?</b> shows the keys. Anything unbound after it cancels it.</p>
   <p>Shells live in the daemon, so they survive the window — close the terminal, quit the terminal app, come back and everything is where it was. The pane is a real emulator: alternate screen, mouse reporting, window title and progress all pass through, so full-screen programs behave.</p>
   <p>Scroll up to read what has scrolled away; <b>j</b> <b>k</b> move, <b>esc</b> returns to live. Each shell keeps 10,000 lines of transcript by default — <code class="chip">scrollback</code> in the config raises it.</p>
   <p>When several windows watch the same shell, it is sized for the smallest of them, so no window sees a torn screen.</p>
@@ -120,7 +120,7 @@
     <div class="def-row"><span class="term w60 muted">○</span><span class="desc">idle since it started</span></div>
   </div>
   <p>The mark tells you, from across the list, which projects need attention — the ◆ most of all, since answering it resumes work already underway. The detail pane for a Claude row names what a blocked instance is waiting on and shows the tail of its transcript.</p>
-  <p><b>ctrl-space enter</b> goes to the next agent waiting on you, from wherever the keys were going — a focused shell, the filter, the list. Pressing it again continues around the waiting ones in turn.</p>
+  <p><b>ctrl-space ctrl-space</b> jumps to the agent that has been waiting on you longest, from wherever the keys were going — a focused shell, the filter, the list.</p>
 </section>
 
 <section id="plans">
