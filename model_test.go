@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"net"
 	"strconv"
 	"strings"
 	"testing"
@@ -166,8 +167,11 @@ func TestViewPutsScrnInTopLeft(t *testing.T) {
 	if got := len(lines); got != 24 {
 		t.Fatalf("view height = %d lines, want 24", got)
 	}
-	if !strings.HasPrefix(stripANSI(lines[0]), "scrn") {
-		t.Errorf("first line = %q, want it to start with %q", lines[0], "scrn")
+	if !strings.HasPrefix(stripANSI(lines[0]), " scrn") {
+		t.Errorf("first line = %q, want the masthead in the gutter every row wears", lines[0])
+	}
+	if nav, _ := splitRow(stripANSI(lines[1])); strings.TrimSpace(nav) != "" {
+		t.Errorf("second line = %q, want the blank row under the masthead", lines[1])
 	}
 }
 
@@ -489,8 +493,8 @@ func manyRepos(n, h int) model {
 }
 
 func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
-	m := manyRepos(10, 5) // 3 body rows
-	for i := 0; i < 3; i++ {
+	m := manyRepos(10, 6) // 3 body rows
+	for range 3 {
 		m = press(m, "down")
 	}
 
@@ -511,7 +515,7 @@ func TestScrollKeepsCursorVisibleAfterWrap(t *testing.T) {
 
 func TestScrollStopsAtTheLastRow(t *testing.T) {
 	m := manyRepos(10, 5)
-	for i := 0; i < 9; i++ {
+	for range 9 {
 		m = press(m, "down")
 	}
 	if want := len(m.rows) - m.bodyHeight(); m.offset != want {
@@ -692,7 +696,7 @@ func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
 	m := nestedTree(12)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		m = press(m, "down") // onto "go 30", a leaf
 	}
 	before := navColumn(m)
@@ -776,10 +780,7 @@ func keysOf(m model) string {
 // string so a test can ask whether something is in it.
 func footer(m model) string {
 	lines := strings.Split(m.View().Content, "\n")
-	n := len(m.hintLines(m.hintWidth()))
-	if n > len(lines) {
-		n = len(lines)
-	}
+	n := min(len(m.hintLines(m.hintWidth())), len(lines))
 
 	out := make([]string, 0, n)
 	for _, ln := range lines[len(lines)-n:] {
@@ -937,7 +938,7 @@ func TestTickRefreshesAndReschedulesItself(t *testing.T) {
 
 func TestTickKeepsTicking(t *testing.T) {
 	var m tea.Model = nestedTree(12)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		var cmd tea.Cmd
 		m, cmd = m.Update(tickMsg{})
 		if cmd == nil {
@@ -999,7 +1000,7 @@ func TestCursorHoldsItsPlaceWhenTheSelectionExits(t *testing.T) {
 
 func TestCursorClampsWhenTheListShrinksPastIt(t *testing.T) {
 	m := nestedTree(12)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		m = press(m, "down") // last row
 	}
 
@@ -1164,7 +1165,7 @@ func TestTheFrameChainRescansButNotEveryFrame(t *testing.T) {
 	got := next.(model)
 
 	scans := 0
-	for i := 0; i < 2*rescanFrames; i++ {
+	for i := range 2 * rescanFrames {
 		n, cmd := got.Update(spinMsg{})
 		got = n.(model)
 		if cmd == nil {
@@ -1273,7 +1274,7 @@ func TestLowercaseXTakesOnlyTheOneProcess(t *testing.T) {
 
 func TestXOnALeafReadsAsAPlainKill(t *testing.T) {
 	m := nestedTree(12)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		m = press(m, "down") // onto fmt 40, which has nothing below it
 	}
 	m = press(m, "X")
@@ -1523,7 +1524,7 @@ func TestAFinishedTurnLightsItsRow(t *testing.T) {
 		t.Errorf("row = %q, want a filled marker on a finished turn", row)
 	}
 	styled := false
-	for _, raw := range strings.Split(m.View().Content, "\n") {
+	for raw := range strings.SplitSeq(m.View().Content, "\n") {
 		if strings.Contains(raw, attnStyle.Render("claude")) {
 			styled = true
 		}
@@ -1547,7 +1548,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 		t.Errorf("row = %q, want a diamond on a blocked instance", row)
 	}
 	styled := false
-	for _, raw := range strings.Split(m.View().Content, "\n") {
+	for raw := range strings.SplitSeq(m.View().Content, "\n") {
 		if strings.Contains(raw, blockedStyle.Render("claude")) {
 			styled = true
 		}
@@ -1889,24 +1890,6 @@ func TestTheSplitPaneKeepsTheBottomOfTheScreen(t *testing.T) {
 	}
 }
 
-func TestABareShellPaneHasNoBanner(t *testing.T) {
-	m := withProcList(80, 24,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}})
-	m.terms[10] = &remoteTerm{pid: 10, screen: "just-the-screen"}
-	m.cursor = 1
-
-	pane := detailColumn(m)
-	if len(pane) == 0 || !strings.Contains(pane[0], "just-the-screen") {
-		t.Fatalf("pane = %q, want the shell's screen alone", pane)
-	}
-	for _, row := range pane {
-		if strings.HasPrefix(strings.TrimSpace(row), "──") {
-			t.Errorf("pane = %q, want no banner on a row that folded nothing", pane)
-		}
-	}
-}
-
 func TestAFocusedShellHasNoBanner(t *testing.T) {
 	// Focused, the pane is the shell: the banner belongs to looking, not to
 	// working in it.
@@ -2075,9 +2058,15 @@ func TestEscapeClearsTheFilterRatherThanQuitting(t *testing.T) {
 	}
 }
 
-func TestEscapeStillQuitsWithNoFilter(t *testing.T) {
-	if _, cmd := manyProjects(90, 14).Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd == nil {
-		t.Error("esc should still quit when there is no filter to clear")
+func TestEscapeNeverQuits(t *testing.T) {
+	// Esc closes what is open, and leaving is q's word alone: the esc that
+	// closed the filter is often followed by a reflexive second one, and
+	// that beat must not take the window with it.
+	if _, cmd := manyProjects(90, 14).Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
+		t.Error("esc with nothing open should do nothing, not quit")
+	}
+	if _, cmd := manyProjects(90, 14).Update(typed("q")); cmd == nil {
+		t.Error("q should still quit")
 	}
 }
 
@@ -2325,6 +2314,18 @@ func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 	}
 }
 
+func TestTheKeysModalNeverWidensTheWindow(t *testing.T) {
+	// The compositor draws to the union of its layers, so a box wider than a
+	// narrow window would widen every row and the terminal would wrap the
+	// whole frame.
+	m := press(manyProjects(30, 14), "?")
+	for i, ln := range strings.Split(m.View().Content, "\n") {
+		if w := lipgloss.Width(ln); w > 30 {
+			t.Errorf("row %d is %d columns in a 30-column window", i, w)
+		}
+	}
+}
+
 func TestTheKeysModalIsARectangle(t *testing.T) {
 	// The overlay reserves the first row's width for every row, so a row
 	// wider than the top border would spill past the box's right edge.
@@ -2365,8 +2366,8 @@ func TestEscapeClosesTheKeysFirst(t *testing.T) {
 	if m.showHelp {
 		t.Error("esc should close the keys")
 	}
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd == nil {
-		t.Error("esc should still quit once nothing is open")
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
+		t.Error("a second esc, with nothing left open, should do nothing")
 	}
 }
 
@@ -2400,8 +2401,8 @@ func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	if open != closed {
 		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
 	}
-	if closed != m.height-2 {
-		t.Errorf("the list has %d rows, want all but the name and the one line", closed)
+	if closed != m.height-3 {
+		t.Errorf("the list has %d rows, want all but the masthead, its blank, and the one line", closed)
 	}
 }
 
@@ -3039,5 +3040,57 @@ func TestAShellOnAGroupRowStartsAtTheGroup(t *testing.T) {
 	r := navRow{kind: rowGroup, project: Project{Name: "checklists.org", Path: "/p/checklists.org"}}
 	if got := (model{}).shellDir(r); got != "/p/checklists.org" {
 		t.Errorf("shellDir = %q, want the group's own directory", got)
+	}
+}
+
+func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
+	// A shell this window never stepped into previews blank unless the pane
+	// asks for its screens: landing on the row attaches, and moving off
+	// detaches, so a glance does not keep a say in the shell's size forever.
+	ours, theirs := net.Pipe()
+	defer ours.Close()
+	defer theirs.Close()
+
+	asked := make(chan message, 8)
+	go func() {
+		c := newConn(ours)
+		for {
+			m, err := c.read()
+			if err != nil {
+				return
+			}
+			asked <- m
+		}
+	}()
+
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.daemon = &session{conn: newConn(theirs), events: make(chan tea.Msg, 4)}
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // onto the shell's row
+	m = next.(model)
+	select {
+	case got := <-asked:
+		if got.Kind != kindAttach || got.PID != 700 {
+			t.Fatalf("asked %q for pid %d, want an attach for 700", got.Kind, got.PID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("landing on a held shell's row asked for nothing")
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // back to the repo row
+	m = next.(model)
+	select {
+	case got := <-asked:
+		if got.Kind != kindDetach || got.PID != 700 {
+			t.Fatalf("asked %q for pid %d, want a detach for 700", got.Kind, got.PID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leaving the row let the watch stand")
+	}
+	if m.previewing != 0 {
+		t.Errorf("previewing = %d, want nothing", m.previewing)
 	}
 }

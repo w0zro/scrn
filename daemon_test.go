@@ -220,7 +220,7 @@ func pidOf(t *testing.T, command string) int {
 	if err != nil {
 		return 0
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		// The shell's own "-c sleep 41; exec ..." names it too, and is not it.
 		if !strings.HasSuffix(line, command) {
@@ -475,6 +475,35 @@ func TestAShellIsSizedForItsSmallestWindow(t *testing.T) {
 
 	// The small window goes, and the shell grows back for the one left.
 	c2.close()
+	waitFor(t, "the shell to grow back", func() bool {
+		s := d.session(pid)
+		return s != nil && s.vt.Width() == 80 && s.vt.Height() == 24
+	})
+}
+
+func TestDetachingGrowsTheShellBack(t *testing.T) {
+	// A pane that stops showing a shell drops out of its sizing without the
+	// window having to go: a glance at a preview must not hold the shell
+	// small after the cursor has moved on.
+	d := startDaemonFor(t)
+
+	c1raw, _ := dialDaemon()
+	c1 := newConn(c1raw)
+	defer c1.close()
+	c1.write(message{Kind: kindOpen, Dir: "/tmp", Width: 80, Height: 24})
+	waitFor(t, "the shell to open", func() bool { return len(d.list()) == 1 })
+	pid := d.list()[0].PID
+
+	c2raw, _ := dialDaemon()
+	c2 := newConn(c2raw)
+	defer c2.close()
+	c2.write(message{Kind: kindAttach, PID: pid, Width: 40, Height: 30})
+	waitFor(t, "the narrower pane to be felt", func() bool {
+		s := d.session(pid)
+		return s != nil && s.vt.Width() == 40 && s.vt.Height() == 24
+	})
+
+	c2.write(message{Kind: kindDetach, PID: pid})
 	waitFor(t, "the shell to grow back", func() bool {
 		s := d.session(pid)
 		return s != nil && s.vt.Width() == 80 && s.vt.Height() == 24

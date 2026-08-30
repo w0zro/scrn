@@ -291,6 +291,13 @@ type model struct {
 	// a standing fact about the window rather than a one-time ask.
 	windowTitle string
 
+	// previewing is the shell this window watches only because the pane is
+	// showing it — the held shell under the cursor, as opposed to the one
+	// being typed into. Tracked so that leaving the row can detach it: a
+	// shell merely glanced at should not keep this window's pane in its size
+	// arbitration.
+	previewing int
+
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
 	details map[string][]field
@@ -335,15 +342,13 @@ func scanProjects() tea.Msg {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, p := range projects {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if found := subProjects(p.Path); len(found) > 0 {
 				mu.Lock()
 				subs[p.Path] = found
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return projectsMsg{projects: projects, groups: groups, subs: subs}
@@ -435,6 +440,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.retryConnect()
 		}
 		m.daemon, m.daemonErr = msg.session, ""
+		// A fresh connection holds no watches, whatever this window was
+		// previewing over the last one; the preview is asked for again once
+		// the daemon says what it holds.
+		m.previewing = 0
 		// Ask what is already running: shells from a window that has since
 		// been closed are still there, and this is where they come back.
 		m.daemon.list()
@@ -525,6 +534,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 0
 		}
 		m.rebuild()
+		// The daemon may have just said what it holds while the cursor was
+		// already standing on one of those shells; the pane should not wait
+		// for the cursor to move before showing it.
+		m.syncPreview()
 		return m, tea.Batch(nextEvent(m.daemon), m.scanNow(), limbo)
 
 	case upgradeLimboMsg:
@@ -695,7 +708,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if t == nil || !m.showDetail() {
 			return m, nil
 		}
-		ev := mouseEvent(msg, navWidth+1, 0)
+		ev := mouseEvent(msg, m.paneLeft(), 0)
 		if ev == nil {
 			return m, nil
 		}
@@ -886,7 +899,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.move(1)
 		case "up", "k", "shift+tab":
 			return m, m.move(-1)
-		case " ", "space":
+		case "space":
 			m.toggleCollapse()
 			return m, nil
 		case "-":
@@ -903,13 +916,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.detailCmd()
 		case "esc":
-			// Whatever is open is what esc is most likely about, and only
-			// once nothing is does it mean leave.
+			// Esc closes whatever is open — the filter here, and the modal
+			// and the transcript where they take the keys — and it never
+			// closes scrn. Leaving is q's word alone: one reflexive esc too
+			// many, a beat after the filter it was meant for has already
+			// gone, must not take the window with it.
 			if m.filter != "" {
 				m.setFilter("")
 				return m, m.detailCmd()
 			}
-			return m, tea.Quit
+			return m, nil
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		}
@@ -1544,7 +1560,13 @@ func (m *model) pruneDying() {
 // still drew one — so the cursor scrolled within a list a row shorter than the
 // one on screen, and could sit off the end of it.
 func (m model) bodyHeight() int {
-	if h := m.height - 1 - len(m.trimmedHint(m.height)); h > 0 {
+	// Two rows at the top — the masthead and the blank beneath it — though
+	// the blank, being spacing, is the first thing a short window gives up.
+	hint := len(m.trimmedHint(m.height))
+	if h := m.height - 2 - hint; h > 0 {
+		return h
+	}
+	if h := m.height - 1 - hint; h > 0 {
 		return h
 	}
 	return 0
@@ -2059,7 +2081,7 @@ func (m model) flattenRepo(p Project, indent string) []navRow {
 		if m.collapsed[detailKey(srow)] {
 			continue
 		}
-		rail := indent + "│ "
+		rail := indent + glyphRail + " "
 		if srow.last {
 			rail = indent + "  "
 		}
@@ -2128,7 +2150,7 @@ func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []n
 		return rows
 	}
 
-	childPrefix := prefix + "│ "
+	childPrefix := prefix + glyphRail + " "
 	if last {
 		childPrefix = prefix + "  "
 	}
@@ -2251,8 +2273,34 @@ func (m model) awaiting(r navRow) agent {
 	return a
 }
 
+// syncPreview keeps the daemon sending the screen the pane is showing. A
+// window is attached to what it entered; the glance — the held shell under
+// the cursor — has to be asked for too, or a shell this window never stepped
+// into previews blank. What the pane stops showing is detached again.
+func (m *model) syncPreview() {
+	want := 0
+	if m.focus == 0 {
+		if t := m.paneTerm(); t != nil {
+			want = t.pid
+		}
+	}
+	if want == m.previewing {
+		return
+	}
+	if m.previewing != 0 && m.previewing != m.focus {
+		m.daemon.detach(m.previewing)
+	}
+	m.previewing = want
+	if want != 0 {
+		m.daemon.attach(want, m.detailWidth(), m.paneHeight())
+	}
+}
+
 // detailCmd inspects the selected row unless it has been inspected already.
-func (m model) detailCmd() tea.Cmd {
+// The cursor has just moved or the world just changed under it, so this is
+// also where the pane's preview follows the selection.
+func (m *model) detailCmd() tea.Cmd {
+	m.syncPreview()
 	r, ok := m.selected()
 	if !ok {
 		return nil

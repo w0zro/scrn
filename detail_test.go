@@ -226,10 +226,10 @@ func TestEachGroupSetsItsOwnValueColumn(t *testing.T) {
 		lines = append(lines, renderBlock(b, 60)...)
 	}
 
-	if got := stripANSI(lines[0]); got != " a 1" {
+	if got := stripANSI(lines[0]); got != "  a  1" {
 		t.Errorf("first group = %q, want it tight to its own widest label", got)
 	}
-	if got := stripANSI(lines[1]); got != " a-very-long-label 2" {
+	if got := stripANSI(lines[1]); got != "  a-very-long-label  2" {
 		t.Errorf("second group = %q, want its own column", got)
 	}
 }
@@ -281,5 +281,25 @@ func TestTheRunsPortsAreTheRowsPorts(t *testing.T) {
 	// And with no run, the row still speaks for itself.
 	if _, ok := fieldValue(procFields(listener, nil, nil), "listening"); !ok {
 		t.Error("a row that folded nothing should still report its own port")
+	}
+}
+
+func TestTonesFollowTheFacts(t *testing.T) {
+	// A value carries its state in color: alive is green, wrong is red, and
+	// what is merely true recedes.
+	if got := runningField(2).tone; got != toneGood {
+		t.Errorf("2 running tone = %v, want good", got)
+	}
+	if got := runningField(0).tone; got != toneQuiet {
+		t.Errorf("0 running tone = %v, want quiet", got)
+	}
+	if got := stateTone("R+"); got != toneGood {
+		t.Errorf("running state tone = %v, want good", got)
+	}
+	if got := stateTone("Z"); got != toneBad {
+		t.Errorf("zombie state tone = %v, want bad", got)
+	}
+	if got := stateTone("Ss"); got != tonePlain {
+		t.Errorf("sleeping state tone = %v, want plain", got)
 	}
 }

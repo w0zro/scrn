@@ -18,6 +18,7 @@ type field struct {
 	label string
 	value string
 	kind  fieldKind
+	tone  tone // how the value reads; the zero value is plain
 }
 
 type fieldKind int
@@ -80,9 +81,19 @@ func groupFields(p Project, repoCount, procCount int, running map[string]bool) [
 		note(p.Path),
 		gap(),
 		{label: "holds", value: plural(repoCount, "repository", "repositories")},
-		{label: "running", value: plural(procCount, "process", "processes")},
+		runningField(procCount),
 	}
 	return append(fs, planFields(p.Path, running)...)
+}
+
+// runningField counts what is alive in a place: green when something is,
+// receding when nothing is.
+func runningField(procCount int) field {
+	t := toneGood
+	if procCount == 0 {
+		t = toneQuiet
+	}
+	return field{label: "running", value: plural(procCount, "process", "processes"), tone: t}
 }
 
 // repoFields describes a repository: where it is, what state its checkout is
@@ -99,36 +110,47 @@ func repoFields(p Project, procCount int, running map[string]bool) []field {
 	branch, err := git(p.Path, "branch", "--show-current")
 	switch {
 	case err != nil:
-		fs = append(fs, field{label: "git", value: "unavailable: " + err.Error()})
+		fs = append(fs, field{label: "git", value: "unavailable: " + err.Error(), tone: toneQuiet})
 	case branch == "":
 		if sha, e := git(p.Path, "rev-parse", "--short", "HEAD"); e == nil {
-			fs = append(fs, field{label: "branch", value: "detached at " + sha})
+			fs = append(fs, field{label: "branch", value: "detached at " + sha, tone: toneAttn})
 		}
 	default:
-		fs = append(fs, field{label: "branch", value: branch})
+		fs = append(fs, field{label: "branch", value: branch, tone: toneAccent})
 	}
 
 	if status, err := git(p.Path, "status", "--porcelain"); err == nil {
-		fs = append(fs, field{label: "status", value: describeStatus(status)})
+		// A clean tree recedes; changes are the fact worth a glance.
+		s := describeStatus(status)
+		t := toneAttn
+		if s == "clean" {
+			t = toneQuiet
+		}
+		fs = append(fs, field{label: "status", value: s, tone: t})
 	}
 	if upstream, err := git(p.Path, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
-		fs = append(fs, field{label: "upstream", value: upstream + describeAheadBehind(p.Path)})
+		divergence := describeAheadBehind(p.Path)
+		t := tonePlain
+		if divergence != "" && divergence != "  (in sync)" {
+			t = toneAttn
+		}
+		fs = append(fs, field{label: "upstream", value: upstream + divergence, tone: t})
 	}
 	fs = append(fs, gap())
 	if last, e := git(p.Path, "log", "-1", "--format=%h  %s"); e == nil {
 		fs = append(fs, field{label: "last commit", value: last})
 		if when, e := git(p.Path, "log", "-1", "--format=%cr  by %an"); e == nil {
-			fs = append(fs, field{label: "", value: when})
+			fs = append(fs, field{label: "", value: when, tone: toneQuiet})
 		}
 	} else if err == nil {
 		// A repository git could read, with a branch but nothing on it yet.
-		fs = append(fs, field{label: "last commit", value: "none yet"})
+		fs = append(fs, field{label: "last commit", value: "none yet", tone: toneQuiet})
 	}
 	if origin, err := git(p.Path, "remote", "get-url", "origin"); err == nil {
-		fs = append(fs, field{label: "origin", value: origin})
+		fs = append(fs, field{label: "origin", value: origin, tone: toneQuiet})
 	}
 
-	fs = append(fs, gap(), field{label: "running", value: plural(procCount, "process", "processes")})
+	fs = append(fs, gap(), runningField(procCount))
 	return append(fs, planFields(p.Path, running)...)
 }
 
@@ -146,13 +168,15 @@ func planFields(path string, running map[string]bool) []field {
 		if i > 0 {
 			label = "" // the rest line up under the first
 		}
-		mark := "○ "
+		// An entry that is up glows the way its mark does in the navigator;
+		// one that is down recedes with its hollow mark.
+		mark, t := glyphOff+" ", toneQuiet
 		if running[e.Name] {
-			mark = "● "
+			mark, t = glyphOn+" ", toneGood
 		}
-		fs = append(fs, field{label: label, value: mark + e.Name + "  " + e.Run})
+		fs = append(fs, field{label: label, value: mark + e.Name + "  " + e.Run, tone: t})
 	}
-	return append(fs, field{label: "from", value: plan.Source})
+	return append(fs, field{label: "from", value: plan.Source, tone: toneQuiet})
 }
 
 // describeStatus turns porcelain output into a count of what changed.
@@ -241,7 +265,7 @@ func procFields(n *ProcNode, run []*ProcNode, ag agent) []field {
 	if len(run) > 1 {
 		fs = append(fs, field{label: "run", value: describeRun(run)})
 	}
-	fs = append(fs, field{label: "parent", value: strconv.Itoa(n.PPID)})
+	fs = append(fs, field{label: "parent", value: strconv.Itoa(n.PPID), tone: toneQuiet})
 
 	if argv, err := ps(n.PID, "command="); err == nil && argv != "" {
 		fs = append(fs, field{label: "argv", value: argv})
@@ -257,10 +281,10 @@ func procFields(n *ProcNode, run []*ProcNode, ag agent) []field {
 		}
 	}
 	if started, err := ps(n.PID, "lstart="); err == nil && started != "" {
-		fs = append(fs, field{label: "started", value: started})
+		fs = append(fs, field{label: "started", value: started, tone: toneQuiet})
 	}
 	if state, err := ps(n.PID, "stat="); err == nil && state != "" {
-		fs = append(fs, field{label: "state", value: describeState(state)})
+		fs = append(fs, field{label: "state", value: describeState(state), tone: stateTone(state)})
 	}
 
 	// Where it is, for the ones that are anywhere: a dev server's row says
@@ -271,7 +295,7 @@ func procFields(n *ProcNode, run []*ProcNode, ag agent) []field {
 	// at the bottom that holds the port — the one the fold exists to hide. The
 	// row stands for the run, so the run's ports are the row's.
 	if ports := runPorts(run, n); len(ports) > 0 {
-		fs = append(fs, field{label: "listening", value: strings.Join(ports, ", ")})
+		fs = append(fs, field{label: "listening", value: strings.Join(ports, ", "), tone: toneAccent})
 	}
 
 	if kids := countTree(n) - 1; kids > 0 {
@@ -308,7 +332,23 @@ func describeRun(run []*ProcNode) string {
 	for _, n := range run {
 		parts = append(parts, procLabel(n))
 	}
-	return strings.Join(parts, " › ")
+	return strings.Join(parts, " "+glyphJoin+" ")
+}
+
+// stateTone is the color a process state reads in: running is alive, a
+// zombie or a stop is wrong, and sleeping — most processes, most of the
+// time — is nothing to color.
+func stateTone(stat string) tone {
+	if stat == "" {
+		return tonePlain
+	}
+	switch stat[0] {
+	case 'R':
+		return toneGood
+	case 'T', 'U', 'Z':
+		return toneBad
+	}
+	return tonePlain
 }
 
 // describeState expands the leading character of a ps state code, which is the
@@ -361,7 +401,7 @@ func git(dir string, args ...string) (string, error) {
 
 // firstLine returns the first non-empty line of s.
 func firstLine(s string) string {
-	for _, ln := range strings.Split(s, "\n") {
+	for ln := range strings.SplitSeq(s, "\n") {
 		if ln = strings.TrimSpace(ln); ln != "" {
 			return ln
 		}

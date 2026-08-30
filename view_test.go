@@ -3,7 +3,38 @@ package main
 import (
 	"testing"
 	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 )
+
+func TestCutsMeasureColumnsNotRunes(t *testing.T) {
+	// "日本語" is three runes and six columns. A cut that counted runes would
+	// leave these wider than asked, and the divider would be pushed out of
+	// true by any repository or command named in wide characters.
+	wide := "日本語プロジェクト" // 9 runes, 18 columns
+
+	if got := truncateTail(wide, 8); lipgloss.Width(got) > 8 {
+		t.Errorf("truncateTail = %q (%d columns), want at most 8", got, lipgloss.Width(got))
+	}
+	if got := truncate(wide, 8); lipgloss.Width(got) > 8 {
+		t.Errorf("truncate = %q (%d columns), want at most 8", got, lipgloss.Width(got))
+	}
+	if got := truncate("親/"+wide, 8); lipgloss.Width(got) > 8 {
+		t.Errorf("truncate from the left = %q (%d columns), want at most 8", got, lipgloss.Width(got))
+	}
+
+	// A name that fits is passed through whole, columns notwithstanding.
+	if got := truncate(wide, 18); got != wide {
+		t.Errorf("truncate = %q, want the name untouched when it fits", got)
+	}
+
+	// wrapText adds its one-column gutter; each line must fit width beside it.
+	for i, ln := range wrapText(wide+wide, 8, 10, itemStyle) {
+		if w := lipgloss.Width(ln); w > 9 {
+			t.Errorf("wrapText line %d = %q (%d columns), want at most 9", i, ln, w)
+		}
+	}
+}
 
 func TestACommandLineReadsAsWhatWasRun(t *testing.T) {
 	cases := map[string]string{

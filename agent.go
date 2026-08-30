@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -69,9 +70,7 @@ type agentsMsg struct {
 func scanAgents() tea.Msg {
 	agents := map[int]agent{}
 	for _, k := range agentKinds {
-		for pid, a := range k.scan() {
-			agents[pid] = a
-		}
+		maps.Copy(agents, k.scan())
 	}
 	return agentsMsg{agents: agents}
 }

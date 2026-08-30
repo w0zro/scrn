@@ -140,6 +140,30 @@ func TestCtrlOLeavesTheShellRunning(t *testing.T) {
 	}
 }
 
+func TestAPreviewWearsGrayInPlaceOfTheProgramsColors(t *testing.T) {
+	// A glance at the pane should answer whether the keys are going there:
+	// full color is attached, gray is a preview.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "claude", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "\x1b[31mred alert\x1b[m"}}
+	m.cursor = 1 // the shell's row, so the pane previews it
+
+	preview := strings.Join(m.paneLines(40, 5), "\n")
+	if strings.Contains(preview, "\x1b[31m") {
+		t.Error("a preview kept the program's own colors")
+	}
+	if !strings.Contains(stripANSI(preview), "red alert") {
+		t.Error("the preview lost the screen's text")
+	}
+
+	m.focus = 700
+	attached := strings.Join(m.paneLines(40, 5), "\n")
+	if !strings.Contains(attached, "\x1b[31m") {
+		t.Error("the attached shell should keep the program's own colors")
+	}
+}
+
 func TestAFocusedShellTakesEveryOtherKey(t *testing.T) {
 	// q, x and ctrl+c are scrn's keys on the list and the shell's here.
 	m := openShellIn(t, repoModel(), "/tmp")
@@ -1742,5 +1766,32 @@ func TestEnterOpensAShellInTheSubProjectTheFilterFound(t *testing.T) {
 
 	if got := m.terms[m.focus].dir; got != sub {
 		t.Errorf("shell dir = %q, want the sub-project %q", got, sub)
+	}
+}
+
+func TestABareHeldShellGetsItsFactsAboveItsScreen(t *testing.T) {
+	// A screen dump with no name over it says what the shell is showing but
+	// not what it is. A shell scrn holds previews like a folded run: facts in
+	// a banner, the live screen beneath.
+	m := withProcList(90, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "marker-on-screen"}}
+	m.cursor = 1
+	m.details[detailKey(m.rows[1])] = []field{heading("zsh 700"), note("/tmp")}
+
+	pane := stripANSI(strings.Join(m.paneLines(60, 24), "\n"))
+	if !strings.Contains(pane, "zsh 700") {
+		t.Errorf("pane lacks the banner facts:\n%s", pane)
+	}
+	if !strings.Contains(pane, "marker-on-screen") {
+		t.Errorf("pane lacks the screen below the banner:\n%s", pane)
+	}
+
+	// Focused, the banner yields the whole pane to the shell.
+	m.focus = 700
+	pane = stripANSI(strings.Join(m.paneLines(60, 24), "\n"))
+	if strings.Contains(pane, "zsh 700") {
+		t.Error("a focused shell should have the pane whole, without the banner")
 	}
 }

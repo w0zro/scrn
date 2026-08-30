@@ -259,6 +259,11 @@ func (s *session) open(dir, run, name string, w, h int) {
 
 func (s *session) list() { s.ask(message{Kind: kindList}) }
 
+// detach stops a shell's screens without touching the shell: the pane has
+// stopped showing it, so this window's pane should stop counting toward its
+// size.
+func (s *session) detach(pid int) { s.ask(message{Kind: kindDetach, PID: pid}) }
+
 // standDown asks a daemon older than this build to stop, which it will only
 // do if it is holding nothing.
 func (s *session) standDown() { s.ask(message{Kind: kindStand}) }
@@ -338,7 +343,7 @@ func signalDaemon() error {
 	if err != nil {
 		return errors.New("could not find the daemon to end it")
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		pid, err := strconv.Atoi(strings.TrimSpace(line))
 		if err != nil || pid <= 1 || pid == os.Getpid() {
 			continue

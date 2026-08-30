@@ -187,7 +187,7 @@ func TestOnlyTheTailOfAHugeTranscriptIsRead(t *testing.T) {
 	dir := claudeHome(t)
 	filler := `{"type":"assistant","message":{"content":"` + strings.Repeat("x", 4000) + `"}}`
 	records := []string{`{"type":"user","message":{"content":"ancient history"}}`}
-	for i := 0; i < transcriptTail/4000+10; i++ {
+	for range transcriptTail/4000 + 10 {
 		records = append(records, filler)
 	}
 	records = append(records, asstRec)
@@ -486,5 +486,28 @@ func TestTheAgentsAreListedUnderOneLabel(t *testing.T) {
 	}
 	if !strings.Contains(values[0], "first  (Explore)") {
 		t.Errorf("value = %q, want the description and what kind it is", values[0])
+	}
+}
+
+func TestAStatusReadsInItsMarksColor(t *testing.T) {
+	// The pane's status field wears the same meaning the navigator's marks
+	// do: working is alive, blocked is urgent, idle recedes.
+	toneOf := func(s claudeSession) tone {
+		for _, f := range claudeFields(s) {
+			if f.label == "status" {
+				return f.tone
+			}
+		}
+		t.Fatalf("no status field for %+v", s)
+		return tonePlain
+	}
+	if got := toneOf(claudeSession{Status: busyStatus}); got != toneGood {
+		t.Errorf("busy status tone = %v, want good", got)
+	}
+	if got := toneOf(claudeSession{Status: waitingStatus}); got != toneUrgent {
+		t.Errorf("waiting status tone = %v, want urgent", got)
+	}
+	if got := toneOf(claudeSession{Status: "idle"}); got != toneQuiet {
+		t.Errorf("idle status tone = %v, want quiet", got)
 	}
 }

@@ -427,7 +427,7 @@ func subProjects(repo string) []Project {
 
 	seen := map[string]bool{}
 	var subs []Project
-	for _, f := range strings.Split(string(out), "\x00") {
+	for f := range strings.SplitSeq(string(out), "\x00") {
 		dir := filepath.Dir(f)
 		if f == "" || dir == "." || seen[dir] {
 			continue

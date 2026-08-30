@@ -1,7 +1,6 @@
 package main
 
 import (
-	"image/color"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,87 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The styles are package-wide because everything in this file reads them, and
-// they are variables because they depend on a fact that arrives late: which
-// background the terminal has. Lipgloss no longer guesses at it, so scrn asks
-// (Init) and rebuilds on the answer (Update). Until it comes, dark — the more
-// common terminal, and a wrong guess lasts one frame.
-var (
-	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle   lipgloss.Style
-	faintStyle, labelStyle, warnStyle, errStyle, busyStyle  lipgloss.Style
-	attnStyle, blockedStyle, cursorStyle, headingStyle      lipgloss.Style
-	offSelStyle                                             lipgloss.Style
-)
-
-func init() { applyBackground(true) }
-
-// applyBackground rebuilds every style for the background the terminal
-// reported.
-func applyBackground(dark bool) {
-	pick := lipgloss.LightDark(dark)
-	on := func(light, dark string) color.Color {
-		return pick(lipgloss.Color(light), lipgloss.Color(dark))
-	}
-
-	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#5A3FD9", "#B9A7FF"))
-
-	hintStyle = lipgloss.NewStyle().
-		Foreground(on("#8A8A8A", "#6C6C6C"))
-
-	ruleStyle = lipgloss.NewStyle().
-		Foreground(on("#D8DEE4", "#30363D"))
-
-	itemStyle = lipgloss.NewStyle().
-		Foreground(on("#1F2328", "#E6E6E6"))
-
-	selStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#0550AE", "#79C0FF"))
-
-	faintStyle = lipgloss.NewStyle().
-		Foreground(on("#98A0A8", "#5C6570"))
-
-	labelStyle = lipgloss.NewStyle().
-		Foreground(on("#6A737D", "#8B949E"))
-
-	warnStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#9A6700", "#D29922"))
-
-	errStyle = lipgloss.NewStyle().
-		Foreground(on("#CF222E", "#F85149"))
-
-	busyStyle = lipgloss.NewStyle().
-		Foreground(on("#1A7F37", "#3FB950"))
-
-	// attnStyle marks an agent that is done and waiting on its user: the
-	// answer owed, bright enough to catch from across the room.
-	attnStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#9A6700", "#D29922"))
-
-	// blockedStyle marks an agent stopped mid-turn on a specific ask — a
-	// permission prompt, a question. Brighter than the amber of done-and-
-	// waiting, because this answer is holding up work already in flight.
-	blockedStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#BF3989", "#F778BA"))
-
-	cursorStyle = lipgloss.NewStyle().Reverse(true)
-
-	// headingStyle names what the detail pane is about, so that what a row is
-	// does not read at the same weight as its memory share.
-	headingStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(on("#1F2328", "#E6E6E6"))
-
-	// offSelStyle marks the selected row when that row is one scrn cannot step
-	// into: bold enough to find, dim enough to still read as unavailable.
-	offSelStyle = faintStyle.Bold(true)
-}
-
 // agentMark is the glyph beside an agent's row. A working one turns, one
 // stopped mid-turn on a specific ask holds a bright diamond, one that has
 // finished a turn and waits on its user holds a filled marker in the
@@ -100,15 +18,15 @@ func applyBackground(dark bool) {
 // that answer resumes work already in flight.
 func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 	if _, ok := a.blocked(); ok {
-		return "◆", blockedStyle
+		return glyphAsk, blockedStyle
 	}
 	switch {
 	case a.working():
 		return spinFrames[m.frame%len(spinFrames)], busyStyle
 	case m.awaiting(r) != nil:
-		return "●", attnStyle
+		return glyphOn, attnStyle
 	}
-	return "○", faintStyle
+	return glyphOff, faintStyle
 }
 
 // View lays the window out as two full-height columns.
@@ -179,7 +97,7 @@ func (m model) layout() string {
 	lines := padTo(left, rows)
 	if m.showDetail() {
 		right := m.paneLines(m.detailWidth(), rows)
-		divider := ruleStyle.Render("│")
+		divider := ruleStyle.Render(glyphDivider)
 
 		lines = make([]string, 0, rows)
 		for i := 0; i < rows; i++ {
@@ -198,8 +116,15 @@ func (m model) leftColumn(rows int) []string {
 	hint := m.trimmedHint(rows)
 	body := m.bodyHeight()
 
+	// The name wears the gutter every row wears and takes a blank row after
+	// it: a masthead, not the first item of the list. The blank is spacing,
+	// and spacing is the first thing a short window gives up — bodyHeight
+	// makes the same call, so the list and the layout agree.
 	lines := make([]string, 0, rows)
-	lines = append(lines, titleStyle.Render("scrn"))
+	lines = append(lines, " "+titleStyle.Render("scrn"))
+	if rows-2-len(hint) > 0 {
+		lines = append(lines, "")
+	}
 
 	nav := m.navLines(body)
 	if len(nav) > body {
@@ -331,7 +256,14 @@ func (m model) keysModal(rows int) []string {
 		{"R", "replace the daemon"},
 		{"q", "quit"},
 	}
-	if max := rows - 2; max < len(keys) {
+	// Four rows around the list: the borders, and a blank inside each — the
+	// blanks going first when the window cannot spare them.
+	air := rows-4 >= len(keys)
+	max := rows - 2
+	if air {
+		max = rows - 4
+	}
+	if max < len(keys) {
 		if max < 1 {
 			return nil
 		}
@@ -354,35 +286,44 @@ func (m model) keysModal(rows int) []string {
 	top := ruleStyle.Render("╭─ ") + headingStyle.Render("keys") +
 		ruleStyle.Render(" "+strings.Repeat("─", inner-7)+"╮")
 	edge := ruleStyle.Render("│")
-	lines := make([]string, 0, len(keys)+2)
+	blank := edge + strings.Repeat(" ", inner) + edge
+	lines := make([]string, 0, len(keys)+4)
 	lines = append(lines, top)
+	if air {
+		lines = append(lines, blank)
+	}
 	for _, k := range keys {
 		lines = append(lines, edge+" "+pad(itemStyle.Render(k[0]), keyw)+
 			"  "+pad(hintStyle.Render(k[1]), descw)+" "+edge)
 	}
+	if air {
+		lines = append(lines, blank)
+	}
 	return append(lines, ruleStyle.Render("╰"+strings.Repeat("─", inner)+"╯"))
 }
 
-// overlayKeys lays the keys modal over the composed frame. Each covered row
-// is cut where the box sits and rejoined on its far side, so the window shows
-// around the box rather than being replaced by it.
+// overlayKeys lays the keys modal over the composed frame, through the
+// compositor: the frame is one layer and the box a layer above it, centered,
+// so the window shows around the box rather than being replaced by it.
 func (m model) overlayKeys(lines []string) []string {
 	box := m.keysModal(len(lines))
-	if len(box) == 0 {
+	if len(box) == 0 || m.width <= 0 {
 		return lines
 	}
-	w := lipgloss.Width(box[0])
-	x := (m.width - w) / 2
-	if x < 0 {
-		x = 0
-	}
+	x := max((m.width-lipgloss.Width(box[0]))/2, 0)
 	y := (len(lines) - len(box)) / 2
 
-	out := append([]string(nil), lines...)
-	for i, b := range box {
-		under := pad(at(out, y+i), m.width)
-		out[y+i] = ansi.Cut(under, 0, x) + ansi.Truncate(b, m.width-x, "") +
-			ansi.Cut(under, x+w, m.width)
+	comp := lipgloss.NewCompositor(
+		lipgloss.NewLayer(strings.Join(lines, "\n")).Z(0),
+		lipgloss.NewLayer(strings.Join(box, "\n")).X(x).Y(y).Z(1),
+	)
+	// The compositor draws to the union of its layers, so a box wider than
+	// a narrow window would widen every row and wrap the whole frame. The
+	// window's width is the law; the box loses its right edge before the
+	// layout loses its shape.
+	out := strings.Split(comp.Render(), "\n")
+	for i, ln := range out {
+		out[i] = ansi.Truncate(ln, m.width, "")
 	}
 	return out
 }
@@ -412,22 +353,19 @@ func (m model) navLines(rows int) []string {
 	}
 	switch {
 	case len(m.projects) == 0:
-		return []string{" " + faintStyle.Render("no repositories")}
+		return []string{" " + noteStyle.Render("no repositories")}
 	case len(m.rows) == 0 && m.filter != "":
-		return []string{" " + faintStyle.Render("no project matches")}
+		return []string{" " + noteStyle.Render("no project matches")}
 	case len(m.rows) == 0:
 		return []string{
-			" " + faintStyle.Render("nothing running"),
+			" " + noteStyle.Render("nothing running"),
 			"",
 			" " + faintStyle.Render(".  show all"),
 			" " + faintStyle.Render("/  find a project"),
 		}
 	}
 
-	end := m.offset + rows
-	if end > len(m.rows) {
-		end = len(m.rows)
-	}
+	end := min(m.offset+rows, len(m.rows))
 
 	lines := make([]string, 0, rows)
 	for i := m.offset; i < end; i++ {
@@ -448,7 +386,7 @@ func (m model) navLines(rows int) []string {
 func (m model) renderRow(r navRow, selected bool) string {
 	marker := " "
 	if selected {
-		marker = "▸"
+		marker = glyphSelected
 	}
 	style := m.rowStyle(r, selected)
 
@@ -486,9 +424,9 @@ func (m model) renderRow(r navRow, selected bool) string {
 	// sub-projects — is one family of siblings, and the tree rules say so.
 	rules := r.prefix
 	if r.kind == rowProc || r.kind == rowSub {
-		branch := "├─"
+		branch := glyphBranch
 		if r.last {
-			branch = "└─"
+			branch = glyphLast
 		}
 		rules = r.prefix + branch + " "
 	}
@@ -635,8 +573,13 @@ func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 	return itemStyle
 }
 
+// paneLeft is the pane's first column in the window: past the navigator and
+// the divider. The layout and the mouse map both read it here, so a change
+// that moves the pane cannot leave the clicks landing where it used to be.
+func (m model) paneLeft() int { return navWidth + 1 }
+
 // detailWidth is the room left for the detail pane beside the navigator.
-func (m model) detailWidth() int { return m.width - navWidth - 1 }
+func (m model) detailWidth() int { return m.width - m.paneLeft() }
 
 // showDetail reports whether the terminal is wide enough to carry a detail
 // pane beside the navigator.
@@ -659,40 +602,59 @@ func (m model) paneLines(width, rows int) []string {
 	// splits — those facts in a banner across the top, the live screen under
 	// them — so standing on the row shows both. The keys do not change with
 	// the look: the screen below is still a preview.
-	var lines []string
-	if banner := m.runBanner(width, rows); len(banner) > 0 {
-		lines = append(banner, screenTail(t, rows-len(banner))...)
+	banner := m.runBanner(width, rows)
+	var screen []string
+	if len(banner) > 0 {
+		screen = screenTail(t, rows-len(banner))
 	} else {
-		lines = t.lines(rows)
+		screen = t.lines(rows)
 	}
 
 	// A screen can arrive wider than this pane: the shell is sized by the
 	// windows watching it, and this window may not be one of them. A row
 	// wider than the pane would wrap and take the layout with it, so each is
 	// cut to fit; rows at the pane's width — the usual case — pass whole.
-	for i, row := range lines {
-		lines[i] = ansi.Truncate(row, width, "")
+	for i, row := range screen {
+		screen[i] = ansi.Truncate(row, width, "")
 	}
 
+	// A preview wears the quiet gray in place of the program's own colors,
+	// the way an unfocused window is grayed everywhere else: a glance at the
+	// pane answers whether the keys are going there. The banner keeps its
+	// colors either way — it is scrn's report about the row, not the screen.
+	if m.focused() != t {
+		for i, row := range screen {
+			screen[i] = previewStyle.Render(ansi.Strip(row))
+		}
+		return append(banner, screen...)
+	}
+
+	lines := append(banner, screen...)
 	// The cursor is only drawn where the keystrokes are going. On an unfocused
 	// shell it would say the typing lands there, which it does not.
-	if m.focused() == t && t.curY >= 0 && t.curY < len(lines) {
+	if t.curY >= 0 && t.curY < len(lines) {
 		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
 	}
 	return lines
 }
 
 // runBanner is the detail summary drawn across the top of the pane when the
-// row under the cursor stands for a folded run. It takes at most a third of
-// the pane: the banner is there to say what the row is, and the screen below
-// to show what it is doing, and of the two it is the screen that is live.
-// Focused, there is no banner — the pane is the shell then, whole.
+// row under the cursor stands for a shell scrn holds — a folded run or a
+// bare shell alike: a screen dump with no name over it says what the shell
+// is showing but not what it is, and every other row gets its facts. The
+// banner takes at most a third of the pane: it is there to say what the row
+// is, and the screen below to show what it is doing, and of the two it is
+// the screen that is live. Focused, there is no banner — the pane is the
+// shell then, whole.
 func (m model) runBanner(width, rows int) []string {
 	if m.focused() != nil {
 		return nil
 	}
 	r, ok := m.selected()
-	if !ok || r.kind != rowProc || len(r.run) < 2 {
+	if !ok || r.kind != rowProc {
+		return nil
+	}
+	if len(r.run) < 2 && m.terms[r.node.PID] == nil {
 		return nil
 	}
 	room := rows / 3
@@ -727,14 +689,8 @@ func screenTail(t *remoteTerm, rows int) []string {
 // typing lands nowhere while reading — and rows older than a narrowing
 // resize can be wider than the pane, so each is cut to it.
 func scrollWindow(s *scrollView, width, rows int) []string {
-	top := len(s.doc) - rows - s.above
-	if top < 0 {
-		top = 0
-	}
-	end := top + rows
-	if end > len(s.doc) {
-		end = len(s.doc)
-	}
+	top := max(len(s.doc)-rows-s.above, 0)
+	end := min(top+rows, len(s.doc))
 	out := make([]string, 0, rows)
 	for _, row := range s.doc[top:end] {
 		out = append(out, ansi.Truncate(row, width, ""))
@@ -762,12 +718,12 @@ func withCursor(line string, x, width int) string {
 func (m model) detailLines(width, rows int) []string {
 	r, ok := m.selected()
 	if !ok {
-		return []string{" " + faintStyle.Render("nothing selected")}
+		return []string{paneGutter + noteStyle.Render("nothing selected")}
 	}
 
 	fields, loaded := m.details[detailKey(r)]
 	if !loaded {
-		return []string{" " + faintStyle.Render("loading…")}
+		return []string{paneGutter + noteStyle.Render("loading…")}
 	}
 
 	var lines []string
@@ -815,8 +771,10 @@ func renderBlock(block []field, width int) []string {
 	// The widest label in this group sets its value column, so values line up.
 	labelW := 0
 	for _, f := range block {
-		if f.kind == pairField && len(f.label) > labelW {
-			labelW = len(f.label)
+		if f.kind == pairField {
+			if w := lipgloss.Width(f.label); w > labelW {
+				labelW = w
+			}
 		}
 	}
 
@@ -824,10 +782,10 @@ func renderBlock(block []field, width int) []string {
 	for _, f := range block {
 		switch f.kind {
 		case headingField:
-			lines = append(lines, " "+headingStyle.Render(f.value))
+			lines = append(lines, paneGutter+headingStyle.Render(f.value))
 		case noteField:
-			for _, c := range wrapValue(f.value, width-2) {
-				lines = append(lines, " "+faintStyle.Render(c))
+			for _, c := range wrapValue(f.value, width-len(paneGutter)-1) {
+				lines = append(lines, paneGutter+noteStyle.Render(c))
 			}
 		default:
 			lines = append(lines, wrapField(f, labelW, width)...)
@@ -840,24 +798,22 @@ func renderBlock(block []field, width int) []string {
 // value column rather than letting it run off the pane.
 func wrapField(f field, labelW, width int) []string {
 	label := pad(labelStyle.Render(f.label), labelW)
-	gutter := " "
-	valueW := width - labelW - 2*len(gutter)
-	if valueW < 8 {
-		valueW = 8
-	}
+	gutter := paneGutter
+	valueW := max(width-labelW-2*len(gutter), 8)
 
 	chunks := wrapValue(f.value, valueW)
 	if len(chunks) == 0 {
 		chunks = []string{""}
 	}
 
+	style := toneStyles[f.tone]
 	lines := make([]string, 0, len(chunks))
 	for i, c := range chunks {
 		if i == 0 {
-			lines = append(lines, gutter+label+gutter+itemStyle.Render(c))
+			lines = append(lines, gutter+label+gutter+style.Render(c))
 			continue
 		}
-		lines = append(lines, gutter+strings.Repeat(" ", labelW)+gutter+itemStyle.Render(c))
+		lines = append(lines, gutter+strings.Repeat(" ", labelW)+gutter+style.Render(c))
 	}
 	return lines
 }
@@ -876,7 +832,7 @@ func wrapValue(s string, width int) []string {
 		return nil
 	}
 	var lines []string
-	for _, word := range strings.Fields(s) {
+	for word := range strings.FieldsSeq(s) {
 		switch {
 		case len(lines) == 0:
 			lines = append(lines, word)
@@ -933,6 +889,8 @@ func pad(s string, width int) string {
 }
 
 // truncate shortens s to width columns, marking the cut with an ellipsis.
+// Columns, not runes — a name in wide characters is as wide as the terminal
+// will draw it, which is the measure everything else in this file uses.
 //
 // A qualified name like "w0zro/archive/scrn" is cut from the left, because the
 // repo name at the end is the part that identifies it; the parent directories
@@ -941,17 +899,26 @@ func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= width {
+	total := lipgloss.Width(s)
+	if total <= width {
 		return s
 	}
 	if width == 1 {
 		return "…"
 	}
 	if strings.Contains(s, "/") {
-		return "…" + string(r[len(r)-(width-1):])
+		// The widest tail that still fits beside the ellipsis.
+		col := 0
+		for i, r := range s {
+			if total-col <= width-1 {
+				return "…" + s[i:]
+			}
+			col += lipgloss.Width(string(r))
+		}
+		return "…"
 	}
-	return string(r[:width-1]) + "…"
+	head, _ := cutColumns(s, width-1)
+	return head + "…"
 }
 
 // truncateTail cuts from the right, keeping the start. A command line says
@@ -961,31 +928,27 @@ func truncateTail(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= width {
+	if lipgloss.Width(s) <= width {
 		return s
 	}
 	if width == 1 {
 		return "…"
 	}
-	return string(r[:width-1]) + "…"
+	head, _ := cutColumns(s, width-1)
+	return head + "…"
 }
 
-// wrapText breaks a message across at most rows navigator lines.
+// wrapText breaks a message across at most rows navigator lines, measured in
+// columns like everything else here.
 func wrapText(s string, width, rows int, style lipgloss.Style) []string {
 	if width <= 0 || rows <= 0 {
 		return nil
 	}
 	var lines []string
-	for r := []rune(s); len(r) > 0 && len(lines) < rows; r = r[min(width, len(r)):] {
-		lines = append(lines, " "+style.Render(string(r[:min(width, len(r))])))
+	for rest := s; rest != "" && len(lines) < rows; {
+		var head string
+		head, rest = cutColumns(rest, width)
+		lines = append(lines, " "+style.Render(head))
 	}
 	return lines
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -184,10 +185,7 @@ func readSessionFile(path string) (claudeSession, bool) {
 		Version:    f.Version,
 	}
 	if f.StatusUpdatedAt > 0 {
-		s.StatusFor = time.Since(time.UnixMilli(f.StatusUpdatedAt))
-		if s.StatusFor < 0 {
-			s.StatusFor = 0
-		}
+		s.StatusFor = max(time.Since(time.UnixMilli(f.StatusUpdatedAt)), 0)
 	}
 	return s, true
 }
@@ -350,16 +348,16 @@ func readTranscript(path string, s *claudeSession) {
 	// itself, which is older than everything answering it.
 	progress := newAgentProgress()
 
-	for i := len(lines) - 1; i >= 0; i-- {
+	for _, line := range slices.Backward(lines) {
 		var rec transcriptLine
-		if err := json.Unmarshal(lines[i], &rec); err != nil {
+		if err := json.Unmarshal(line, &rec); err != nil {
 			continue
 		}
 		// A sidechain is a subagent's conversation, not the session's own.
 		if rec.IsSidechain {
 			continue
 		}
-		progress.read(lines[i], rec)
+		progress.read(line, rec)
 		if s.Branch == "" {
 			s.Branch = rec.GitBranch
 		}
@@ -517,27 +515,41 @@ func claudeFields(s claudeSession) []field {
 	// prose is given a group of its own because it is the part worth reading
 	// and the part that wraps.
 	var what, doing, with []field
-	add := func(fs *[]field, label, value string) {
-		if value != "" {
-			*fs = append(*fs, field{label: label, value: value})
+	add := func(fs *[]field, label, value string, tones ...tone) {
+		if value == "" {
+			return
 		}
+		f := field{label: label, value: value}
+		if len(tones) > 0 {
+			f.tone = tones[0]
+		}
+		*fs = append(*fs, f)
 	}
 
 	add(&what, "session", s.Name)
 	if s.Status != "" {
 		status := s.Status
-		// A blocked session says what it is blocked on, which is the part
-		// worth reading: "waiting" alone would send you to the pane to find
-		// out, and the pane is where you already are.
-		if s.Status == waitingStatus && s.WaitingFor != "" {
-			status = "waiting on " + s.WaitingFor
+		// The status reads in the color its mark wears in the navigator:
+		// working is alive, blocked is the answer holding up work, and idle
+		// recedes. A blocked session says what it is blocked on, which is
+		// the part worth reading: "waiting" alone would send you to the pane
+		// to find out, and the pane is where you already are.
+		t := toneQuiet
+		switch s.Status {
+		case busyStatus:
+			t = toneGood
+		case waitingStatus:
+			t = toneUrgent
+			if s.WaitingFor != "" {
+				status = "waiting on " + s.WaitingFor
+			}
 		}
 		if s.StatusFor > 0 {
 			status += "  (" + shortDuration(s.StatusFor) + ")"
 		}
-		add(&what, "status", status)
+		add(&what, "status", status, t)
 	}
-	add(&what, "branch", s.Branch)
+	add(&what, "branch", s.Branch, toneAccent)
 
 	add(&doing, "summary", s.Summary)
 	add(&doing, "asked", s.Prompt)
@@ -553,7 +565,7 @@ func claudeFields(s claudeSession) []field {
 	if s.Context > 0 {
 		add(&with, "context", shortTokens(s.Context)+" tokens")
 	}
-	add(&with, "session id", s.SessionID)
+	add(&with, "session id", s.SessionID, toneQuiet)
 
 	var fs []field
 	for _, group := range [][]field{what, doing, with} {

@@ -133,11 +133,9 @@ func (d *daemon) stop() {
 	// window that asked waiting on all of it.
 	var wg sync.WaitGroup
 	for _, t := range held {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			t.close()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -205,6 +203,11 @@ func (d *daemon) handle(cl *client, m message) {
 		d.attach(cl, m)
 	case kindDetach:
 		cl.unwatch(m.PID)
+		// The leaving pane drops out of the sizing, so a shell held small on
+		// its account grows back for whoever is still watching.
+		if t := d.session(m.PID); t != nil {
+			d.applySize(t)
+		}
 	case kindInput:
 		if t := d.session(m.PID); t != nil {
 			t.send(m)

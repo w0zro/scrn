@@ -52,10 +52,6 @@ const rescanFrames = 4
 // otherwise.
 const killLinger = 50
 
-// spinFrames is the marker itself, drawn in red beside a process that has been
-// signalled but is still listed.
-var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
 // dyingProc is a process that has been signalled, counted in frames so one
 // that ignores the signal can eventually be given up on.
 type dyingProc struct {
@@ -125,7 +121,7 @@ func startTimes(nodes []*ProcNode) map[int]string {
 	}
 
 	table := map[int]string{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		pid, rest := cutField(line)
 		n, err := strconv.Atoi(pid)
 		if err != nil {
