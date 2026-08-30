@@ -76,11 +76,13 @@ type terminal struct {
 	// it is a race the emulator cannot see.
 	vtMu sync.RWMutex
 
-	// modeMu guards mouse, the mouse-reporting modes the program has turned
-	// on. They are tracked here because they decide whose a wheel turn is,
-	// and the emulator does not answer that question — it only acts on it.
+	// modeMu guards modes: every DEC private mode the program has set or
+	// reset, as it last said it. The mouse-reporting ones decide whose a
+	// wheel turn is, which the emulator does not answer — and all of them
+	// together are what a handoff replays, because a fresh emulator starts
+	// with none of them.
 	modeMu sync.Mutex
-	mouse  map[ansi.DECMode]bool
+	modes  map[ansi.DECMode]bool
 }
 
 // hangupGrace is how long a shell is given to act on losing its terminal
@@ -152,13 +154,22 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 	}
 	t.watchWindow()
 	t.watchModes()
+	t.start(func() { _ = c.Wait() })
+	return t, nil
+}
+
+// start begins the goroutines that serve the shell: one waiting to reap it,
+// one pumping its output into the emulator, one carrying the emulator's
+// answers back. wait is how the exit is heard, because a shell this process
+// forked is waited on through its cmd and one adopted across an exec has no
+// cmd to wait through.
+func (t *terminal) start(wait func()) {
 	go func() {
-		_ = c.Wait()
+		wait()
 		close(t.done)
 	}()
 	go t.pump()
 	go t.reply()
-	return t, nil
 }
 
 // pump feeds pty output into the emulator until the shell exits, waking the
@@ -361,38 +372,39 @@ var mouseModes = map[ansi.DECMode]bool{
 	ansi.ModeMouseAnyEvent:    true,
 }
 
-// watchModes tracks the mouse-reporting modes as the program sets and resets
-// them. The callback runs inside the emulator's own processing, so it touches
-// nothing but the map.
+// watchModes tracks the DEC modes as the program sets and resets them. The
+// callback runs inside the emulator's own processing, so it touches nothing
+// but the map.
 func (t *terminal) watchModes() {
 	t.vt.SetCallbacks(vt.Callbacks{
-		EnableMode:  func(m ansi.Mode) { t.trackMouse(m, true) },
-		DisableMode: func(m ansi.Mode) { t.trackMouse(m, false) },
+		EnableMode:  func(m ansi.Mode) { t.trackMode(m, true) },
+		DisableMode: func(m ansi.Mode) { t.trackMode(m, false) },
 	})
 }
 
-func (t *terminal) trackMouse(mode ansi.Mode, on bool) {
+func (t *terminal) trackMode(mode ansi.Mode, on bool) {
 	dec, ok := mode.(ansi.DECMode)
-	if !ok || !mouseModes[dec] {
+	if !ok {
 		return
 	}
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
-	if on {
-		if t.mouse == nil {
-			t.mouse = map[ansi.DECMode]bool{}
-		}
-		t.mouse[dec] = true
-		return
+	if t.modes == nil {
+		t.modes = map[ansi.DECMode]bool{}
 	}
-	delete(t.mouse, dec)
+	t.modes[dec] = on
 }
 
 // mouseWanted reports whether the program has asked to hear about the mouse.
 func (t *terminal) mouseWanted() bool {
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
-	return len(t.mouse) > 0
+	for m := range mouseModes {
+		if t.modes[m] {
+			return true
+		}
+	}
+	return false
 }
 
 // window returns what the program has asked of the terminal window.
@@ -407,6 +419,11 @@ func (t *terminal) window() (title, progress string) {
 // redraw, which is the whole reason a pty is involved rather than a pipe.
 func (t *terminal) resize(width, height int) {
 	if width <= 0 || height <= 0 {
+		return
+	}
+	// The size arbitration re-applies on every ask, so the same answer comes
+	// through here again and again; unchanged is not a resize.
+	if width == t.vt.Width() && height == t.vt.Height() {
 		return
 	}
 	_ = pty.Setsize(t.pty, winsize(width, height))
@@ -456,9 +473,10 @@ func (t *terminal) close() {
 			select {
 			case <-t.done:
 			case <-time.After(hangupGrace):
-				if t.cmd.Process != nil {
-					_ = t.cmd.Process.Kill()
-				}
+				// By pid rather than through cmd, because an adopted shell
+				// has no cmd: the exec kept the child but not the exec.Cmd
+				// that once held it.
+				_ = syscall.Kill(t.pid, syscall.SIGKILL)
 			}
 		}
 

@@ -97,16 +97,31 @@ type (
 	// daemonLostMsg says the connection dropped. The shells are still running;
 	// this window just cannot see them until it reconnects.
 	daemonLostMsg struct{ err error }
+
+	// daemonErrorMsg says the daemon could not do something it was asked to.
+	// The connection is fine and the shells are where they were: this is a
+	// report about one ask, not about the daemon.
+	daemonErrorMsg struct{ err error }
 )
 
 // reconnectMsg asks for another go at the daemon, once the last one has had a
 // moment to release the socket.
 type reconnectMsg struct{}
 
-// reconnect waits out the old daemon's exit and then connects again, which
-// starts a fresh one because nothing is listening any more.
-func reconnect() tea.Cmd {
-	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return reconnectMsg{} })
+// reconnectWait is how long a daemon that is deliberately going — an upgrade's
+// exec, a stand-down — is given before connecting again. It is also the first
+// wait of a chase after a daemon that went without being asked.
+const reconnectWait = 300 * time.Millisecond
+
+// reconnectMax caps the growing wait between attempts on a daemon that keeps
+// going away. Retrying forever is the point — a window is no use without its
+// daemon — but retrying fast would only hammer whatever is failing.
+const reconnectMax = 5 * time.Second
+
+// reconnect connects again after the wait, which starts a fresh daemon if
+// nothing is listening by then.
+func reconnect(after time.Duration) tea.Cmd {
+	return tea.Tick(after, func(time.Time) tea.Msg { return reconnectMsg{} })
 }
 
 // stale reports whether a daemon started before this scrn was built.
@@ -205,7 +220,10 @@ func (s *session) receive() {
 		case kindExited:
 			s.events <- termGoneMsg{pid: m.PID}
 		case kindError:
-			s.events <- daemonLostMsg{err: errors.New(m.Err)}
+			// An error is the daemon answering, which is the opposite of the
+			// daemon being gone. Treating it as a loss dropped every shell this
+			// window knew about because one ask failed.
+			s.events <- daemonErrorMsg{err: errors.New(m.Err)}
 		}
 	}
 }
@@ -244,6 +262,22 @@ func (s *session) list() { s.ask(message{Kind: kindList}) }
 // standDown asks a daemon older than this build to stop, which it will only
 // do if it is holding nothing.
 func (s *session) standDown() { s.ask(message{Kind: kindStand}) }
+
+// upgrade asks a daemon older than this build to exec the binary at its own
+// path, carrying its shells across rather than ending them. A daemon too old
+// to know the word ignores it, which is what the R fallback is for.
+func (s *session) upgrade() { s.ask(message{Kind: kindUpgrade}) }
+
+// upgradeLimboMsg says an upgrade that was asked for has had long enough: a
+// daemon that acted dropped every connection well before this fires.
+type upgradeLimboMsg struct{}
+
+// awaitUpgrade gives the daemon a moment to act on the upgrade, because one
+// too old to understand it ignores it silently, and silence should not hold
+// the window forever.
+func awaitUpgrade() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return upgradeLimboMsg{} })
+}
 
 // replace gets rid of a daemon and the shells keeping it alive.
 //

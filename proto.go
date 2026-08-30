@@ -149,6 +149,7 @@ const (
 	kindResize  = "resize"    // the pane changed shape
 	kindClose   = "close"     // end this shell
 	kindStand   = "standdown" // stop, if you are holding nothing
+	kindUpgrade = "upgrade"   // exec the binary at your own path, shells and all
 	kindHistory = "history"   // asked: this shell's transcript; answered: here it is
 
 	// Daemon to client.

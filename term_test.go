@@ -241,6 +241,25 @@ func TestAShellThatExitsIsForgotten(t *testing.T) {
 	}
 }
 
+func TestADaemonErrorDoesNotCostTheConnection(t *testing.T) {
+	// An error is the daemon answering, which is the opposite of it being
+	// gone. A failed open must arrive as a report, with the connection and
+	// every shell this window can see intact.
+	m := openShellIn(t, repoModel(), "/tmp")
+	m.daemon.open(filepath.Join(t.TempDir(), "gone"), "", "", 40, 8)
+	m = pump(t, m, func(m model) bool { return m.statusErr }, 5*time.Second)
+
+	if m.daemon == nil {
+		t.Fatal("daemon = nil, want the connection kept through a failed ask")
+	}
+	if len(m.terms) != 1 {
+		t.Errorf("terms = %d, want the shell already open to survive the report", len(m.terms))
+	}
+	if m.status == "" {
+		t.Error("status is empty, want the daemon's error shown")
+	}
+}
+
 func TestManyShellsCanRunInOneRepository(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	first := m.focus

@@ -34,6 +34,14 @@ const claudePoll = 150 * time.Millisecond
 // Repositories appear and disappear far more slowly than processes do.
 const projectEvery = 15
 
+// repoDetailEvery is how many process polls pass between refreshes of a
+// selected repository's details. Those are half a dozen git spawns — git
+// status among them, which in a large work checkout is real work — and what
+// they report changes at the speed of a person committing, not of a process
+// list. A process row keeps the every-poll rate: cpu, memory and ports are
+// exactly the numbers that move.
+const repoDetailEvery = 5
+
 // claudeTickMsg drives the Claude session refresh, on a chain of its own for
 // the same reason it has a rate of its own. Exactly one is in flight.
 type claudeTickMsg struct{}
@@ -187,6 +195,14 @@ type model struct {
 	// ticks counts refresh cycles, so slower work can run every Nth one.
 	ticks int
 
+	// scanning says a process scan is out, so another is never started behind
+	// it: on a machine where lsof stalls, a poll that kept asking would pile a
+	// stalled scan on top of every tick. rescan says one was wanted while one
+	// was out — asked for by an event, not the poll — and is owed the moment
+	// the answer lands, because that answer predates the event it was about.
+	scanning bool
+	rescan   bool
+
 	// claude holds the Claude Code sessions currently advertised, keyed by pid.
 	// It is refreshed with the process list so the navigator can mark the busy
 	// instances without the cursor having to visit them.
@@ -206,12 +222,23 @@ type model struct {
 	daemon    *session
 	daemonErr string
 
+	// backoff is the wait before the next attempt to reach a daemon that went
+	// away or could not be reached, doubled per consecutive failure and reset
+	// once a daemon is talking.
+	backoff time.Duration
+
 	// daemonStale is set when the daemon is older than the build talking to
 	// it and is being kept alive by the shells it holds. Those shells have to
 	// go for it to be replaced, so that takes asking. pendingReplace is the
 	// asking.
 	daemonStale    bool
 	pendingReplace bool
+
+	// upgradeAsked says this window has already asked the daemon to carry its
+	// shells into this build, so a daemon that cannot — one that ignored the
+	// ask, or whose exec failed — is offered R instead of being asked again.
+	// It clears when a sessions message arrives that is not stale.
+	upgradeAsked bool
 
 	// wantProject is a project whose processes were just started, holding the
 	// cursor until they are in the tree.
@@ -238,6 +265,8 @@ func newModel() model {
 		details:   map[string][]field{},
 		dying:     map[int]dyingProc{},
 		terms:     map[int]*remoteTerm{},
+		// Init sends the first scan, and Init cannot write here to say so.
+		scanning: true,
 	}
 }
 
@@ -274,6 +303,27 @@ func scanProcs() tea.Msg {
 	return procsMsg{procs: procs}
 }
 
+// scanNow asks for a process scan on behalf of something that just happened —
+// a shell opened, the view narrowed. A scan already out began before the
+// event, so its answer cannot carry it; another is owed as soon as it lands.
+func (m *model) scanNow() tea.Cmd {
+	if m.scanning {
+		m.rescan = true
+		return nil
+	}
+	m.scanning = true
+	return scanProcs
+}
+
+// scanPoll is the tick's ask: freshness only, so a scan already out is answer
+// enough and nothing is owed.
+func (m *model) scanPoll() tea.Cmd {
+	if m.scanning {
+		return nil
+	}
+	return m.scanNow()
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -294,30 +344,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.detailCmd()
 
 	case procsMsg:
+		m.scanning = false
+		var owed tea.Cmd
+		if m.rescan {
+			m.rescan = false
+			owed = m.scanNow()
+		}
 		if msg.err != nil {
-			// A failed process scan should not blank out the repo list; the
-			// narrowed view just has nothing to show.
-			m.procs = nil
+			// A failed scan says nothing about what is running, so the last
+			// list that succeeded stands: blanking the tree on every hiccup
+			// of a loaded machine would be flicker, not information. The
+			// failure is reported rather than shown as an empty machine.
+			m.status, m.statusErr = msg.err.Error(), true
 		} else {
 			m.procs = msg.procs
 		}
 		m.rebuild()
-		return m, m.detailCmd()
+		return m, tea.Batch(m.detailCmd(), owed)
 
 	case replacedMsg:
 		if msg.err != nil {
 			m.status, m.statusErr = msg.err.Error(), true
 			return m, connectDaemon()
 		}
-		return m, reconnect()
+		return m, reconnect(reconnectWait)
 
 	case reconnectMsg:
 		return m, connectDaemon()
 
 	case daemonReadyMsg:
 		if msg.err != nil {
+			// Not reaching the daemon is not the end of it: nothing but a retry
+			// will ever turn this window back into a useful one.
 			m.daemonErr = msg.err.Error()
-			return m, nil
+			return m, m.retryConnect()
 		}
 		m.daemon, m.daemonErr = msg.session, ""
 		// Ask what is already running: shells from a window that has since
@@ -325,10 +385,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemon.list()
 		return m, nextEvent(m.daemon)
 
+	case daemonErrorMsg:
+		// One ask failed; the daemon and its shells are fine. Say what it said
+		// and carry on listening.
+		m.status, m.statusErr = msg.err.Error(), true
+		return m, nextEvent(m.daemon)
+
 	case daemonLostMsg:
 		m.daemon, m.daemonErr = nil, msg.err.Error()
 		m.terms, m.focus = map[int]*remoteTerm{}, 0
-		return m, nil
+		if m.upgradeAsked {
+			// An upgrading daemon drops every connection on its way through
+			// the exec. That is it working, not it going away, so the window
+			// comes straight back rather than reporting a loss.
+			m.daemonErr = ""
+			return m, reconnect(reconnectWait)
+		}
+		// A daemon that went without being asked — a crash, a kill — is chased
+		// rather than mourned: connecting starts a fresh one, and the window
+		// stops being one that has to be restarted to work again.
+		return m, m.retryConnect()
 
 	case termOpenedMsg:
 		if _, ok := m.terms[msg.pid]; !ok {
@@ -340,24 +416,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.name == "" {
 			m.focus, m.wantCursor = msg.pid, msg.pid
 		}
-		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
+		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
 	case sessionsMsg:
+		// The daemon is talking, so whatever chase was on is over.
+		m.backoff = 0
 		// A daemon outlives the window that started it, which is the point of
 		// it — and means it also outlives rebuilds. One older than this build
 		// is running code this window does not have, and the difference is
 		// invisible until something it holds behaves the way it used to.
 		m.daemonStale = false
+		var limbo tea.Cmd
 		if stale(msg.since) {
 			if len(msg.sessions) == 0 {
 				// Holding nothing, so replacing it costs nothing.
 				m.daemon.standDown()
 				m.status, m.statusErr = "replacing a daemon older than this build", false
-				return m, tea.Batch(nextEvent(m.daemon), reconnect())
+				return m, tea.Batch(nextEvent(m.daemon), reconnect(reconnectWait))
 			}
 			m.daemonStale = true
-			m.status, m.statusErr = "daemon predates this build; R replaces it, ending its "+
-				plural(len(msg.sessions), "shell", "shells"), true
+			if !m.upgradeAsked {
+				// Holding shells, so it is asked to carry them into this
+				// build rather than to go: the exec keeps its children and
+				// their ptys, and a state file carries what its emulators
+				// knew. Nothing is lost, so nothing has to be asked twice.
+				m.upgradeAsked = true
+				m.daemon.upgrade()
+				m.status, m.statusErr = "carrying the daemon's shells into this build", false
+				limbo = awaitUpgrade()
+			} else {
+				m.status, m.statusErr = "daemon predates this build; R replaces it, ending its "+
+					plural(len(msg.sessions), "shell", "shells"), true
+			}
+		} else {
+			m.upgradeAsked = false
 		}
 
 		// The daemon is the authority on what it holds, so the client takes
@@ -375,7 +467,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 0
 		}
 		m.rebuild()
-		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
+		return m, tea.Batch(nextEvent(m.daemon), m.scanNow(), limbo)
+
+	case upgradeLimboMsg:
+		// The upgrade was asked of a daemon that acted on nothing: too old to
+		// know the word. The fallback costs the shells, so it only offers.
+		if m.daemon != nil && m.daemonStale {
+			m.status, m.statusErr = "the daemon did not take the upgrade; R replaces it, ending its "+
+				plural(len(m.terms), "shell", "shells"), true
+		}
+		return m, nil
 
 	case screenMsg:
 		t, ok := m.terms[msg.pid]
@@ -431,7 +532,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Asking again is what notices a daemon that has just become
 		// replaceable: the shell keeping an out-of-date one alive was this.
 		m.daemon.list()
-		return m, tea.Batch(nextEvent(m.daemon), scanProcs)
+		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
 	case claudeTickMsg:
 		return m, tea.Batch(scanClaude, claudeTick())
@@ -449,7 +550,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.ticks++
-		cmds := []tea.Cmd{scanProcs, tick(procPoll)}
+		cmds := []tea.Cmd{m.scanPoll(), tick(procPoll)}
 		if m.ticks%projectEvery == 0 {
 			cmds = append(cmds, scanProjects)
 		}
@@ -505,7 +606,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only a kill needs the process list chased; a turning marker is
 		// about a session file that the ordinary refresh already re-reads.
 		if len(m.dying) > 0 && m.frame%rescanFrames == 0 {
-			cmds = append(cmds, scanProcs)
+			cmds = append(cmds, m.scanPoll())
 		}
 		return m, tea.Batch(cmds...)
 
@@ -670,7 +771,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuild()
 			if !m.showAll {
 				// Narrowing is a question about right now, so ask again.
-				return m, tea.Batch(scanProcs, m.detailCmd())
+				return m, tea.Batch(m.scanNow(), m.detailCmd())
 			}
 			return m, m.detailCmd()
 		case "esc":
@@ -969,6 +1070,23 @@ func (m model) shellAround(n *ProcNode) *ProcNode {
 	return m.nodes[t.pid]
 }
 
+// retryConnect schedules another attempt to reach the daemon, waiting twice
+// as long as the last one up to a cap. The wait is reset by a daemon that
+// talks, so a normal loss is recovered in well under a second and only a
+// daemon that keeps failing is given room.
+func (m *model) retryConnect() tea.Cmd {
+	switch {
+	case m.backoff <= 0:
+		m.backoff = reconnectWait
+	default:
+		m.backoff *= 2
+		if m.backoff > reconnectMax {
+			m.backoff = reconnectMax
+		}
+	}
+	return reconnect(m.backoff)
+}
+
 // askReplace arms the replacement of a daemon older than this build. It is
 // only offered when there is one, because ending shells to swap a daemon that
 // is already current would be destroying work for nothing.
@@ -1016,7 +1134,7 @@ func (m *model) run() tea.Cmd {
 	// Started rather than entered: this is several things at once, and none of
 	// them is more the one you meant than the others.
 	m.status, m.statusErr = "started "+describeEntries(missing), false
-	return scanProcs
+	return m.scanNow()
 }
 
 // planned are the shells in a project that a plan started, which are the ones
@@ -1637,9 +1755,16 @@ func (m model) selected() (navRow, bool) {
 // refreshDetailCmd re-inspects the selected row even though it is cached, so
 // what is on screen keeps up with the process it describes. The cached value
 // stays until the new one lands, so the pane does not blink through "loading".
+//
+// A repository is re-asked on its own, slower cadence: its answers cost git
+// real work in a big checkout. Landing on a row still loads it at once —
+// this is only the background refresh of an answer already on screen.
 func (m model) refreshDetailCmd() tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
+		return nil
+	}
+	if r.kind == rowProject && m.ticks%repoDetailEvery != 0 {
 		return nil
 	}
 	return loadDetail(r, len(m.byRepo[r.project.Path]), m.claudeFor(r), m.namesIn(r.project.Path))

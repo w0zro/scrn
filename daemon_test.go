@@ -451,3 +451,32 @@ func TestTheTranscriptCrossesTheWireWhenAsked(t *testing.T) {
 		return
 	}
 }
+
+func TestAShellIsSizedForItsSmallestWindow(t *testing.T) {
+	// Two windows on one shell cannot both dictate its size. Sized for the
+	// smallest pane watching — each dimension on its own — every window can
+	// hold the whole screen, instead of the last resize stomping the rest.
+	d := startDaemonFor(t)
+
+	c1raw, _ := dialDaemon()
+	c1 := newConn(c1raw)
+	defer c1.close()
+	c1.write(message{Kind: kindOpen, Dir: "/tmp", Width: 80, Height: 24})
+	waitFor(t, "the shell to open", func() bool { return len(d.list()) == 1 })
+	pid := d.list()[0].PID
+
+	c2raw, _ := dialDaemon()
+	c2 := newConn(c2raw)
+	c2.write(message{Kind: kindAttach, PID: pid, Width: 40, Height: 30})
+	waitFor(t, "the narrower window to be felt", func() bool {
+		s := d.session(pid)
+		return s != nil && s.vt.Width() == 40 && s.vt.Height() == 24
+	})
+
+	// The small window goes, and the shell grows back for the one left.
+	c2.close()
+	waitFor(t, "the shell to grow back", func() bool {
+		s := d.session(pid)
+		return s != nil && s.vt.Width() == 80 && s.vt.Height() == 24
+	})
+}

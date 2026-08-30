@@ -315,8 +315,15 @@ func countTree(n *ProcNode) int {
 
 // git runs a git command, reporting what git printed rather than just an exit
 // status: "not a git repository" is worth showing, "exit status 128" is not.
+//
+// Without optional locks: these run in the background on a cadence, and a
+// status that took the index lock would collide with the git the user is
+// running in the shell beside it. Bounded like the scans, because a git that
+// hangs on a large or unhealthy checkout would otherwise pile up behind the
+// refresh the same way a hung lsof did.
 func git(dir string, args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	out, err := listing(scanTimeout, "git",
+		append([]string{"--no-optional-locks", "-C", dir}, args...)...)
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -340,7 +347,7 @@ func firstLine(s string) string {
 }
 
 func ps(pid int, format string) (string, error) {
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", format).Output()
+	out, err := listing(scanTimeout, "ps", "-p", strconv.Itoa(pid), "-o", format)
 	if err != nil {
 		return "", err
 	}

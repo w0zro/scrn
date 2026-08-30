@@ -3,12 +3,36 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// scanTimeout bounds every command a scan runs. lsof answers in tens of
+// milliseconds on a healthy machine; the bound is for the machine with a dead
+// network mount, where lsof hangs for minutes and a scan that waited would
+// stand in the way of every scan after it.
+const scanTimeout = 15 * time.Second
+
+// listing runs one of the commands the scans read, bounded by timeout. What
+// was written before a failure is still returned: lsof exits nonzero when any
+// process refuses it, which says nothing about the ones that answered.
+//
+// WaitDelay is for the process the timeout's kill does not take on — an lsof
+// stuck in uninterruptible disk wait cannot be killed, and the scan has to
+// come back even when the process never will.
+func listing(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd.Output()
+}
 
 // Proc is a running process, identified by the directory it is working in.
 //
@@ -36,13 +60,8 @@ type ProcNode struct {
 // /proc to walk. Processes owned by other users are reported as permission
 // errors on stderr and simply do not appear, which is the behavior we want.
 func runningProcs() ([]Proc, error) {
-	cmd := exec.Command("lsof", "-a", "-d", "cwd", "-F", "pcRn")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	if err := cmd.Wait(); err != nil && out.Len() == 0 {
+	out, err := listing(scanTimeout, "lsof", "-a", "-d", "cwd", "-F", "pcRn")
+	if err != nil && len(out) == 0 {
 		return nil, err
 	}
 
@@ -55,7 +74,7 @@ func runningProcs() ([]Proc, error) {
 	// too slow for a list being redrawn.
 	argv := commandLines()
 
-	sc := bufio.NewScanner(bytes.NewReader(out.Bytes()))
+	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := sc.Text()
@@ -99,7 +118,7 @@ func runningProcs() ([]Proc, error) {
 // commandLines is what every process was run with, keyed by pid. A failure
 // leaves it empty, and a process without one falls back to its name.
 func commandLines() map[int]string {
-	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	out, err := listing(scanTimeout, "ps", "-axo", "pid=,command=")
 	if err != nil {
 		return nil
 	}
@@ -183,8 +202,8 @@ func indexNodes(n *ProcNode, into map[int]*ProcNode) {
 // A port is worth showing because it is the thing you were about to go and
 // look up: a dev server's row says what it is, and this says where it is.
 func listeningPorts(pid int) []string {
-	out, err := exec.Command("lsof", "-nP", "-a", "-p", strconv.Itoa(pid),
-		"-iTCP", "-sTCP:LISTEN", "-F", "n").Output()
+	out, err := listing(scanTimeout, "lsof", "-nP", "-a", "-p", strconv.Itoa(pid),
+		"-iTCP", "-sTCP:LISTEN", "-F", "n")
 	if err != nil {
 		return nil // no listeners is an error exit, and is not worth reporting
 	}

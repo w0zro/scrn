@@ -546,6 +546,14 @@ func (m model) paneLines(width, rows int) []string {
 
 	lines := t.lines(rows)
 
+	// A screen can arrive wider than this pane: the shell is sized by the
+	// windows watching it, and this window may not be one of them. A row
+	// wider than the pane would wrap and take the layout with it, so each is
+	// cut to fit; rows at the pane's width — the usual case — pass whole.
+	for i, row := range lines {
+		lines[i] = ansi.Truncate(row, width, "")
+	}
+
 	// The cursor is only drawn where the keystrokes are going. On an unfocused
 	// shell it would say the typing lands there, which it does not.
 	if m.focused() == t && t.curY >= 0 && t.curY < len(lines) {

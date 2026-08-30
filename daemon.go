@@ -33,6 +33,11 @@ type client struct {
 	mu       sync.Mutex
 	watching map[int]bool
 	closed   bool
+
+	// sizes is the pane this window gives each shell, by pid. No window
+	// dictates a shell's size alone: the shell is sized for the smallest pane
+	// watching it, and these are what that arbitration reads.
+	sizes map[int][2]int
 }
 
 // runDaemon listens until nothing is left to hold.
@@ -43,7 +48,15 @@ func runDaemon() error {
 	// project, so it stands in none of them.
 	_ = os.Chdir("/")
 
-	d, err := listenDaemon(socketPath())
+	// A daemon woken by its own exec has a state file waiting and shells to
+	// take back up; one started fresh claims the socket instead.
+	var d *daemon
+	var err error
+	if path := os.Getenv("SCRN_HANDOFF"); path != "" {
+		d, err = resumeDaemon(path)
+	} else {
+		d, err = listenDaemon(socketPath())
+	}
 	if err != nil {
 		return err
 	}
@@ -102,11 +115,8 @@ func (d *daemon) accept() error {
 func (d *daemon) stop() {
 	d.listener.Close()
 
+	held := d.held()
 	d.mu.Lock()
-	held := make([]*terminal, 0, len(d.sessions))
-	for _, t := range d.sessions {
-		held = append(held, t)
-	}
 	d.sessions = map[int]*terminal{}
 	d.mu.Unlock()
 
@@ -147,7 +157,7 @@ func (d *daemon) watchIdle() {
 // serve handles one client until it goes away. Its shells are not touched on
 // the way out: outliving the window is the point.
 func (d *daemon) serve(c *conn) {
-	cl := &client{conn: c, watching: map[int]bool{}}
+	cl := &client{conn: c, watching: map[int]bool{}, sizes: map[int][2]int{}}
 
 	d.mu.Lock()
 	d.clients[cl] = true
@@ -160,6 +170,13 @@ func (d *daemon) serve(c *conn) {
 		d.mu.Unlock()
 		cl.markClosed()
 		c.close()
+		// A window gone takes its pane out of the sizing, so a shell held
+		// small on its account grows back for whoever is left watching.
+		for _, pid := range cl.watched() {
+			if t := d.session(pid); t != nil {
+				d.applySize(t)
+			}
+		}
 	}()
 
 	for {
@@ -187,7 +204,8 @@ func (d *daemon) handle(cl *client, m message) {
 		}
 	case kindResize:
 		if t := d.session(m.PID); t != nil {
-			t.resize(m.Width, m.Height)
+			cl.setSize(m.PID, m.Width, m.Height)
+			d.applySize(t)
 			cl.send(t.screenMsg())
 		}
 	case kindStand:
@@ -203,6 +221,13 @@ func (d *daemon) handle(cl *client, m message) {
 		d.mu.Unlock()
 		if empty {
 			d.listener.Close()
+		}
+
+	case kindUpgrade:
+		// Exec never returns when it works, so reaching the send means it did
+		// not: the daemon is whole, and says what went wrong.
+		if err := d.execSelf(); err != nil {
+			cl.send(message{Kind: kindError, Err: "upgrade: " + err.Error()})
 		}
 
 	case kindClose:
@@ -232,6 +257,7 @@ func (d *daemon) open(cl *client, m message) {
 	d.sessions[t.pid] = t
 	d.mu.Unlock()
 
+	cl.setSize(t.pid, m.Width, m.Height)
 	cl.watch(t.pid)
 	go d.pump(t)
 	// The client that asked is told which shell is the one it asked for. It
@@ -250,10 +276,9 @@ func (d *daemon) attach(cl *client, m message) {
 		cl.send(message{Kind: kindExited, PID: m.PID})
 		return
 	}
-	if m.Width > 0 && m.Height > 0 {
-		t.resize(m.Width, m.Height)
-	}
+	cl.setSize(m.PID, m.Width, m.Height)
 	cl.watch(m.PID)
+	d.applySize(t)
 	cl.send(t.screenMsg())
 }
 
@@ -283,6 +308,19 @@ func (d *daemon) session(pid int) *terminal {
 	return d.sessions[pid]
 }
 
+// held is the shells the daemon is holding, as a slice a caller can walk
+// without the lock.
+func (d *daemon) held() []*terminal {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	out := make([]*terminal, 0, len(d.sessions))
+	for _, t := range d.sessions {
+		out = append(out, t)
+	}
+	return out
+}
+
 // sessionsMsg is what the daemon is holding, and when it started holding it.
 func (d *daemon) sessionsMsg() message {
 	return message{
@@ -301,6 +339,30 @@ func (d *daemon) list() []sessionInfo {
 		out = append(out, sessionInfo{PID: pid, Dir: t.repo, Name: t.name})
 	}
 	return out
+}
+
+// applySize sizes a shell to the smallest pane among the windows watching it,
+// each dimension on its own — which is how every window gets to hold the
+// whole screen. One watcher means that window's pane exactly, so a shell of
+// one window behaves as it always did; no watcher with a pane leaves the
+// shell as it is.
+func (d *daemon) applySize(t *terminal) {
+	w, h := 0, 0
+	for _, cl := range d.watchers(t.pid) {
+		cw, ch, ok := cl.sizeFor(t.pid)
+		if !ok {
+			continue
+		}
+		if w == 0 || cw < w {
+			w = cw
+		}
+		if h == 0 || ch < h {
+			h = ch
+		}
+	}
+	if w > 0 && h > 0 {
+		t.resize(w, h)
+	}
 }
 
 func (d *daemon) watchers(pid int) []*client {
@@ -350,6 +412,38 @@ func (cl *client) unwatch(pid int) {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	delete(cl.watching, pid)
+}
+
+// watched is the shells this window is watching, as a slice a caller can walk
+// without the lock.
+func (cl *client) watched() []int {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	out := make([]int, 0, len(cl.watching))
+	for pid := range cl.watching {
+		out = append(out, pid)
+	}
+	return out
+}
+
+// setSize records the pane this window gives a shell. A size without room in
+// it is not a pane, so it is not recorded.
+func (cl *client) setSize(pid, w, h int) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.sizes[pid] = [2]int{w, h}
+}
+
+// sizeFor is the pane this window last gave a shell, if it ever has.
+func (cl *client) sizeFor(pid int) (w, h int, ok bool) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	s, ok := cl.sizes[pid]
+	return s[0], s[1], ok
 }
 
 func (cl *client) isWatching(pid int) bool {

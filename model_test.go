@@ -5,15 +5,20 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// sized returns a model laid out for the given terminal dimensions.
+// sized returns a model laid out for the given terminal dimensions. The
+// startup scan is taken to have answered, which is the state every test that
+// seeds procs directly is standing in.
 func sized(w, h int) model {
 	m, _ := newModel().Update(tea.WindowSizeMsg{Width: w, Height: h})
-	return m.(model)
+	s := m.(model)
+	s.scanning = false
+	return s
 }
 
 // withProcs builds a model from repos and one process per given directory.
@@ -1170,6 +1175,11 @@ func TestTheFrameChainRescansButNotEveryFrame(t *testing.T) {
 		if len(batch) != 2 {
 			t.Errorf("frame %d batched %d commands, want the next frame and a scan", got.frame, len(batch))
 		}
+		// The scan answers well before the next rescanning frame; without the
+		// answer, that frame would rightly decline to stack a second scan
+		// behind a first still out.
+		n, _ = got.Update(procsMsg{procs: got.procs})
+		got = n.(model)
 	}
 
 	if scans != 2 {
@@ -2087,6 +2097,8 @@ func TestTheSessionsAreReadOnAChainOfTheirOwn(t *testing.T) {
 func TestTheProcessTickNoLongerCarriesTheSessions(t *testing.T) {
 	// Two chains reading them would double the rate for no reason.
 	m := nestedTree(12)
+	// On the repo-detail cadence, so the selected row's refresh rides along.
+	m.ticks = repoDetailEvery - 1
 	_, cmd := m.Update(tickMsg{})
 	if cmd == nil {
 		t.Fatal("a tick should still refresh")
@@ -2348,5 +2360,131 @@ func TestASpaceInTheSearchDoesNotMoveTheCursor(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
 	if m = next.(model); m.cursor != 0 {
 		t.Errorf("cursor = %d after narrowing the list, want the top", m.cursor)
+	}
+}
+
+func TestALostDaemonIsChased(t *testing.T) {
+	// A daemon that went without being asked — a crash, a kill — schedules a
+	// reconnect rather than leaving a window that has to be restarted to work.
+	next, cmd := sized(90, 14).Update(daemonLostMsg{err: errors.New("gone")})
+	if cmd == nil {
+		t.Fatal("no command, want a reconnect scheduled")
+	}
+	if got := next.(model).backoff; got != reconnectWait {
+		t.Errorf("backoff = %v, want the chase to start at %v", got, reconnectWait)
+	}
+}
+
+func TestAFailedConnectIsRetried(t *testing.T) {
+	// Not reaching the daemon leaves nothing to wait on but the retry itself.
+	_, cmd := sized(90, 14).Update(daemonReadyMsg{err: errors.New("no daemon")})
+	if cmd == nil {
+		t.Fatal("no command, want another attempt scheduled")
+	}
+}
+
+func TestTheChaseBacksOffToACap(t *testing.T) {
+	m := sized(90, 14)
+	for range 12 {
+		next, _ := m.Update(daemonLostMsg{err: errors.New("gone")})
+		m = next.(model)
+	}
+	if m.backoff != reconnectMax {
+		t.Errorf("backoff = %v after many losses, want capped at %v", m.backoff, reconnectMax)
+	}
+}
+
+func TestADaemonTalkingResetsTheChase(t *testing.T) {
+	m := sized(90, 14)
+	m.backoff = reconnectMax
+	next, _ := m.Update(sessionsMsg{})
+	if got := next.(model).backoff; got != 0 {
+		t.Errorf("backoff = %v after the daemon spoke, want the chase forgotten", got)
+	}
+}
+
+func TestOnlyOneScanIsEverOut(t *testing.T) {
+	// On a machine where lsof stalls, a poll that kept asking would pile a
+	// stalled scan on top of every tick.
+	m := sized(80, 8)
+	if m.scanPoll() == nil {
+		t.Fatal("an idle model should scan on the tick")
+	}
+	if m.scanPoll() != nil {
+		t.Error("a second poll started a scan behind the first")
+	}
+	if m.rescan {
+		t.Error("the poll owes nothing: a scan already out is answer enough")
+	}
+}
+
+func TestAScanAskedForDuringOneIsOwed(t *testing.T) {
+	// The scan already out began before the event that is asking, so its
+	// answer cannot carry it.
+	m := sized(80, 8)
+	if m.scanNow() == nil {
+		t.Fatal("an idle model should scan at once")
+	}
+	if m.scanNow() != nil {
+		t.Error("a second ask started a scan behind the first")
+	}
+	if !m.rescan {
+		t.Fatal("an event's ask during a scan should be owed")
+	}
+
+	next, _ := m.Update(procsMsg{})
+	got := next.(model)
+	if !got.scanning {
+		t.Error("the owed scan should have gone out with the answer's arrival")
+	}
+	if got.rescan {
+		t.Error("the debt should be settled by paying it")
+	}
+}
+
+func TestAScanFailureKeepsTheLastList(t *testing.T) {
+	// A failed scan says nothing about what is running; blanking the tree on
+	// every hiccup of a loaded machine would be flicker, not information.
+	m := withProcs(80, 8, []Project{{Name: "alpha", Path: "/p/alpha"}}, []string{"/p/alpha"})
+	next, _ := m.Update(procsMsg{err: errors.New("lsof timed out")})
+	got := next.(model)
+
+	if len(got.procs) != 1 {
+		t.Errorf("procs = %d, want the last good list kept", len(got.procs))
+	}
+	if !got.statusErr || got.status == "" {
+		t.Error("a scan failure should be reported, not shown as an empty machine")
+	}
+}
+
+func TestASlowListingIsCutOff(t *testing.T) {
+	if _, err := listing(50*time.Millisecond, "sleep", "5"); err == nil {
+		t.Error("a command that outlives the timeout should come back an error")
+	}
+}
+
+func TestARepoIsReAskedOnItsOwnSlowerCadence(t *testing.T) {
+	// A repository's details are half a dozen git spawns, and git status in a
+	// large checkout is real work; what they say changes at the speed of a
+	// person committing. Only the background refresh slows — landing on a row
+	// still loads it at once, through the cache-miss path.
+	m := threeRepos(8)
+	m.ticks = 1
+	if m.refreshDetailCmd() != nil {
+		t.Error("a repo's details were re-asked on an off-cadence poll")
+	}
+	m.ticks = repoDetailEvery
+	if m.refreshDetailCmd() == nil {
+		t.Error("the cadence tick should refresh the repo's details")
+	}
+}
+
+func TestAProcessIsReAskedOnEveryPoll(t *testing.T) {
+	// cpu, memory and ports are exactly the numbers that move.
+	m := withProcs(80, 8, []Project{{Name: "a", Path: "/p/a"}}, []string{"/p/a"})
+	m.cursor = 1
+	m.ticks = 1
+	if m.refreshDetailCmd() == nil {
+		t.Error("a process's details should refresh on every poll")
 	}
 }
