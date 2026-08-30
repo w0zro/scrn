@@ -43,6 +43,19 @@ var (
 	busyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#1A7F37", Dark: "#3FB950"})
 
+	// attnStyle marks an agent that is done and waiting on its user: the
+	// answer owed, bright enough to catch from across the room.
+	attnStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#9A6700", Dark: "#D29922"})
+
+	// blockedStyle marks an agent stopped mid-turn on a specific ask — a
+	// permission prompt, a question. Brighter than the amber of done-and-
+	// waiting, because this answer is holding up work already in flight.
+	blockedStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#BF3989", Dark: "#F778BA"})
+
 	cursorStyle = lipgloss.NewStyle().Reverse(true)
 
 	// headingStyle names what the detail pane is about, so that what a row is
@@ -56,13 +69,21 @@ var (
 	offSelStyle = faintStyle.Bold(true)
 )
 
-// claudeMark is the glyph beside a Claude instance. A working one turns, so
-// that a glance tells you which instances are thinking and which are waiting
-// on you — the difference a still marker leaves you to guess at, and the one
-// worth crossing the room for.
-func (m model) claudeMark(status string) (string, lipgloss.Style) {
-	if status == busyStatus {
+// agentMark is the glyph beside an agent's row. A working one turns, one
+// stopped mid-turn on a specific ask holds a bright diamond, one that has
+// finished a turn and waits on its user holds a filled marker in the
+// attention color, and one idle since it started — owed nothing — sits
+// hollow and quiet. The diamond is the one worth crossing the room for:
+// that answer resumes work already in flight.
+func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
+	if _, ok := a.blocked(); ok {
+		return "◆", blockedStyle
+	}
+	switch {
+	case a.working():
 		return spinFrames[m.frame%len(spinFrames)], busyStyle
+	case m.awaiting(r) != nil:
+		return "●", attnStyle
 	}
 	return "○", faintStyle
 }
@@ -268,6 +289,7 @@ func (m model) keyLines(width, rows int) []string {
 		{"r run", "enter open"},
 		{"x kill", "X kill tree"},
 		{"space fold", folds},
+		{"^spc ^spc", "waiting agent"},
 		{all, "q quit"},
 	}
 
@@ -361,12 +383,19 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
-	// A busy Claude instance is marked in the gutter beside its name, so the
-	// repositories with work happening in them read at a glance.
+	// An agent's row says which of you the other is waiting on: a working
+	// instance turns beside its name, and one that has finished a turn
+	// lights the whole row, because done-and-waiting is the state that most
+	// wants to be seen and the one a stopped spinner used to whisper.
 	mark, markStyle := "", faintStyle
-	if s := m.claudeFor(r); s != nil {
-		glyph, style := m.claudeMark(s.Status)
-		mark, markStyle = " "+glyph, style
+	if a := m.agentFor(r); a != nil {
+		glyph, mstyle := m.agentMark(r, a)
+		mark, markStyle = " "+glyph, mstyle
+		if _, ok := a.blocked(); ok && !selected {
+			style = blockedStyle
+		} else if m.awaiting(r) != nil && !selected {
+			style = attnStyle
+		}
 	}
 
 	spinner := ""

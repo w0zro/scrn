@@ -52,14 +52,14 @@ func detailKey(r navRow) string {
 
 // loadDetail inspects the selected row off the render path. Git and ps are
 // fast, but they are still processes, and the UI should not wait on them.
-func loadDetail(r navRow, procCount, repoCount int, sess *claudeSession, running map[string]bool) tea.Cmd {
+func loadDetail(r navRow, procCount, repoCount int, ag agent, running map[string]bool) tea.Cmd {
 	key := detailKey(r)
 	p := r.project
 	switch r.kind {
 	case rowProc:
 		node, run := r.node, r.run
 		return func() tea.Msg {
-			return detailMsg{key: key, fields: procFields(node, run, sess)}
+			return detailMsg{key: key, fields: procFields(node, run, ag)}
 		}
 	case rowGroup:
 		return func() tea.Msg {
@@ -222,17 +222,16 @@ func describeAheadBehind(path string) string {
 
 // procFields describes a running process: what it is, where it runs, and how
 // long it has been going.
-func procFields(n *ProcNode, run []*ProcNode, sess *claudeSession) []field {
+func procFields(n *ProcNode, run []*ProcNode, ag agent) []field {
 	fs := []field{
 		heading(procLabel(n)),
 		note(n.Dir),
 	}
 
-	// What a Claude Code instance is doing outranks the process table: it is
-	// the reason the process is worth looking at, so it comes first.
-	if sess != nil {
-		readTranscript(transcriptPath(*sess), sess)
-		fs = append(fs, claudeFields(*sess)...)
+	// What an agent is doing outranks the process table: it is the reason
+	// the process is worth looking at, so it comes first.
+	if ag != nil {
+		fs = append(fs, ag.describe()...)
 	}
 
 	fs = append(fs, gap())

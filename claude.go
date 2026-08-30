@@ -26,13 +26,14 @@ import (
 
 // claudeSession is what scrn knows about one running Claude Code instance.
 type claudeSession struct {
-	PID       int
-	Name      string
-	Status    string
-	StatusFor time.Duration
-	SessionID string
-	Cwd       string
-	Version   string
+	PID        int
+	Name       string
+	Status     string
+	StatusFor  time.Duration
+	WaitingFor string
+	SessionID  string
+	Cwd        string
+	Version    string
 
 	// Agents are the subagents this session has started and not yet heard back
 	// from. A subagent is not a process — it runs inside the instance that
@@ -51,9 +52,53 @@ type claudeSession struct {
 // else is waiting on its user, whatever it is called.
 const busyStatus = "busy"
 
+// waitingStatus is what Claude Code calls a session stopped mid-turn on a
+// specific ask. It comes with waitingFor, a few words naming the ask — a
+// permission prompt, a question, a dialog.
+const waitingStatus = "waiting"
+
 // claudeCommand starts a Claude Code instance. It is run through a shell, so
 // this is the name on the PATH rather than a path scrn has to find.
 const claudeCommand = "claude"
+
+// claudeKind is Claude Code as a kind of agent — the first, and so the one
+// the a key starts.
+var claudeKind = agentKind{
+	command: claudeCommand,
+	run:     claudeCommand,
+	scan:    func() map[int]agent { return asAgents(claudeSessions()) },
+}
+
+// asAgents lifts Claude's sessions to the shape every kind is read through.
+func asAgents(sessions map[int]claudeSession) map[int]agent {
+	out := make(map[int]agent, len(sessions))
+	for pid, s := range sessions {
+		out[pid] = s
+	}
+	return out
+}
+
+func (s claudeSession) command() string { return claudeCommand }
+
+func (s claudeSession) working() bool { return s.Status == busyStatus }
+
+func (s claudeSession) blocked() (string, bool) {
+	return s.WaitingFor, s.Status == waitingStatus
+}
+
+func (s claudeSession) waitingFor() time.Duration {
+	if s.working() {
+		return 0
+	}
+	return s.StatusFor
+}
+
+// describe reads the transcript into a copy of the session — the deeper look
+// the scan does not take — and lays the whole of it out for the pane.
+func (s claudeSession) describe() []field {
+	readTranscript(transcriptPath(s), &s)
+	return claudeFields(s)
+}
 
 // agentRun is one subagent, as its parent described it when starting it.
 type agentRun struct {
@@ -86,6 +131,7 @@ type sessionFile struct {
 	Name            string `json:"name"`
 	Status          string `json:"status"`
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	WaitingFor      string `json:"waitingFor"`
 	Version         string `json:"version"`
 }
 
@@ -129,12 +175,13 @@ func readSessionFile(path string) (claudeSession, bool) {
 	}
 
 	s := claudeSession{
-		PID:       f.PID,
-		Name:      f.Name,
-		Status:    f.Status,
-		SessionID: f.SessionID,
-		Cwd:       f.Cwd,
-		Version:   f.Version,
+		PID:        f.PID,
+		Name:       f.Name,
+		Status:     f.Status,
+		WaitingFor: f.WaitingFor,
+		SessionID:  f.SessionID,
+		Cwd:        f.Cwd,
+		Version:    f.Version,
 	}
 	if f.StatusUpdatedAt > 0 {
 		s.StatusFor = time.Since(time.UnixMilli(f.StatusUpdatedAt))
@@ -479,6 +526,12 @@ func claudeFields(s claudeSession) []field {
 	add(&what, "session", s.Name)
 	if s.Status != "" {
 		status := s.Status
+		// A blocked session says what it is blocked on, which is the part
+		// worth reading: "waiting" alone would send you to the pane to find
+		// out, and the pane is where you already are.
+		if s.Status == waitingStatus && s.WaitingFor != "" {
+			status = "waiting on " + s.WaitingFor
+		}
 		if s.StatusFor > 0 {
 			status += "  (" + shortDuration(s.StatusFor) + ")"
 		}

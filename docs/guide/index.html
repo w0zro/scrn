@@ -122,11 +122,13 @@
 <p><kbd>a</kbd> starts Claude Code in the selected place, in a shell like any other. scrn reads the session files Claude leaves behind, so the navigator can say more than "claude":</p>
 
 <ul>
-  <li>a turning marker beside a repository — an instance there is working</li>
-  <li>a still <code>○</code> — an instance is idle, probably waiting on you</li>
+  <li>a turning marker — an instance is working</li>
+  <li>a bright <code>◆</code> — blocked mid-turn on something specific: a permission prompt, a question</li>
+  <li>an amber <code>●</code> — finished its turn, waiting for whatever you ask next</li>
+  <li>a quiet <code>○</code> — idle since it started, owed nothing</li>
 </ul>
 
-<p>That mark is what tells you, from across the list, which projects need your attention. The detail pane for a Claude row shows the tail of its transcript.</p>
+<p>That mark is what tells you, from across the list, which projects need your attention — the <code>◆</code> most of all, since answering it resumes work already underway. The detail pane for a Claude row names what a blocked instance is waiting on, and shows the tail of its transcript.</p>
 
 <h2 id="plans"><a href="#plans">Plans</a></h2>
 

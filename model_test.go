@@ -1424,7 +1424,7 @@ func withClaude(command string, sessions map[int]claudeSession) model {
 	m := withProcList(96, 12,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{{PID: 700, PPID: 1, Command: command, Dir: "/p/scrn"}})
-	m.claude = sessions
+	m.agents = asAgents(sessions)
 	return m
 }
 
@@ -1452,9 +1452,9 @@ func TestAWorkingInstanceSetsTheMarkersTurning(t *testing.T) {
 		t.Fatal("setup: nothing should be turning yet")
 	}
 
-	next, cmd := m.Update(claudeMsg{sessions: map[int]claudeSession{
+	next, cmd := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
 		700: {PID: 700, Status: busyStatus},
-	}})
+	})})
 	if cmd == nil || !next.(model).spinning {
 		t.Error("an instance that has started working should set the markers turning")
 	}
@@ -1464,9 +1464,9 @@ func TestTheMarkersStopWhenNothingIsWorking(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{700: {PID: 700, Status: busyStatus}})
 	m.spinning = true
 
-	next, cmd := m.Update(claudeMsg{sessions: map[int]claudeSession{
+	next, cmd := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
 		700: {PID: 700, Status: "idle"},
-	}})
+	})})
 	m = next.(model)
 
 	next, cmd = m.Update(spinMsg{})
@@ -1495,14 +1495,181 @@ func TestATurningMarkerDoesNotChaseTheProcessList(t *testing.T) {
 	}
 }
 
-func TestAWaitingClaudeIsMarkedDifferently(t *testing.T) {
+func TestAFinishedTurnLightsItsRow(t *testing.T) {
+	// Done-and-waiting is the state that most wants to be seen: once an
+	// instance seen working goes idle, the marker fills and the row itself
+	// takes the attention color rather than leaving a stopped spinner to
+	// whisper it.
+	m := withClaude("claude", nil)
+	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: busyStatus},
+	})})
+	next, _ = next.(model).Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: "idle"},
+	})})
+	m = next.(model)
+
+	row := navColumn(m)[1]
+	if !strings.Contains(row, "claude ●") {
+		t.Errorf("row = %q, want a filled marker on a finished turn", row)
+	}
+	styled := false
+	for _, raw := range strings.Split(m.View(), "\n") {
+		if strings.Contains(raw, attnStyle.Render("claude")) {
+			styled = true
+		}
+	}
+	if !styled {
+		t.Error("no row renders the label in the attention style")
+	}
+}
+
+func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
+	// Stopped mid-turn on a specific ask is brighter than done-and-waiting:
+	// that answer resumes work already in flight. It is owed even from an
+	// instance this window never saw working — the ask exists either way —
+	// so no working turn precedes it here.
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
+	})
+
+	row := navColumn(m)[1]
+	if !strings.Contains(row, "claude ◆") {
+		t.Errorf("row = %q, want a diamond on a blocked instance", row)
+	}
+	styled := false
+	for _, raw := range strings.Split(m.View(), "\n") {
+		if strings.Contains(raw, blockedStyle.Render("claude")) {
+			styled = true
+		}
+	}
+	if !styled {
+		t.Error("no row renders the label in the blocked style")
+	}
+
+	// The chord counts it among the waiting, unlike an instance merely idle
+	// since launch.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	if got := next.(model).status; got == "no agent is waiting" {
+		t.Error("the chord passed over a blocked instance")
+	}
+}
+
+func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
+	// A fresh instance at its prompt is waiting, but it has finished nothing
+	// and is owed nothing: hollow marker, no highlight, and the chord passes
+	// it by.
 	m := withClaude("claude", map[int]claudeSession{
 		700: {PID: 700, Name: "scrn-1f", Status: "idle"},
 	})
 
 	row := navColumn(m)[1]
 	if !strings.Contains(row, "claude ○") {
-		t.Errorf("row = %q, want a hollow marker on an idle instance", row)
+		t.Errorf("row = %q, want a hollow marker on an instance idle since launch", row)
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	if got := next.(model).status; got != "no agent is waiting" {
+		t.Errorf("status = %q, want the chord to find nothing owed", got)
+	}
+}
+
+func TestARecycledPidDoesNotInheritAFinishedTurn(t *testing.T) {
+	// The pid leaving the table forgets its history, so whatever takes the
+	// number next does not light up on someone else's turn.
+	m := withClaude("claude", nil)
+	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+		700: {PID: 700, Status: busyStatus},
+	})})
+	next, _ = next.(model).Update(agentsMsg{agents: map[int]agent{}})
+	next, _ = next.(model).Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+		700: {PID: 700, Status: "idle"},
+	})})
+	m = next.(model)
+
+	if row := navColumn(m)[1]; !strings.Contains(row, "claude ○") {
+		t.Errorf("row = %q, want the new holder of the pid quiet", row)
+	}
+}
+
+func TestPrefixPrefixGoesToTheOldestWaitingAgent(t *testing.T) {
+	// ctrl+space ctrl+space is the summons: of everything waiting on its
+	// user, the one waiting longest is the answer owed first.
+	m := withProcList(96, 14,
+		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "claude", Dir: "/p/a"},
+			{PID: 701, PPID: 1, Command: "claude", Dir: "/p/b"},
+		})
+	m.agents = asAgents(map[int]claudeSession{
+		700: {PID: 700, Status: "idle", StatusFor: time.Minute},
+		701: {PID: 701, Status: "idle", StatusFor: time.Hour},
+	})
+	m.worked = map[int]bool{700: true, 701: true}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	m = next.(model)
+
+	r, ok := m.selected()
+	if !ok || r.kind != rowProc || r.node.PID != 701 {
+		t.Errorf("cursor on %+v, want the instance waiting an hour, pid 701", r)
+	}
+}
+
+func TestPrefixReachesOutOfAFocusedShell(t *testing.T) {
+	// The prefix's point is to reach scrn from wherever the keys are going:
+	// a working agent focused elsewhere must not swallow the summons.
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Status: "idle", StatusFor: time.Minute},
+	})
+	m.worked = map[int]bool{700: true}
+	m.terms = map[int]*remoteTerm{900: {pid: 900}}
+	m.focus = 900
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	m = next.(model)
+
+	if m.focus != 0 {
+		t.Error("the chord should leave the shell for the navigator")
+	}
+	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
+		t.Errorf("cursor on %+v, want the waiting agent", r)
+	}
+}
+
+func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Status: "idle", StatusFor: time.Minute},
+	})
+	m.worked = map[int]bool{700: true}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = next.(model)
+
+	if m.pendingPrefix {
+		t.Error("an unbound key should cancel the prefix")
+	}
+	if m.cursor != 0 {
+		t.Error("the cancelling key should be swallowed, not acted on")
+	}
+}
+
+func TestPrefixWithNothingWaitingSaysSo(t *testing.T) {
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Status: busyStatus},
+	})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	next, _ = next.(model).Update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	m = next.(model)
+
+	if m.status != "no agent is waiting" {
+		t.Errorf("status = %q, want it to say nothing is waiting", m.status)
 	}
 }
 
@@ -1541,19 +1708,20 @@ func TestTheMarkerLeavesRoomForTheName(t *testing.T) {
 	}
 }
 
-func TestClaudeDetailIsAskedForOnlyOnAClaudeRow(t *testing.T) {
+func TestAgentDetailIsAskedForOnlyOnAnAgentRow(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{
 		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
 	})
 
 	repo, _ := m.rows[0], m.rows[1]
-	if got := m.claudeFor(repo); got != nil {
-		t.Errorf("claudeFor(repo row) = %+v, want nothing", got)
+	if got := m.agentFor(repo); got != nil {
+		t.Errorf("agentFor(repo row) = %+v, want nothing", got)
 	}
 	m.cursor = 1
 	proc, _ := m.selected()
-	if got := m.claudeFor(proc); got == nil || got.Name != "scrn-1f" {
-		t.Errorf("claudeFor(claude row) = %+v, want the session", got)
+	got, ok := m.agentFor(proc).(claudeSession)
+	if !ok || got.Name != "scrn-1f" {
+		t.Errorf("agentFor(claude row) = %+v, want the session", m.agentFor(proc))
 	}
 }
 
@@ -2128,7 +2296,7 @@ func TestTheSessionsAreReadOnAChainOfTheirOwn(t *testing.T) {
 	// sweep of the machine. Tying them together made a session that had just
 	// started working wait up to a process poll to say so.
 	m := nestedTree(12)
-	next, cmd := m.Update(claudeTickMsg{})
+	next, cmd := m.Update(agentTickMsg{})
 	if cmd == nil {
 		t.Fatal("the session chain should schedule its own next read")
 	}

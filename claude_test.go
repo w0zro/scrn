@@ -257,6 +257,18 @@ func TestClaudeFieldsLeadWithTheSession(t *testing.T) {
 	}
 }
 
+func TestClaudeFieldsNameWhatBlocksASession(t *testing.T) {
+	// "waiting" alone would send you looking for what it is waiting on, and
+	// the pane is where you would look.
+	fs := claudeFields(claudeSession{
+		Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt",
+		StatusFor: 2 * time.Minute,
+	})
+	if v, _ := fieldValue(fs, "status"); v != "waiting on permission prompt  (2m)" {
+		t.Errorf("status = %q, want the ask named", v)
+	}
+}
+
 func TestClaudeFieldsSkipWhatIsUnknown(t *testing.T) {
 	fs := pairsOf(claudeFields(claudeSession{Name: "scrn-1f", Status: "idle"}))
 	for _, f := range fs {

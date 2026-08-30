@@ -230,6 +230,27 @@ func TestAStaleDaemonHoldingShellsIsAskedToUpgrade(t *testing.T) {
 	}
 }
 
+func TestTheDaemonsOwnUpgradeErrorOutlivesTheLimboMessage(t *testing.T) {
+	// An exec that returns comes with a reason, and the limbo message used to
+	// pave over it with a guess. The reason stays; only the offer is added.
+	m := newModel()
+	m.daemon = &session{}
+	m.upgradeAsked, m.daemonStale = true, true
+	m.terms[41] = &remoteTerm{pid: 41}
+
+	next, _ := m.Update(daemonErrorMsg{err: errors.New("upgrade: no such file or directory")})
+	m = next.(model)
+	next, _ = m.Update(upgradeLimboMsg{})
+	m = next.(model)
+
+	if !strings.Contains(m.status, "no such file or directory") {
+		t.Errorf("status = %q, want the daemon's own reason kept", m.status)
+	}
+	if !strings.Contains(m.status, "R replaces it") {
+		t.Errorf("status = %q, want the R offer alongside the reason", m.status)
+	}
+}
+
 func TestTheWindowComesStraightBackAfterAnUpgrade(t *testing.T) {
 	// An upgrading daemon drops every connection on its way through the exec.
 	// That is it working, so the window reconnects rather than reporting it.

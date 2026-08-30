@@ -34,13 +34,12 @@ const navMin = 60
 // constantly, and an lsof sweep is cheap enough to repeat at this rate.
 const procPoll = 2 * time.Second
 
-// claudePoll is how often the Claude sessions are re-read. It is far shorter
-// than the process poll because it is a different kind of work: a handful of
-// small files rather than an lsof sweep of every process on the machine, which
-// is some three orders of magnitude apart. Tying the two together made a
-// session that had started working wait up to a process poll to say so, which
-// is exactly the moment the marker is for.
-const claudePoll = 150 * time.Millisecond
+// The agent poll lives in agent.go with the rest of the seam. It is far
+// shorter than the process poll because it is a different kind of work: a
+// handful of small files rather than an lsof sweep of every process on the
+// machine, which is some three orders of magnitude apart. Tying the two
+// together made a session that had started working wait up to a process poll
+// to say so, which is exactly the moment the marker is for.
 
 // projectEvery is how many process polls pass between repository scans.
 // Repositories appear and disappear far more slowly than processes do.
@@ -53,14 +52,6 @@ const projectEvery = 15
 // list. A process row keeps the every-poll rate: cpu, memory and ports are
 // exactly the numbers that move.
 const repoDetailEvery = 5
-
-// claudeTickMsg drives the Claude session refresh, on a chain of its own for
-// the same reason it has a rate of its own. Exactly one is in flight.
-type claudeTickMsg struct{}
-
-func claudeTick() tea.Cmd {
-	return tea.Tick(claudePoll, func(time.Time) tea.Msg { return claudeTickMsg{} })
-}
 
 // tickMsg drives the refresh loop. Exactly one tick is ever in flight: each
 // one schedules its successor, so a one-off rescan — after a kill, say — can
@@ -88,11 +79,6 @@ type projectsMsg struct {
 type procsMsg struct {
 	procs []Proc
 	err   error
-}
-
-// claudeMsg carries the Claude Code sessions found on disk.
-type claudeMsg struct {
-	sessions map[int]claudeSession
 }
 
 // rowKind distinguishes the two things the navigator lists.
@@ -234,10 +220,20 @@ type model struct {
 	scanning bool
 	rescan   bool
 
-	// claude holds the Claude Code sessions currently advertised, keyed by pid.
-	// It is refreshed with the process list so the navigator can mark the busy
-	// instances without the cursor having to visit them.
-	claude map[int]claudeSession
+	// agents holds every live agent instance currently advertised, of every
+	// kind, keyed by pid. It is refreshed on its own fast poll so the
+	// navigator can mark the working and the waiting without the cursor
+	// having to visit them.
+	agents map[int]agent
+
+	// pendingPrefix says ctrl+space has been pressed and the next key names
+	// what is wanted of scrn; anything unbound cancels it.
+	pendingPrefix bool
+
+	// worked is every agent pid that has been seen working. Waiting means a
+	// finished turn — busy once, idle now — and an instance idle since it
+	// was started has not finished anything and is not owed an answer.
+	worked map[int]bool
 
 	// terms are the shells the daemon is holding, keyed by the pid running
 	// each one. A repository can hold as many as you open; they tell themselves
@@ -271,6 +267,11 @@ type model struct {
 	// It clears when a sessions message arrives that is not stale.
 	upgradeAsked bool
 
+	// upgradeErr is the daemon's own account of an upgrade that failed — an
+	// exec that returned. The limbo message defers to it, because "did not
+	// take the upgrade" is a guess and this is the answer.
+	upgradeErr string
+
 	// wantProject is a project whose processes were just started, holding the
 	// cursor until they are in the tree.
 	wantProject string
@@ -296,14 +297,15 @@ func newModel() model {
 		details:   map[string][]field{},
 		dying:     map[int]dyingProc{},
 		terms:     map[int]*remoteTerm{},
+		worked:    map[int]bool{},
 		// Init sends the first scan, and Init cannot write here to say so.
 		scanning: true,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(scanProjects, scanProcs, scanClaude, connectDaemon(),
-		tick(procPoll), claudeTick())
+	return tea.Batch(scanProjects, scanProcs, scanAgents, connectDaemon(),
+		tick(procPoll), agentTick())
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -338,11 +340,6 @@ func scanProjects() tea.Msg {
 	wg.Wait()
 	return projectsMsg{projects: projects, groups: groups, subs: subs}
 }
-
-// scanClaude reads what the running Claude Code instances say about
-// themselves. Nothing is reported if Claude Code is not installed: the
-// navigator simply has nothing extra to say about those processes.
-func scanClaude() tea.Msg { return claudeMsg{sessions: claudeSessions()} }
 
 // scanProcs reads the working directory of every visible process.
 func scanProcs() tea.Msg {
@@ -439,6 +436,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// One ask failed; the daemon and its shells are fine. Say what it said
 		// and carry on listening.
 		m.status, m.statusErr = msg.err.Error(), true
+		if m.upgradeAsked && strings.HasPrefix(msg.err.Error(), "upgrade: ") {
+			m.upgradeErr = msg.err.Error()
+		}
 		return m, nextEvent(m.daemon)
 
 	case daemonLostMsg:
@@ -490,7 +490,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// build rather than to go: the exec keeps its children and
 				// their ptys, and a state file carries what its emulators
 				// knew. Nothing is lost, so nothing has to be asked twice.
-				m.upgradeAsked = true
+				m.upgradeAsked, m.upgradeErr = true, ""
 				m.daemon.upgrade()
 				m.status, m.statusErr = "carrying the daemon's shells into this build", false
 				limbo = awaitUpgrade()
@@ -499,7 +499,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					plural(len(msg.sessions), "shell", "shells"), true
 			}
 		} else {
-			m.upgradeAsked = false
+			m.upgradeAsked, m.upgradeErr = false, ""
 		}
 
 		// The daemon is the authority on what it holds, so the client takes
@@ -523,7 +523,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The upgrade was asked of a daemon that acted on nothing: too old to
 		// know the word. The fallback costs the shells, so it only offers.
 		if m.daemon != nil && m.daemonStale {
-			m.status, m.statusErr = "the daemon did not take the upgrade; R replaces it, ending its "+
+			why := "the daemon did not take the upgrade"
+			if m.upgradeErr != "" {
+				// The daemon said why its exec returned; that beats the guess.
+				why = m.upgradeErr
+			}
+			m.status, m.statusErr = why+"; R replaces it, ending its "+
 				plural(len(m.terms), "shell", "shells"), true
 		}
 		return m, nil
@@ -584,11 +589,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemon.list()
 		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
-	case claudeTickMsg:
-		return m, tea.Batch(scanClaude, claudeTick())
+	case agentTickMsg:
+		return m, tea.Batch(scanAgents, agentTick())
 
-	case claudeMsg:
-		m.claude = msg.sessions
+	case agentsMsg:
+		m.agents = msg.agents
+		// The transitions are remembered here, because the scan is a snapshot
+		// and cannot know them: an agent seen working that is idle now has
+		// finished a turn. A pid that has left the table is forgotten, so a
+		// recycled number does not inherit the old process's history.
+		for pid, a := range msg.agents {
+			if a.working() {
+				m.worked[pid] = true
+			}
+		}
+		for pid := range m.worked {
+			if _, ok := msg.agents[pid]; !ok {
+				delete(m.worked, pid)
+			}
+		}
 		// An instance that has started working sets the markers turning.
 		if !m.spinning && m.spinNeeded() {
 			m.spinning = true
@@ -692,6 +711,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// ctrl+space is scrn's prefix, and it is taken everywhere — over the
+		// navigator, the filter, a focused shell — because its point is to
+		// reach scrn from wherever the keys are currently going. It carries
+		// one chord for now: another ctrl+space goes to the agent that has
+		// been waiting on its user longest. Anything unbound cancels it and
+		// is swallowed, the way a half-finished gg swallows. The terminal
+		// sends ctrl+space as NUL, which Bubble Tea names ctrl+@.
+		if !msg.Paste {
+			if m.pendingPrefix {
+				m.pendingPrefix = false
+				if msg.Type == tea.KeyCtrlAt {
+					return m, m.jumpWaiting()
+				}
+				return m, nil
+			}
+			if msg.Type == tea.KeyCtrlAt {
+				m.pendingPrefix = true
+				return m, nil
+			}
+		}
+
 		// Reading the transcript takes every key: the reader is looking, not
 		// typing, so none of them are the shell's. What is not a motion is
 		// swallowed, the way a half-finished gg swallows.
@@ -791,10 +831,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			return m, m.start("")
 		case "a":
-			// An agent — a Claude instance scrn owns, so it survives the
-			// window and can be stepped back into, unlike the ones it can
-			// only watch.
-			return m, m.start(claudeCommand)
+			// An agent scrn owns, so it survives the window and can be
+			// stepped back into, unlike the ones it can only watch. The
+			// first kind is the default one.
+			return m, m.start(agentKinds[0].run)
 		case "x":
 			return m, m.askKill(false)
 		case "X":
@@ -914,7 +954,7 @@ func (m *model) filterKey(msg tea.KeyMsg) tea.Cmd {
 		m.typing = false
 		return m.run()
 	case tea.KeyCtrlA:
-		return m.start(claudeCommand)
+		return m.start(agentKinds[0].run)
 	}
 	return nil
 }
@@ -966,6 +1006,28 @@ func (m *model) jump(i int) tea.Cmd {
 		i = len(m.rows) - 1
 	}
 	m.cursor = i
+	m.scrollToCursor()
+	return m.detailCmd()
+}
+
+// jumpWaiting puts the cursor on the agent that has been waiting on its user
+// the longest — the answer owed first. It leaves a focused shell and an open
+// transcript behind, because the point of the chord is to be taken to the
+// agent from wherever you were.
+func (m *model) jumpWaiting() tea.Cmd {
+	best, at := time.Duration(-1), -1
+	for i, r := range m.rows {
+		if a := m.awaiting(r); a != nil && a.waitingFor() > best {
+			best, at = a.waitingFor(), i
+		}
+	}
+	if at < 0 {
+		m.status, m.statusErr = "no agent is waiting", false
+		return nil
+	}
+	m.focus = 0
+	m.scroll = nil
+	m.cursor = at
 	m.scrollToCursor()
 	return m.detailCmd()
 }
@@ -1370,13 +1432,13 @@ func (m model) childCount(r navRow) int {
 }
 
 // spinNeeded reports whether anything on screen is moving: a process on its
-// way out, or a Claude instance at work.
+// way out, or an agent at work.
 func (m model) spinNeeded() bool {
 	if len(m.dying) > 0 {
 		return true
 	}
 	for _, r := range m.rows {
-		if s := m.claudeFor(r); s != nil && s.Status == busyStatus {
+		if a := m.agentFor(r); a != nil && a.working() {
 			return true
 		}
 	}
@@ -2086,7 +2148,7 @@ func (m model) refreshDetailCmd() tea.Cmd {
 		return nil
 	}
 	return loadDetail(r, m.placeCount(r), len(m.grouped[r.project.Path]),
-		m.claudeFor(r), m.namesIn(r.project.Path))
+		m.agentFor(r), m.namesIn(r.project.Path))
 }
 
 // holds reports whether a pid is anywhere in the run this row stands for.
@@ -2099,19 +2161,39 @@ func (r navRow) holds(pid int) bool {
 	return false
 }
 
-// claudeFor returns the Claude Code session a row is running, if it is one.
-// The command name is checked as well as the session file, because a session
-// file can outlive its process and a reused pid would otherwise be dressed up
-// as a Claude instance.
-func (m model) claudeFor(r navRow) *claudeSession {
-	if r.kind != rowProc || r.node.Command != "claude" {
+// agentFor returns the agent instance a row is running, if it is one. The
+// command name is checked as well as what the agent advertises, because what
+// it advertises can outlive its process and a reused pid would otherwise be
+// dressed up as an agent.
+func (m model) agentFor(r navRow) agent {
+	if r.kind != rowProc {
 		return nil
 	}
-	s, ok := m.claude[r.node.PID]
-	if !ok {
+	a, ok := m.agents[r.node.PID]
+	if !ok || a.command() != r.node.Command {
 		return nil
 	}
-	return &s
+	return a
+}
+
+// awaiting returns the agent a row is running when it is waiting on its user:
+// done with a turn it was seen working, or blocked mid-turn on a specific
+// ask. An instance idle since it was started has not finished a turn and is
+// not owed an answer — but a blocked one is owed its answer regardless of
+// history, because the ask exists whether or not this window watched the
+// work that raised it.
+func (m model) awaiting(r navRow) agent {
+	a := m.agentFor(r)
+	if a == nil || a.working() {
+		return nil
+	}
+	if _, ok := a.blocked(); ok {
+		return a
+	}
+	if !m.worked[r.node.PID] {
+		return nil
+	}
+	return a
 }
 
 // detailCmd inspects the selected row unless it has been inspected already.
@@ -2124,7 +2206,7 @@ func (m model) detailCmd() tea.Cmd {
 		return nil
 	}
 	return loadDetail(r, m.placeCount(r), len(m.grouped[r.project.Path]),
-		m.claudeFor(r), m.namesIn(r.project.Path))
+		m.agentFor(r), m.namesIn(r.project.Path))
 }
 
 // placeCount is how many process trees a row's place holds — for a
