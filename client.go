@@ -190,8 +190,10 @@ func startDaemon() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	// Nothing waits on it, so let the process go rather than holding a zombie.
-	go func() { _ = cmd.Process.Release() }()
+	// Wait on it from the side. Release only drops the handle — on unix it
+	// reaps nothing — so a daemon that later died would sit as a zombie
+	// under this window for as long as the window stayed open.
+	go func() { _ = cmd.Wait() }()
 	return nil
 }
 
