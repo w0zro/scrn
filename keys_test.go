@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"testing"
 	"time"
 
@@ -17,12 +18,16 @@ func bytesFor(t *testing.T, msg tea.KeyPressMsg, modes ...string) string {
 	t.Helper()
 
 	e := vt.NewSafeEmulator(80, 24)
-	defer e.Close()
 
 	// The emulator blocks writing its answers until they are read, which is
-	// what term.reply does in earnest.
+	// what term.reply does in earnest. The teardown is term.close's too: the
+	// emulator's own close races a concurrent read on its closed flag, so
+	// the pipe goes first, the reader is waited out, and only then may the
+	// emulator close beside nobody.
 	out := make(chan string, 8)
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		buf := make([]byte, 128)
 		for {
 			n, err := e.Read(buf)
@@ -32,6 +37,13 @@ func bytesFor(t *testing.T, msg tea.KeyPressMsg, modes ...string) string {
 			if err != nil {
 				return
 			}
+		}
+	}()
+	defer e.Close()
+	defer func() {
+		if pw, ok := e.InputPipe().(*io.PipeWriter); ok {
+			_ = pw.CloseWithError(io.EOF)
+			<-readerDone
 		}
 	}()
 

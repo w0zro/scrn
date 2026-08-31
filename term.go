@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -70,6 +71,14 @@ type terminal struct {
 	// teardown: a shell ended by hand is torn down again when its output stops.
 	done    chan struct{}
 	closing sync.Once
+
+	// pumpDone and replyDone close when their goroutines return. The
+	// teardown waits them both out before closing the emulator, because the
+	// emulator's close is not safe beside its readers and writers — the
+	// library races on its own closed flag — and outliving them is the one
+	// way to be beside neither.
+	pumpDone  chan struct{}
+	replyDone chan struct{}
 
 	// sendMu is held while input is being handed to the emulator, and gone is
 	// set under it before the emulator is closed. Together they are what stops
@@ -199,12 +208,19 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 // forked is waited on through its cmd and one adopted across an exec has no
 // cmd to wait through.
 func (t *terminal) start(wait func()) {
+	t.pumpDone, t.replyDone = make(chan struct{}), make(chan struct{})
 	go func() {
 		wait()
 		close(t.done)
 	}()
-	go t.pump()
-	go t.reply()
+	go func() {
+		defer close(t.pumpDone)
+		t.pump()
+	}()
+	go func() {
+		defer close(t.replyDone)
+		t.reply()
+	}()
 }
 
 // pollable moves the pty master onto a duplicate in non-blocking mode, which
@@ -548,7 +564,11 @@ func (t *terminal) close() {
 		// behind reply — and the kernel does not free that write when the
 		// shell dies. Closing the pty is what frees it: reply's write comes
 		// back with the close, and reply keeps draining so the send finishes.
+		// Under resizeMu, so a resize mid-flight is not told the pane changed
+		// on a file being torn out from under it.
+		t.resizeMu.Lock()
 		_ = t.pty.Close()
+		t.resizeMu.Unlock()
 
 		// Now stop taking input, and wait out anything already inside send:
 		// past this the emulator is going, and nothing may be left holding it.
@@ -556,6 +576,16 @@ func (t *terminal) close() {
 		t.gone = true
 		t.sendMu.Unlock()
 
+		// The emulator's own close races its readers, so they go first. The
+		// input pipe closed underneath it is what ends reply — the flag the
+		// emulator would set is the racy part, and the pipe is not — and the
+		// closed pty has already ended pump. Only once both are heard from is
+		// the emulator's close beside nobody.
+		if pw, ok := t.vt.InputPipe().(*io.PipeWriter); ok {
+			_ = pw.CloseWithError(io.EOF)
+			<-t.replyDone
+		}
+		<-t.pumpDone
 		_ = t.vt.Close()
 	})
 }
