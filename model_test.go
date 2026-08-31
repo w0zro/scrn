@@ -3481,3 +3481,22 @@ func TestAWideNavigatorInANarrowWindowDoesNotPanic(t *testing.T) {
 		t.Errorf("a pane with no room was drawn anyway:\n%s", view)
 	}
 }
+
+func TestTheJumpToAWaitingAgentLeavesTheFilter(t *testing.T) {
+	// The chord means "from anywhere". While typing, the rows are the
+	// query's answers — places alone until a query lands — and a waiting
+	// agent used to be invisible to it: the chord said nothing was owed
+	// while a diamond stood in plain sight.
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
+	})
+	m = press(m, "/")
+
+	m = chordKey(m, tea.KeyEnter)
+	if m.status == "no agent is waiting" {
+		t.Error("the chord searched only the filter's answers")
+	}
+	if m.typing {
+		t.Error("the jump should be the end of looking")
+	}
+}

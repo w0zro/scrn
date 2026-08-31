@@ -476,6 +476,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case daemonLostMsg:
 		m.daemon, m.daemonErr = nil, msg.err.Error()
 		m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
+		m.scroll = nil // the transcript went with the daemon holding it
 		if m.upgradeAsked {
 			// An upgrading daemon drops every connection on its way through
 			// the exec. That is it working, not it going away, so the window
@@ -1182,6 +1183,14 @@ func (m *model) jump(i int) tea.Cmd {
 // into its shell; one it can only watch gets the cursor instead, which is as
 // far as enter could take it either.
 func (m *model) jumpWaiting() tea.Cmd {
+	// From the filter, the jump is the end of looking: the rows while typing
+	// are the query's answers — places alone until a query lands — and the
+	// waiting agent lives in the whole list, which the chord means to reach
+	// from anywhere.
+	if m.typing {
+		m.typing = false
+		m.setFilter("")
+	}
 	at := m.cursor
 	if t := m.focused(); t != nil {
 		for i, r := range m.rows {
