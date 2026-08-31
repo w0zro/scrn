@@ -4,8 +4,10 @@ import (
 	"errors"
 	"net"
 	"os"
+	sig "os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -24,6 +26,11 @@ type daemon struct {
 	path     string
 	started  time.Time
 	idleFrom time.Time
+
+	// stopping holds the process open while a stand-down runs: closing the
+	// listener is stop's first move, and accept returning on it must not
+	// outrun the shells being hung up.
+	stopping sync.WaitGroup
 }
 
 // client is one connected window, and the shells it is watching.
@@ -73,6 +80,17 @@ func runDaemon() error {
 	if err != nil {
 		return err
 	}
+	// SIGTERM is how an outsider ends the daemon — the replace flow sends
+	// it. The shells still get the hangup, the grace, and the kill, rather
+	// than being orphaned by a bare exit.
+	term := make(chan os.Signal, 1)
+	sig.Notify(term, syscall.SIGTERM)
+	go func() {
+		<-term
+		d.stop()
+		os.Exit(0)
+	}()
+
 	go d.watchIdle()
 	return d.accept()
 }
@@ -116,7 +134,11 @@ func (d *daemon) accept() error {
 	for {
 		c, err := d.listener.Accept()
 		if err != nil {
-			return nil // the listener was closed, which is how this ends
+			// The listener closing is how a stand-down begins, not how it
+			// ends: the shells are still being hung up, and returning is what
+			// lets the process exit. Wait the stand-down out.
+			d.stopping.Wait()
+			return nil
 		}
 		go d.serve(newConn(c))
 	}
@@ -237,7 +259,11 @@ func (d *daemon) handle(cl *client, m message) {
 		// shells goes only when told outright, because the work in it is why
 		// it exists and ending that is not the daemon's decision.
 		if m.Force {
-			go d.stop()
+			d.stopping.Add(1)
+			go func() {
+				defer d.stopping.Done()
+				d.stop()
+			}()
 			return
 		}
 		d.mu.Lock()

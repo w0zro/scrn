@@ -570,3 +570,59 @@ func TestAWindowThatStopsReadingBlocksOnlyItself(t *testing.T) {
 		}
 	}
 }
+
+func TestAForcedStandDownFinishesBeforeTheDaemonCanGo(t *testing.T) {
+	// The stand-down ran beside the exit rather than before it: closing the
+	// listener made accept return, and a real daemon process was gone while
+	// its shells were still being hung up — or before they were.
+	t.Setenv("SHELL", "/bin/sh")
+	dir, err := os.MkdirTemp("/tmp", "scrnd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	t.Setenv("SCRN_SOCKET", sock)
+
+	d, err := listenDaemon(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := make(chan struct{})
+	go func() {
+		_ = d.accept()
+		close(accepted)
+	}()
+
+	c, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := newConn(c)
+	defer conn.close()
+	conn.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+	var pid int
+	deadline := time.Now().Add(5 * time.Second)
+	for pid == 0 {
+		m, err := conn.readBy(deadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Kind == kindOpened {
+			pid = m.PID
+		}
+	}
+
+	conn.write(message{Kind: kindStand, Force: true})
+	select {
+	case <-accepted:
+	case <-time.After(hangupGrace + 5*time.Second):
+		t.Fatal("accept never came back from the stand-down")
+	}
+
+	// Accept returning is the daemon's leave to exit; by then the shell must
+	// already be gone, not merely asked to go.
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Error("the daemon was free to exit while its shell still ran")
+	}
+}
