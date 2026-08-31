@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -420,7 +421,7 @@ func (s *session) capture(paneID string) {
 		return
 	}
 	meta := lines[len(lines)-1]
-	rows := lines[:len(lines)-1]
+	rows := selfContained(lines[:len(lines)-1])
 
 	f := strings.SplitN(meta, " ", 9)
 	if len(f) < 8 {
@@ -452,6 +453,44 @@ func (s *session) capture(paneID string) {
 		title: title,
 		sb:    sb, mouse: mouse, alt: alt,
 	}
+}
+
+// sgrSeq matches one SGR sequence, which is the only styling capture-pane
+// emits.
+var sgrSeq = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+
+// selfContained gives every row its whole styling. capture-pane writes a
+// stream: an attribute is said once and runs until changed, across line
+// breaks — a full-width background says nothing at all on the lines after
+// its first. scrn cuts, pads, resets and recomposes rows one by one, so
+// each must carry its own state: the pen left open at the end of one row
+// is restated at the head of the next.
+func selfContained(rows []string) []string {
+	pen := ""
+	for i, row := range rows {
+		if pen != "" {
+			rows[i] = pen + row
+		}
+		for _, seq := range sgrSeq.FindAllString(row, -1) {
+			pen = writePen(pen, seq)
+		}
+	}
+	return rows
+}
+
+// writePen is the pen after one more SGR sequence. A reset empties it;
+// anything else is kept in order, because replaying the pen as it was said
+// is what makes the restatement true. A leading zero is a reset with more
+// to say, so the rest of it starts a fresh pen.
+func writePen(pen, seq string) string {
+	params := seq[2 : len(seq)-1]
+	switch {
+	case params == "" || params == "0":
+		return ""
+	case strings.HasPrefix(params, "0;"):
+		return "\x1b[" + params[2:] + "m"
+	}
+	return pen + seq
 }
 
 // padScreen makes capture output into the grid the client's cursor-cutting
@@ -760,6 +799,11 @@ func (s *session) history(pid int) {
 		out, err := s.run("capture-pane", "-e", "-p", "-t", p.id, "-S", "-", "-E", "-1")
 		if err != nil {
 			out = ""
+		}
+		if out != "" {
+			// The reader's window lands anywhere in this; every line has to
+			// stand alone the same way a screen's rows do.
+			out = strings.Join(selfContained(strings.Split(out, "\n")), "\n")
 		}
 		s.events <- historyMsg{pid: pid, history: out}
 	}()

@@ -66,3 +66,42 @@ func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
 		t.Errorf("dir = %q, want the fallback to the working directory", msg.sessions[0].Dir)
 	}
 }
+
+func TestAColorThatSpansRowsIsRestatedOnEachOne(t *testing.T) {
+	// capture-pane says an attribute once and lets it run across lines: a
+	// full-width background says nothing at all on the lines after its
+	// first. Every row has to stand alone, because scrn cuts, pads and
+	// resets them one by one.
+	rows := selfContained([]string{
+		"\x1b[48;2;20;80;70mrow one",
+		"row two",
+		"\x1b[mrow three",
+		"row four",
+	})
+	if rows[1] != "\x1b[48;2;20;80;70mrow two" {
+		t.Errorf("row two = %q, want the background restated", rows[1])
+	}
+	if rows[3] != "row four" {
+		t.Errorf("row four = %q, want nothing after the reset", rows[3])
+	}
+}
+
+func TestAResetWithMoreToSayStartsAFreshPen(t *testing.T) {
+	rows := selfContained([]string{
+		"\x1b[42mgreen \x1b[0;31mthen red",
+		"still red",
+	})
+	if rows[1] != "\x1b[31mstill red" {
+		t.Errorf("row two = %q, want only the red carried", rows[1])
+	}
+}
+
+func TestPartialStylingAccumulatesInThePen(t *testing.T) {
+	rows := selfContained([]string{
+		"\x1b[1m\x1b[42mbold on green",
+		"carries both",
+	})
+	if rows[1] != "\x1b[1m\x1b[42mcarries both" {
+		t.Errorf("row two = %q, want bold and background both restated", rows[1])
+	}
+}
