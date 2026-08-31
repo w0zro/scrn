@@ -1848,6 +1848,21 @@ func TestPlaceAtPrefersTheInnermostPlace(t *testing.T) {
 	}
 }
 
+func TestPrefixQQuitsFromAFocusedShell(t *testing.T) {
+	// Leaving is q's word, and the prefix carries it out of a shell the
+	// letter would otherwise type into.
+	m := twoShells(700)
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	_, cmd := next.(model).Update(typed("q"))
+
+	if cmd == nil {
+		t.Fatal("^space q should quit, got no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("^space q produced %T, want tea.QuitMsg", cmd())
+	}
+}
+
 func TestPrefixSlashOpensTheFilterFromAShell(t *testing.T) {
 	m := chord(twoShells(700), "/")
 

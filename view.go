@@ -256,6 +256,7 @@ func (m model) keysModal(rows int) []string {
 		{"^spc s a r", "shell · agent · run, here"},
 		{"^spc ^spc", "back to the last shell"},
 		{"^spc enter", "the next waiting agent"},
+		{"^spc q", "quit, even from a shell"},
 		{"^spc ?", "these keys"},
 		{"R", "replace the daemon"},
 		{"q", "quit"},

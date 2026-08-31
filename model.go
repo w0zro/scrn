@@ -790,8 +790,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// keep their letters' meanings: another ctrl+space toggles between
 		// this shell and the one viewed before it, enter goes to the next
 		// agent waiting on its user, / finds, j and k step through the
-		// shells scrn holds, s a r act where the keys are, ? shows the keys.
-		// Anything unbound cancels it and is swallowed, the way a
+		// shells scrn holds, s a r act where the keys are, q quits, ? shows
+		// the keys. Anything unbound cancels it and is swallowed, the way a
 		// half-finished gg swallows.
 		if m.pendingPrefix {
 			m.pendingPrefix = false
@@ -815,6 +815,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startHere(agentKinds[0].run)
 			case "r":
 				return m, m.runHere()
+			case "q":
+				// Leaving is q's word alone, and the prefix carries it out
+				// of a focused shell the letter would otherwise type into.
+				return m, tea.Quit
 			}
 			return m, nil
 		}
