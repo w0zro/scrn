@@ -9,7 +9,8 @@ curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh
 ```
 
 That fetches the build for this machine, checks it against the release's
-checksums, and puts it in `~/.local/bin`. `SCRN_INSTALL_DIR` says where else to
+checksums, and puts it in `~/.local/bin`, with the manpage beside it —
+`man scrn` is the reference. `SCRN_INSTALL_DIR` says where else to
 put it and `SCRN_VERSION` names a release other than the latest.
 
 Builds are published for macOS and Linux, on both arm64 and amd64. The Linux

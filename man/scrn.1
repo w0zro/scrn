@@ -54,6 +54,12 @@ listening means nothing is held, which is an empty list, not an error.
 shows this list inside scrn.
 .SS In the navigator
 .TP
+.B "j k"
+move; the arrows and tab move too
+.TP
+.B "gg G"
+jump to the top and the bottom
+.TP
 .B s
 open a shell at the selected place
 .TP
@@ -87,6 +93,9 @@ kill the selected process and everything under it
 .TP
 .B R
 replace the daemon outright, ending the shells it holds
+.TP
+.B q
+quit the window; the shells keep running
 .PP
 Every kill asks first \(em
 .BR x ,
@@ -108,19 +117,20 @@ The chords keep their letters' meanings:
 .B j
 and
 .B k
-after the prefix attach to the next and previous shell,
+after the prefix attach to the next and previous shell, another
+.B ctrl\-space
+toggles back to the shell viewed before,
+.B enter
+goes to the next agent waiting on you,
 .B /
 opens the filter,
 .BR s ,
 .B a
 and
 .B r
-act where you are,
+act where you are, and
 .B ?
-shows the keys, and
-.B ctrl\-space
-again jumps to the agent that has been waiting on you longest. Anything
-unbound cancels the prefix.
+shows the keys. Anything unbound cancels the prefix.
 .PP
 Scroll up to read what has scrolled away;
 .B j
@@ -139,6 +149,9 @@ mid\-turn on a permission prompt or a question, a filled dot (\[u25CF])
 when it has finished its turn, a hollow dot (\[u25CB]) when it has been
 idle since it started. The diamond is the one worth crossing the room
 for: answering it resumes work already underway.
+.B ctrl\-space enter
+goes to the next agent waiting on you, from wherever the keys were
+going; pressed again it continues around the waiting ones in turn.
 .SH PLANS
 A project writes down its usual processes in
 .IR .scrn ,

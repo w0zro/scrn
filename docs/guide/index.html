@@ -59,7 +59,7 @@
     <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
     <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">[copy]</button>
   </div>
-  <p>The script fetches the release built for this machine, verifies it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code>. Two variables override it:</p>
+  <p>The script fetches the release built for this machine, verifies it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code> with the manpage beside it — <code class="chip">man scrn</code> has all of this in reference order. Two variables override it:</p>
   <div class="def mb14">
     <div class="def-row"><span class="term w170">SCRN_INSTALL_DIR</span><span class="desc">install somewhere else</span></div>
     <div class="def-row"><span class="term w170">SCRN_VERSION</span><span class="desc">a release other than the latest</span></div>
@@ -174,8 +174,9 @@
 <section id="daemon">
   <div class="kicker">§ 9</div>
   <h2>The daemon</h2>
-  <p>The daemon is the same <code>scrn</code> binary, started by the first window that finds none listening. It owns the ptys, holds the transcripts, and serves every window over a unix socket at <code class="chip">~/.local/state/scrn/scrnd-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides). One daemon per user, for all projects.</p>
-  <p>Holding no shells and watched by no window for a minute, it exits. A window that loses its daemon says so and reconnects when one is back.</p>
+  <p>The daemon is the same <code>scrn</code> binary, started by the first window that finds none listening. It owns the ptys, holds the transcripts, and serves every window over a unix socket at <code class="chip">~/.local/state/scrn/scrnd-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). One daemon per user, for all projects.</p>
+  <p>Holding no shells and watched by no window for a minute, it exits. A window that loses its daemon says so and reconnects when one is back. A daemon that dies leaves its last words in <code class="chip">scrnd.log</code>, beside the socket.</p>
+  <p><code class="chip">scrn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No daemon listening is an empty list, not an error.</p>
 </section>
 
 <section id="upgrading">
