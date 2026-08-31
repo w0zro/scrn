@@ -789,6 +789,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// A pending kill takes the next key, whatever it is — before even
+		// the prefix, or the warning lies: routed later, a prefix excursion
+		// could carry the armed kill along for minutes and hand it to an
+		// enter meant to open something.
+		if m.pendingKill != nil {
+			req := m.pendingKill
+			m.pendingKill = nil
+			switch msg.String() {
+			case "x", "X", "y", "enter":
+				return m, m.runKill(req)
+			default:
+				m.status, m.statusErr = "kill cancelled", false
+				return m, nil
+			}
+		}
+
 		// ctrl+space is scrn's prefix, and it is taken everywhere — over the
 		// navigator, the filter, a focused shell — because its point is to
 		// reach scrn from wherever the keys are currently going. The chords
@@ -885,21 +901,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.jump(0)
 			}
 			return m, nil
-		}
-
-		// A pending kill takes the next key, whatever it is: no other binding
-		// should fire while a confirmation is on screen.
-		if m.pendingKill != nil {
-			req := m.pendingKill
-			switch msg.String() {
-			case "x", "X", "y", "enter":
-				m.pendingKill = nil
-				return m, m.runKill(req)
-			default:
-				m.pendingKill = nil
-				m.status, m.statusErr = "kill cancelled", false
-				return m, nil
-			}
 		}
 
 		m.status = ""

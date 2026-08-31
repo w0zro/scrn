@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestSignalRefusesDangerousTargets(t *testing.T) {
@@ -163,5 +165,28 @@ func TestAProcessAlreadyGoneIsNotAFailure(t *testing.T) {
 	}
 	if got := ended(results); got != "closed " {
 		t.Errorf("ended = %q, want the outcome read as done", got)
+	}
+}
+
+func TestTheKillConfirmationOutranksThePrefix(t *testing.T) {
+	// "Takes the next key, whatever it is" has to include the prefix, or an
+	// excursion — into a shell, around, back — carries the armed kill along
+	// and hands it to an enter meant to open something.
+	m := withProcList(90, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "sleep", Dir: "/tmp"}})
+	m.cursor = 1
+	m = press(m, "x")
+	if m.pendingKill == nil {
+		t.Fatal("x on a process did not arm the confirmation")
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	m = next.(model)
+	if m.pendingKill != nil {
+		t.Error("the prefix slipped past an armed kill and left it armed")
+	}
+	if m.pendingPrefix {
+		t.Error("the key that cancelled the kill went on to arm the prefix")
 	}
 }
