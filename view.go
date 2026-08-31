@@ -215,7 +215,7 @@ func (m model) hintLines(width int) []string {
 	case m.focused() != nil:
 		return append(
 			hintBlock("shell", width, warnStyle),
-			hintBlock("ctrl+o back to the list", width, hintStyle)...)
+			hintBlock("^spc o back to the list", width, hintStyle)...)
 
 	case m.status != "":
 		style := itemStyle
@@ -250,7 +250,7 @@ func (m model) keysModal(rows int) []string {
 		{"space · -", "fold · unfold all"},
 		{".", "all · running"},
 		{"gg · G", "top · bottom"},
-		{"ctrl+o", "out of a shell"},
+		{"^spc o", "out of a shell"},
 		{"^spc j k", "next · previous shell"},
 		{"^spc /", "find from anywhere"},
 		{"^spc s a r", "shell · agent · run, here"},

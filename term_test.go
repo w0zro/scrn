@@ -126,17 +126,14 @@ func TestTheShellRunsInThePaneAndTheNavigatorRemains(t *testing.T) {
 	}
 }
 
-func TestCtrlOLeavesTheShellRunning(t *testing.T) {
-	m := openShellIn(t, repoModel(), "/tmp")
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+func TestPrefixOLeavesTheShellRunning(t *testing.T) {
+	m := chord(openShellIn(t, repoModel(), "/tmp"), "o")
 
 	if m.focused() != nil {
-		t.Error("ctrl+o should hand the keys back to the navigator")
+		t.Error("^space o should hand the keys back to the navigator")
 	}
 	if len(m.terms) != 1 {
-		t.Error("ctrl+o should leave the shell running, not end it")
+		t.Error("^space o should leave the shell running, not end it")
 	}
 }
 
@@ -208,8 +205,7 @@ func TestEnterOnAShellStepsBackIntoIt(t *testing.T) {
 	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "sh", Dir: "/tmp"}}})
 	m = next.(model)
 
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chord(m, "o")
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
@@ -241,9 +237,7 @@ func TestAnUnfocusedShellStillShowsInThePane(t *testing.T) {
 	pid := m.focus
 
 	next, _ := m.Update(procsMsg{procs: []Proc{{PID: pid, PPID: 1, Command: "sh", Dir: "/tmp"}}})
-	m = next.(model)
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chord(next.(model), "o")
 
 	if !strings.Contains(paneText(m), "still-visible") {
 		t.Errorf("the pane should still show the shell under the cursor:\n%s", paneText(m))
@@ -648,8 +642,7 @@ func TestKillingAShellScrnHoldsGoesThroughTheDaemon(t *testing.T) {
 	m = next.(model)
 
 	// Leave the shell first, or X is just a letter typed into it.
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chord(m, "o")
 	m.cursor = 1
 
 	next, _ = m.Update(typed("X"))
@@ -1071,8 +1064,7 @@ func TestXOnARepoStopsEverythingRunningInIt(t *testing.T) {
 
 	// Opening one by hand steps into it, so come back out before pressing a
 	// key meant for the list.
-	next, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+	m = chord(m, "o")
 
 	// The kill covers what the scan has seen, so let it see both shells.
 	procs := make([]Proc, 0, 2)
@@ -1701,11 +1693,8 @@ func TestReadingSwallowsWhatIsNotAMotion(t *testing.T) {
 	}
 }
 
-func TestCtrlOWhileReadingGoesAllTheWayOut(t *testing.T) {
-	m := readingBack(t)
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	m = next.(model)
+func TestPrefixOWhileReadingGoesAllTheWayOut(t *testing.T) {
+	m := chord(readingBack(t), "o")
 
 	if m.scroll != nil || m.focus != 0 {
 		t.Errorf("scroll = %v focus = %d, want the reading and the shell both left", m.scroll, m.focus)

@@ -130,19 +130,19 @@ clears the query, and
 abandons the look, putting things back as they were: the cursor on the
 row it left, or the keys in the shell they came from.
 .SS In a shell
-Keystrokes go to the shell. scrn keeps two keys for itself:
-.TP
-.B ctrl\-o
-step back out to the navigator
+Keystrokes go to the shell. scrn keeps one key for itself:
 .TP
 .B ctrl\-space
-the prefix; it reaches scrn from anywhere, even a focused shell
+the prefix; it reaches scrn from anywhere, even a focused shell, and
+every other keystroke belongs to the pane
 .PP
 The chords keep their letters' meanings:
+.B o
+steps back out to the navigator,
 .B j
 and
 .B k
-after the prefix attach to the next and previous shell, another
+attach to the next and previous shell, another
 .B ctrl\-space
 toggles back to the shell viewed before,
 .B enter

@@ -790,9 +790,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// keep their letters' meanings: another ctrl+space toggles between
 		// this shell and the one viewed before it, enter goes to the next
 		// agent waiting on its user, / finds, j and k step through the
-		// shells scrn holds, s a r act where the keys are, q quits, ? shows
-		// the keys. Anything unbound cancels it and is swallowed, the way a
-		// half-finished gg swallows.
+		// shells scrn holds, s a r act where the keys are, o steps out to
+		// the navigator, q quits, ? shows the keys. Anything unbound cancels
+		// it and is swallowed, the way a half-finished gg swallows.
 		if m.pendingPrefix {
 			m.pendingPrefix = false
 			if isPrefix(msg) {
@@ -815,6 +815,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startHere(agentKinds[0].run)
 			case "r":
 				return m, m.runHere()
+			case "o":
+				// Out to the navigator from wherever the keys were — a
+				// shell, the transcript, the filter mid-word. Out means all
+				// the way out.
+				m.scroll = nil
+				m.typing = false
+				m.setFocus(0)
+				return m, m.detailCmd()
 			case "q":
 				// Leaving is q's word alone, and the prefix carries it out
 				// of a focused shell the letter would otherwise type into.
@@ -834,14 +842,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.scrollKey(msg)
 		}
 
-		// A focused shell takes every keystroke except the one that leaves it.
-		// That has to come before everything else: ctrl+c belongs to whatever
-		// is running in the shell, not to scrn.
+		// A focused shell takes every keystroke: ctrl+c, ctrl+o, all of it
+		// belongs to whatever is running in the shell, not to scrn. The one
+		// way out is the prefix, which was taken above.
 		if t := m.focused(); t != nil {
-			if msg.String() == "ctrl+o" {
-				m.setFocus(0)
-				return m, m.detailCmd()
-			}
 			m.daemon.key(t.pid, keyEvent(msg))
 			return m, nil
 		}
@@ -986,12 +990,6 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.move(-1)
 	case "down", "ctrl+n":
 		return m.move(1)
-
-	case "ctrl+o":
-		// The one key a shell needs, so that stepping into one and back out
-		// does not depend on where the keys happened to be going.
-		m.typing = false
-		return m.detailCmd()
 
 	case "esc":
 		// Abandoning the look is not acting on anything, so it puts things
@@ -1869,12 +1867,6 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 		// The bottom of the transcript is the live screen, so going to the
 		// end and leaving are the same place.
 		m.scroll = nil
-	case "ctrl+o":
-		// Out means all the way out: the reading ends and so does being in
-		// the shell.
-		m.scroll = nil
-		m.setFocus(0)
-		return m.detailCmd()
 	case "up", "k":
 		m.scrollBy(1)
 	case "down", "j":

@@ -99,13 +99,14 @@ func TestAnArrowFollowsTheModeTheProgramAskedFor(t *testing.T) {
 	}
 }
 
-func TestCtrlOIsNotSentOnToTheShell(t *testing.T) {
-	// It is scrn's one reserved key, so the shell must never see it.
+func TestCtrlOIsSentOnToTheShell(t *testing.T) {
+	// scrn reserves nothing but the prefix, so ctrl+o belongs to the program
+	// in the pane, emacs and its kin included.
 	m := openShellIn(t, repoModel(), "/tmp")
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 
-	if next.(model).focused() != nil {
-		t.Error("ctrl+o should be taken by scrn rather than passed through")
+	if next.(model).focused() == nil {
+		t.Error("ctrl+o should go to the shell, not step out of it")
 	}
 }
 
