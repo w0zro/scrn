@@ -1365,7 +1365,7 @@ func TestWhatAnActionReportsIsVisibleWhileTyping(t *testing.T) {
 }
 
 func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
-	// ctrl+a reports and leaves the typing alone, so the search carries on.
+	// Typing a letter clears the last report and carries the search on.
 	m := lookingUp(t, "alpha")
 	m.status, m.statusErr = "something about the last one", false
 
@@ -1886,5 +1886,19 @@ func TestRacingResizesLeaveThePtyAndTheEmulatorAgreed(t *testing.T) {
 	if int(ws.Cols) != term.vt.Width() || int(ws.Rows) != term.vt.Height() {
 		t.Errorf("pty at %dx%d, emulator at %dx%d: the shell and the pane hold different grids",
 			ws.Cols, ws.Rows, term.vt.Width(), term.vt.Height())
+	}
+}
+
+func TestStartingAnAgentFromTheFilterEndsTheTyping(t *testing.T) {
+	// ctrl+r and ctrl+x end the looking; ctrl+a used to leave it on. The
+	// shell it opened took the keys — and handed them back to the filter the
+	// moment it was gone, with q typing rather than quitting.
+	m := lookingUp(t, "alpha")
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	m = next.(model)
+
+	if m.typing {
+		t.Error("starting an agent should be the end of looking for the place to start it")
 	}
 }

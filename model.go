@@ -1054,6 +1054,10 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.typing = false
 		return m.run()
 	case "ctrl+a":
+		// The end of looking, the same as ctrl+r: left set, the typing
+		// outlives the filter and quietly takes the keys back the moment
+		// the shell it opened is gone.
+		m.typing = false
 		return m.start(agentKinds[0].run)
 	case "ctrl+x":
 		// Killing what you found is also the end of looking for it. The
@@ -1198,6 +1202,7 @@ func (m *model) jumpWaiting() tea.Cmd {
 			return nil
 		}
 		m.scroll = nil
+		m.typing = false // the cursor is the answer now, not the query
 		m.setFocus(0)
 		m.cursor = i
 		m.scrollToCursor()
