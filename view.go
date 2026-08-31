@@ -261,7 +261,7 @@ func (m model) keysModal(rows int) []string {
 		{"space · -", "fold · unfold all"},
 		{".", "all · running"},
 		{"gg · G", "top · bottom"},
-		{"^spc o", "out of a shell"},
+		{"^spc n", "out to the navigator"},
 		{"^spc j k", "next · previous shell"},
 		{"^spc /", "find from anywhere"},
 		{"^spc s a r A", "shell · agent · run · continue, here"},

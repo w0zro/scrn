@@ -765,8 +765,8 @@ func TestReadingSwallowsWhatIsNotAMotion(t *testing.T) {
 	}
 }
 
-func TestPrefixOWhileReadingGoesAllTheWayOut(t *testing.T) {
-	m := chord(readingBack(t), "o")
+func TestPrefixNWhileReadingGoesAllTheWayOut(t *testing.T) {
+	m := chord(readingBack(t), "n")
 
 	if m.scroll != nil || m.focus != 0 {
 		t.Errorf("scroll = %v focus = %d, want the reading and the shell both left", m.scroll, m.focus)

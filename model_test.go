@@ -2007,10 +2007,10 @@ func TestPrefixPrefixTogglesBetweenTheLastTwoShells(t *testing.T) {
 	}
 }
 
-func TestTheToggleResumesAShellLeftWithPrefixO(t *testing.T) {
-	m := chord(twoShells(700), "o")
+func TestTheToggleResumesAShellLeftWithPrefixN(t *testing.T) {
+	m := chord(twoShells(700), "n")
 	if m.focus != 0 {
-		t.Fatalf("focus = %d, want ^space o to step out first", m.focus)
+		t.Fatalf("focus = %d, want ^space n to step out first", m.focus)
 	}
 
 	if m = chordPrefix(m); m.focus != 700 {

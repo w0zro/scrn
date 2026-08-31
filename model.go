@@ -792,10 +792,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.resumeHere()
 			case "r":
 				return m, m.runHere()
-			case "o":
-				// Out to the navigator from wherever the keys were — a
-				// shell, the transcript, the filter mid-word. Out means all
-				// the way out.
+			case "n":
+				// To the navigator from wherever the keys were — a shell,
+				// the transcript, the filter mid-word. All the way out: the
+				// letter is the destination, not the leaving.
 				m.scroll = nil
 				m.resume = nil
 				m.typing = false
