@@ -147,13 +147,9 @@ func (m model) leftColumn(rows int) []string {
 func (m model) trimmedHint(rows int) []string {
 	hint := m.hintLines(m.hintWidth())
 	if max := rows - 2; max > 0 && len(hint) > max {
-		// The chip is the first thing the foot gives up: in a window this
-		// short, what the keys are being asked matters more than where they
-		// are.
-		hint = hint[1:]
-		if len(hint) > max {
-			hint = hint[:max]
-		}
+		// The chip holds the bottom whatever else has to go, so the cut
+		// takes the oldest lines from the top.
+		hint = hint[len(hint)-max:]
 	}
 	return hint
 }
@@ -175,63 +171,48 @@ func padTo(lines []string, n int) []string {
 	return lines[:n]
 }
 
-// hintLines is what scrn says at the foot of its column: the mode chip —
-// where the keys are, worn the way vim wears INSERT — and beneath it,
-// normally one quiet line, because the foot is beside the list all day and
-// busyness there is paid for on every frame.
+// hintLines is what scrn says at the foot of its column. The last line is
+// the mode chip — where the keys are, worn the way vim wears INSERT — and
+// it is the only thing there most of the time: the foot is beside the list
+// all day, and busyness there is paid for on every frame. What has to be
+// said — a confirmation, a report, the filter being typed — is said above
+// the chip. The keys themselves live behind ?.
 func (m model) hintLines(width int) []string {
 	md := m.mode()
 	chip := " " + modeStyles[md].Render(" "+md+" ")
-	return append([]string{chip}, m.footLines(width)...)
+	return append(m.footLines(width), chip)
 }
 
-// footLines is the foot beneath the chip. A pending confirmation or the
-// report of the last action takes the whole block: while either is on
+// footLines is the messaging above the chip, empty when there is nothing to
+// say. A pending confirmation carries its answer with it: while it is on
 // screen it is the only thing the next keystroke is about.
 func (m model) footLines(width int) []string {
 	switch {
-	case m.pendingPrefix:
-		return hintBlock("o out · j k shells · s a r here · / find · q quit · ? keys",
-			width, hintStyle)
-
 	case m.pendingReplace:
-		return append(
-			hintBlock("replace the daemon, ending "+
-				plural(len(m.terms), "shell", "shells")+"?", width, warnStyle),
-			hintBlock("R confirm · any other key cancels", width, hintStyle)...)
+		return hintBlock("replace the daemon, ending "+
+			plural(len(m.terms), "shell", "shells")+"? · R confirms", width, warnStyle)
 
 	case m.pendingKill != nil:
-		return append(
-			hintBlock("kill "+m.pendingKill.subject+"?", width, warnStyle),
-			hintBlock("x confirm · any other key cancels", width, hintStyle)...)
+		return hintBlock("kill "+m.pendingKill.subject+"? · x confirms", width, warnStyle)
 
 	case m.typing:
 		// The prompt stays, because the typing has not stopped. What was just
-		// reported takes the line under it: acting from the search is the
-		// point of it, and an action that says nothing looks like one that did
-		// nothing.
-		below := "^n ^p move · enter shell · ^r run · ^a agent · esc"
-		style := hintStyle
+		// reported takes the line above it: acting from the search is the
+		// point of it, and an action that says nothing looks like one that
+		// did nothing.
+		lines := hintBlock("/"+m.filter+"█", width, itemStyle)
 		if m.status != "" {
-			below, style = m.status, itemStyle
+			style := itemStyle
 			if m.statusErr {
 				style = errStyle
 			}
+			lines = append(hintBlock(m.status, width, style), lines...)
 		}
-		return append(
-			hintBlock("/"+m.filter+"█", width, itemStyle),
-			hintBlock(below, width, style)...)
+		return lines
 
 	case m.scroll != nil && m.scroll.doc != nil:
-		return append(
-			hintBlock("scrollback", width, warnStyle),
-			hintBlock(strconv.Itoa(m.scroll.above)+" up · j k scroll · esc live",
-				width, hintStyle)...)
-
-	case m.focused() != nil:
-		// The chip already says the keys are in the process; the foot only
-		// has to say the way back.
-		return hintBlock("^spc o back to the list", width, hintStyle)
+		return hintBlock("scrollback · "+strconv.Itoa(m.scroll.above)+" up",
+			width, warnStyle)
 
 	case m.status != "":
 		style := itemStyle
@@ -240,15 +221,10 @@ func (m model) footLines(width int) []string {
 		}
 		return hintBlock(m.status, width, style)
 
-	case m.filter != "":
-		return append(
-			hintBlock("filter "+m.filter, width, selStyle),
-			hintBlock("s shell · a agent · / edit · esc clear", width, hintStyle)...)
+	case m.filter != "" && m.focused() == nil:
+		return hintBlock("filter "+m.filter, width, selStyle)
 	}
-	// One line to say the keys exist. The list itself is a modal, on ? or
-	// ^spc ?: it is wanted rarely and read briefly, so it borrows the middle
-	// of the window for a keystroke rather than keeping rows of every frame.
-	return []string{" " + hintStyle.Render("? keys")}
+	return nil
 }
 
 // keysModal is every key, spelled out in a box for the middle of the window,

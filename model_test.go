@@ -495,7 +495,7 @@ func manyRepos(n, h int) model {
 }
 
 func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
-	m := manyRepos(10, 7) // 3 body rows, under the masthead, chip and foot
+	m := manyRepos(10, 6) // 3 body rows, under the masthead, blank and chip
 	for range 3 {
 		m = press(m, "down")
 	}
@@ -2660,11 +2660,12 @@ func TestTheFootWearsTheMode(t *testing.T) {
 	}
 }
 
-func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
-	// The mode chip above it is the only other thing the foot wears.
+func TestTheFootIsOnlyTheModeWhenQuiet(t *testing.T) {
+	// The keys live behind ?; the foot wears the mode and nothing else
+	// until something has to be said.
 	m := manyProjects(90, 14)
-	if got := footer(m); got != "navigate ? keys" {
-		t.Errorf("footer = %q, want the mode and one line saying the keys exist", got)
+	if got := footer(m); got != "navigate" {
+		t.Errorf("footer = %q, want the mode alone", got)
 	}
 }
 
@@ -2676,7 +2677,7 @@ func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 			t.Errorf("view does not show %q with the modal open", key)
 		}
 	}
-	if got := footer(m); got != "navigate ? keys" {
+	if got := footer(m); got != "navigate" {
 		t.Errorf("footer = %q, want the foot untouched by the modal", got)
 	}
 }
@@ -2768,8 +2769,8 @@ func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	if open != closed {
 		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
 	}
-	if closed != m.height-4 {
-		t.Errorf("the list has %d rows, want all but the masthead, its blank, the chip and the one line", closed)
+	if closed != m.height-3 {
+		t.Errorf("the list has %d rows, want all but the masthead, its blank and the chip", closed)
 	}
 }
 
@@ -2965,13 +2966,12 @@ func TestLettersAreStillLettersWhileTyping(t *testing.T) {
 	}
 }
 
-func TestTheFilterHintNamesTheKeysThatWork(t *testing.T) {
+func TestTheFilterPromptSitsAboveTheMode(t *testing.T) {
+	// The prompt is messaging, so it stacks above the chip; the chip keeps
+	// the bottom line to itself.
 	m := typeFilter(press(narrowed(manyProjects(160, 24)), "/"), "b")
-	f := footer(m)
-	for _, want := range []string{"/b", "^n ^p move", "enter shell"} {
-		if !strings.Contains(f, want) {
-			t.Errorf("footer = %q, want it to mention %q", f, want)
-		}
+	if got := footer(m); got != "/b█ navigate" {
+		t.Errorf("footer = %q, want the prompt above the mode alone", got)
 	}
 }
 
