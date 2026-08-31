@@ -84,6 +84,13 @@ type terminal struct {
 	sizeMu sync.Mutex
 	cols   int
 
+	// resizeMu holds a resize together. The pty and the emulator are told
+	// one after the other, and two resizes interleaving could leave them
+	// told different sizes — the shell wrapping for one grid, the pane
+	// holding another, and the mismatch sticky because an unchanged emulator
+	// is how a resize decides there is nothing to do.
+	resizeMu sync.Mutex
+
 	// vtMu orders the pump's writes against a walk of the scrollback. The
 	// emulator locks each of its own calls, but the scrollback is handed out
 	// as the live buffer, and iterating it while the pump pushes lines onto
@@ -475,6 +482,8 @@ func (t *terminal) resize(width, height int) {
 		return
 	}
 	width, height = clampSize(width, height)
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
 	// The size arbitration re-applies on every ask, so the same answer comes
 	// through here again and again; unchanged is not a resize.
 	if width == t.vt.Width() && height == t.vt.Height() {

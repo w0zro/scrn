@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
+	"github.com/creack/pty"
 )
 
 // startDaemonFor runs a daemon on a socket of this test's own, so tests never
@@ -1853,5 +1855,36 @@ func TestCloseFreesASendWedgedBehindAShellThatStoppedReading(t *testing.T) {
 	case <-pasted:
 	case <-time.After(2 * time.Second):
 		t.Error("the wedged send never came back after the close")
+	}
+}
+
+func TestRacingResizesLeaveThePtyAndTheEmulatorAgreed(t *testing.T) {
+	// The pty and the emulator are told about a resize one after the other.
+	// Windows resize concurrently — attach, detach, a drag — and however the
+	// calls land, the shell's grid and the pane's must be the same grid.
+	t.Setenv("SHELL", "/bin/sh")
+	term, err := startTerm("/tmp", "", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Go(func() {
+			for range 200 {
+				term.resize(40+i, 8+i)
+			}
+		})
+	}
+	wg.Wait()
+
+	ws, err := pty.GetsizeFull(term.pty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(ws.Cols) != term.vt.Width() || int(ws.Rows) != term.vt.Height() {
+		t.Errorf("pty at %dx%d, emulator at %dx%d: the shell and the pane hold different grids",
+			ws.Cols, ws.Rows, term.vt.Width(), term.vt.Height())
 	}
 }
