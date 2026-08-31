@@ -206,13 +206,16 @@ func descends(a, b *ProcNode, byPID map[int]*ProcNode) bool {
 	return false
 }
 
-// sortNodes orders each level by command name, ties broken by PID. A name
-// keeps its slot when the process behind it is restarted under a new pid,
-// which is when PID order would move the row; identically-named siblings
-// fall back to creation order, the one place it is the natural reading.
+// sortNodes orders each level by the name its row will wear, ties broken by
+// PID. The raw command is the wrong key: every shell scrn holds is a zsh
+// underneath, whatever runs inside it, and sorting on that put a fresh shell
+// between two agents — three zsh ties, settled by pid. A name keeps its slot
+// when the process behind it is restarted under a new pid, which is when PID
+// order would move the row; identically-named siblings fall back to creation
+// order, the one place it is the natural reading.
 func sortNodes(ns []*ProcNode) {
 	sort.Slice(ns, func(i, j int) bool {
-		a, b := strings.ToLower(ns[i].Command), strings.ToLower(ns[j].Command)
+		a, b := sortName(ns[i]), sortName(ns[j])
 		if a != b {
 			return a < b
 		}
@@ -221,6 +224,19 @@ func sortNodes(ns []*ProcNode) {
 	for _, n := range ns {
 		sortNodes(n.Children)
 	}
+}
+
+// sortName is the name a node's row answers to: the navigator collapses a
+// chain with nothing to choose between and names it for the first non-shell
+// in it, so the sort walks the same chain the same way. The bound is for a
+// process table that says a process started itself.
+func sortName(n *ProcNode) string {
+	run := []*ProcNode{n}
+	for i := 0; len(n.Children) == 1 && i < 1024; i++ {
+		n = n.Children[0]
+		run = append(run, n)
+	}
+	return strings.ToLower(commandOf(nameOf(run)))
 }
 
 // indexNodes files a tree by pid, so a process can be reached from anywhere

@@ -169,3 +169,28 @@ func TestTheScanDoesNotReportItself(t *testing.T) {
 		}
 	}
 }
+
+func TestAFreshShellDoesNotSortBetweenTwoAgents(t *testing.T) {
+	// Every shell scrn holds is a zsh underneath. Sorted by raw command they
+	// are three ties settled by pid — claude, zsh, claude — while the rows
+	// wear the names of what runs inside. The order must follow the names.
+	agent := func(pid int) *ProcNode {
+		return &ProcNode{
+			Proc: Proc{PID: pid, Command: "zsh"},
+			Children: []*ProcNode{
+				{Proc: Proc{PID: pid + 1, Command: "claude", Argv: "claude"}},
+			},
+		}
+	}
+	ns := []*ProcNode{agent(100), {Proc: Proc{PID: 200, Command: "zsh"}}, agent(300)}
+
+	sortNodes(ns)
+
+	got := []int{ns[0].PID, ns[1].PID, ns[2].PID}
+	want := []int{100, 300, 200} // the agents together, the shell after
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v: the shell sat between the agents", got, want)
+		}
+	}
+}
