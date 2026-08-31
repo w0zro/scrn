@@ -207,6 +207,10 @@ type model struct {
 	// nil while the pane is live.
 	scroll *scrollView
 
+	// resume is the picker over a place's suspended conversations, and nil
+	// while it is closed. Open, it has the pane and the keys.
+	resume *resumeView
+
 	// dying holds the processes that have been signalled and are still listed.
 	// They keep their place, marked, until a rescan finds them gone: a row that
 	// vanished on the keystroke would claim an exit scrn has not seen yet.
@@ -655,6 +659,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailMsg:
 		m.details[msg.key] = msg.fields
 
+	case convosMsg:
+		// Only the picker that asked wants this; one opened on another place
+		// since — or closed — has moved past the answer.
+		if m.resume != nil && m.resume.place.Path == msg.place {
+			m.resume.loaded = true
+			m.resume.convos = msg.convos
+		}
+
 	case tickMsg:
 		m.ticks++
 		cmds := []tea.Cmd{m.scanPoll(), tick(procPoll)}
@@ -765,6 +777,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.scroll != nil {
 			return m, nil
 		}
+		// Into the picker it is more of the query, the way it is for the
+		// filter: pasting a phrase from a transcript is a fine way to look.
+		if m.resume != nil {
+			m.setResumeQuery(m.resume.query + msg.Content)
+			return m, nil
+		}
 		// Pasted text goes to a focused shell as a paste rather than as the
 		// keystrokes it would have taken to type, so a program that asked for
 		// bracketed paste is told where it starts and stops.
@@ -834,6 +852,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startHere("")
 			case "a":
 				return m, m.startHere(agentKinds[0].run)
+			case "A":
+				return m, m.resumeHere()
 			case "r":
 				return m, m.runHere()
 			case "o":
@@ -841,6 +861,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// shell, the transcript, the filter mid-word. Out means all
 				// the way out.
 				m.scroll = nil
+				m.resume = nil
 				m.typing = false
 				m.setFocus(0)
 				return m, m.detailCmd()
@@ -854,6 +875,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isPrefix(msg) {
 			m.pendingPrefix = true
 			return m, nil
+		}
+
+		// The resume picker takes every key while it is open: it is a look
+		// through what could be continued, and its keys are the filter's.
+		if m.resume != nil {
+			return m, m.resumeKey(msg)
 		}
 
 		// Reading the transcript takes every key: the reader is looking, not
@@ -923,6 +950,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// stepped back into, unlike the ones it can only watch. The
 			// first kind is the default one.
 			return m, m.start(agentKinds[0].run)
+		case "A":
+			// The same verb, reaching back: a starts a fresh conversation,
+			// A picks a suspended one back up.
+			return m, m.openResume()
 		case "x":
 			return m, m.askKill(false)
 		case "X":
@@ -1238,6 +1269,11 @@ func (m *model) toggleFocus() tea.Cmd {
 // setFocus moves the keys, remembering the shell they leave so the toggle
 // can step back to it.
 func (m *model) setFocus(pid int) {
+	if pid != 0 {
+		// The pane is the shell's now, wherever the keys came from; a picker
+		// left open would be standing behind a screen it no longer draws.
+		m.resume = nil
+	}
 	if m.focus != 0 && m.focus != pid {
 		m.lastFocus = m.focus
 	}
@@ -1273,6 +1309,7 @@ func (m *model) openFilter() tea.Cmd {
 	}
 	m.setFocus(0)
 	m.scroll = nil
+	m.resume = nil // one look at a time; the filter is the look now
 	m.typing = true
 	m.rebuild()
 	m.cursor = 0

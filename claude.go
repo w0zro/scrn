@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,9 +66,11 @@ const claudeCommand = "claude"
 // claudeKind is Claude Code as a kind of agent — the first, and so the one
 // the a key starts.
 var claudeKind = agentKind{
-	command: claudeCommand,
-	run:     claudeCommand,
-	scan:    func() map[int]agent { return asAgents(claudeSessions()) },
+	command:   claudeCommand,
+	run:       claudeCommand,
+	scan:      func() map[int]agent { return asAgents(claudeSessions()) },
+	suspended: claudeSuspended,
+	resume:    claudeResume,
 }
 
 // asAgents lifts Claude's sessions to the shape every kind is read through.
@@ -80,6 +83,8 @@ func asAgents(sessions map[int]claudeSession) map[int]agent {
 }
 
 func (s claudeSession) command() string { return claudeCommand }
+
+func (s claudeSession) id() string { return s.SessionID }
 
 func (s claudeSession) working() bool { return s.Status == busyStatus }
 
@@ -221,6 +226,132 @@ func transcriptPath(s claudeSession) string {
 // carry a lot of tool output, so the last prompt may be some way back, but the
 // whole file is megabytes and is re-read while the cursor sits on the row.
 const transcriptTail = 512 * 1024
+
+// A transcript can also be at rest: the instance that was having the
+// conversation has exited, and the file is what is left of it. Those are the
+// conversations the resume picker lists — claude can be told to pick any of
+// them back up by its session id, which is the transcript's own file name.
+
+// claudeResume is the command that continues a suspended conversation. The id
+// travels onto a shell command line, so only ids claudeSuspended vetted are
+// ever handed here.
+func claudeResume(id string) string { return claudeCommand + " --resume " + id }
+
+// convoTail is how much of a transcript's end is read for the picker: enough
+// to reach back past a tool-heavy turn to the last prompt, small enough that
+// a directory of them is read on a keystroke.
+const convoTail = 256 * 1024
+
+// claudeSuspended lists the conversations at rest under the given
+// directories, newest first. live names the ones running instances are
+// carrying, which are not at rest whatever their files say.
+func claudeSuspended(dirs []string, live map[string]bool) []conversation {
+	root := filepath.Join(claudeDir(), "projects")
+
+	// Claude encodes directories lossily, so two of them can share a
+	// transcript directory; each conversation is taken once, for the first
+	// directory that reached it.
+	seen := map[string]bool{}
+	var out []conversation
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(filepath.Join(root, encodePath(dir)))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			id := strings.TrimSuffix(e.Name(), ".jsonl")
+			if e.IsDir() || id == e.Name() || !isSessionID(id) || live[id] || seen[id] {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			seen[id] = true
+			c := conversation{ID: id, Dir: dir, When: info.ModTime()}
+			readConvoMeta(filepath.Join(root, encodePath(dir), e.Name()), &c)
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].When.Equal(out[j].When) {
+			return out[i].When.After(out[j].When)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// isSessionID reports whether a transcript's stem is shaped like the ids
+// Claude writes — hex and dashes. The id ends up on a shell command line, so
+// anything else in the directory is not a session, whatever it is.
+func isSessionID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// readConvoMeta fills in what a reader recognizes a conversation by: the
+// branch it was on, the last thing asked of it, and what it said it was doing
+// if it said. It is readTranscript's lighter sibling — many files are read on
+// one keystroke, and the model, the context and the subagents are questions
+// about a conversation that is still going.
+func readConvoMeta(path string, c *conversation) {
+	lines, err := tailLines(path, convoTail)
+	if err != nil {
+		return
+	}
+	for _, line := range slices.Backward(lines) {
+		var rec transcriptLine
+		if err := json.Unmarshal(line, &rec); err != nil {
+			continue
+		}
+		if rec.IsSidechain {
+			continue
+		}
+		if c.Branch == "" {
+			c.Branch = rec.GitBranch
+		}
+		if c.Summary == "" && rec.Type == "system" && rec.Subtype == "away_summary" {
+			c.Summary = plainText(rec.Content, summaryLimit)
+		}
+		if c.Prompt == "" && rec.Type == "last-prompt" {
+			c.Prompt = tidy(rec.LastPrompt, promptLimit)
+		}
+		if c.Prompt == "" && rec.Type == "user" && !rec.IsMeta {
+			c.Prompt = userPrompt(rec.Message.Content)
+		}
+		if c.Branch != "" && c.Prompt != "" && c.Summary != "" {
+			return
+		}
+	}
+}
+
+// shortAge is how long ago at a glance: one unit, none of them finer than the
+// question "which conversation was that" needs.
+func shortAge(when time.Time) string {
+	d := time.Since(when)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	case d < 14*24*time.Hour:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
+	default:
+		return strconv.Itoa(int(d.Hours()/(24*7))) + "w"
+	}
+}
 
 // promptLimit and summaryLimit keep long prose from filling the pane and
 // pushing the rest of the fields off the bottom. The summary is given more

@@ -19,6 +19,11 @@ type agent interface {
 	// process, so nothing is believed unless the process table agrees.
 	command() string
 
+	// id names the conversation the instance is carrying — for Claude, its
+	// session id. It is what keeps a conversation that is running from also
+	// being offered as one at rest.
+	id() string
+
 	// working reports the instance is doing something. Not working means
 	// waiting on its user, which is the state worth being taken to.
 	working() bool
@@ -45,6 +50,25 @@ type agentKind struct {
 	command string // the process command that marks a row as this kind
 	run     string // what starting one runs; the a key uses the first kind's
 	scan    func() map[int]agent
+
+	// suspended lists the kind's conversations at rest in the given
+	// directories — had there once, with no live instance carrying them.
+	// live is the ids of the conversations the model believes are running.
+	suspended func(dirs []string, live map[string]bool) []conversation
+
+	// resume is the command that picks one of them back up.
+	resume func(id string) string
+}
+
+// conversation is a talk an agent had in a directory and could pick back up:
+// its transcript is on disk, and no live instance is carrying it.
+type conversation struct {
+	ID      string
+	Dir     string    // where it was had, which is where resuming belongs
+	When    time.Time // when it last moved
+	Branch  string
+	Prompt  string // the last thing its user asked of it
+	Summary string // what it said it was doing, when it said
 }
 
 // agentKinds is every kind of agent scrn knows how to read.

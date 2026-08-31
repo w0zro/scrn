@@ -199,6 +199,20 @@ func (m model) footLines(width int) []string {
 	case m.pendingKill != nil:
 		return hintBlock("kill "+m.pendingKill.subject+"? · x confirms", width, warnStyle)
 
+	case m.resume != nil:
+		// The picker's look wears the filter's face: it is the same kind of
+		// typing, aimed at conversations instead of places. What was just
+		// reported — a missing daemon — takes the line above it.
+		lines := hintBlock("/"+m.resume.query+"█", width, itemStyle)
+		if m.status != "" {
+			style := itemStyle
+			if m.statusErr {
+				style = errStyle
+			}
+			lines = append(hintBlock(m.status, width, style), lines...)
+		}
+		return lines
+
 	case m.typing:
 		// The prompt stays, because the typing has not stopped. What was just
 		// reported takes the line above it: acting from the search is the
@@ -240,6 +254,7 @@ func (m model) keysModal(rows int) []string {
 		{"enter", "open"},
 		{"s", "shell"},
 		{"a", "agent"},
+		{"A", "continue a conversation"},
 		{"r", "run"},
 		{"x · X", "kill · kill the tree"},
 		{"/", "find a project · a process"},
@@ -249,7 +264,7 @@ func (m model) keysModal(rows int) []string {
 		{"^spc o", "out of a shell"},
 		{"^spc j k", "next · previous shell"},
 		{"^spc /", "find from anywhere"},
-		{"^spc s a r", "shell · agent · run, here"},
+		{"^spc s a r A", "shell · agent · run · continue, here"},
 		{"^spc ^spc", "back to the last shell"},
 		{"^spc enter", "the next waiting agent"},
 		{"^spc q", "quit, even from a shell"},
@@ -589,6 +604,9 @@ func (m model) showDetail() bool { return m.detailWidth() >= paneMin }
 // paneLines renders the pane beside the navigator: the shell it should be
 // showing, or, when there is none, what is known about the selected row.
 func (m model) paneLines(width, rows int) []string {
+	if m.resume != nil {
+		return m.resumeLines(width, rows)
+	}
 	t := m.paneTerm()
 	if t == nil {
 		return m.detailLines(width, rows)
@@ -635,6 +653,71 @@ func (m model) paneLines(width, rows int) []string {
 	// shell it would say the typing lands there, which it does not.
 	if t.curY >= 0 && t.curY < len(lines) {
 		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
+	}
+	return lines
+}
+
+// resumeLines is the picker: a place's suspended conversations, newest
+// first. Each row is when the conversation last moved, the branch it was on,
+// and the last thing asked of it — the things a reader recognizes one by.
+// The cursor's row is lit the way the navigator's is.
+func (m model) resumeLines(width, rows int) []string {
+	v := m.resume
+	lines := []string{
+		paneGutter + headingStyle.Render(v.place.Name),
+		paneGutter + noteStyle.Render("suspended conversations"),
+		"",
+	}
+	switch {
+	case !v.loaded:
+		return append(lines, paneGutter+noteStyle.Render("looking…"))
+	case len(v.convos) == 0:
+		return append(lines, paneGutter+noteStyle.Render("none to continue"))
+	}
+	list := v.matches()
+	if len(list) == 0 {
+		return append(lines, paneGutter+noteStyle.Render("nothing answers "+strings.TrimSpace(v.query)))
+	}
+
+	// The columns are sized to this listing: the age is short by construction,
+	// and a branch keeps enough to be told apart without owning the row.
+	agew, bw := 0, 0
+	for _, c := range list {
+		agew = max(agew, lipgloss.Width(shortAge(c.When)))
+		bw = max(bw, lipgloss.Width(c.Branch))
+	}
+	bw = min(bw, 12)
+
+	// The window slides the least amount that keeps the cursor on screen,
+	// derived from the cursor alone so drawing moves nothing.
+	sel := min(v.cursor, len(list)-1)
+	body := max(rows-len(lines), 1)
+	off := max(sel-body+1, 0)
+
+	lead := 3 + agew + 2
+	if bw > 0 {
+		lead += bw + 2
+	}
+	for i := off; i < min(off+body, len(list)); i++ {
+		c := list[i]
+		marker, style := " ", itemStyle
+		if i == sel {
+			marker, style = glyphSelected, selStyle
+		}
+		row := " " + marker + " " + faintStyle.Render(pad(shortAge(c.When), agew)) + "  "
+		if bw > 0 {
+			row += faintStyle.Render(pad(truncate(c.Branch, bw), bw)) + "  "
+		}
+		// The prompt is the recognizer; a conversation that never got one is
+		// named by what it said it was doing, or failing that by its id.
+		text := c.Prompt
+		if text == "" {
+			text = c.Summary
+		}
+		if text == "" {
+			text = c.ID
+		}
+		lines = append(lines, row+style.Render(truncateTail(text, width-lead)))
 	}
 	return lines
 }

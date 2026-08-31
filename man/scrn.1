@@ -75,6 +75,10 @@ open a shell at the selected place
 .B a
 start Claude Code there
 .TP
+.B A
+continue a suspended conversation there: the place's past agent sessions,
+newest first and searchable
+.TP
 .B r
 run the plan's entries that are not already running
 .TP
@@ -159,7 +163,8 @@ goes to the next agent waiting on you,
 .B /
 opens the filter,
 .BR s ,
-.B a
+.BR a ,
+.B A
 and
 .B r
 act where you are,
@@ -188,6 +193,26 @@ for: answering it resumes work already underway.
 .B ctrl\-space enter
 goes to the next agent waiting on you, from wherever the keys were
 going; pressed again it continues around the waiting ones in turn.
+.PP
+A conversation does not end when its instance exits; it is suspended,
+and the transcript Claude keeps is enough to pick it back up.
+.B A
+on a place lists what is suspended there \(em including its
+sub\-projects, and for a group its repositories \(em newest first: when
+each conversation last moved, the branch it was on, and the last thing
+asked of it. Letters narrow the list the way the filter narrows,
+.B up
+and
+.B down
+move,
+.B enter
+continues the one under the cursor \(em a shell opens where the
+conversation was had, running
+.BR "claude --resume" ,
+and from there it is a live instance like any other \(em and
+.B esc
+closes the list. A conversation an instance is still carrying is not
+offered.
 .SH PLANS
 A project writes down its usual processes in
 .IR .scrn ,
