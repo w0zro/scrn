@@ -102,8 +102,19 @@ func listenDaemon(path string) (*daemon, error) {
 		return nil, err
 	}
 
+	// The claim runs under a lock beside the socket, so two daemons starting
+	// at once cannot both hear silence and unlink each other's fresh socket:
+	// one claims, and the other finds a daemon answering. A lock that cannot
+	// be had is skipped, which is the old racier behaviour, not a refusal.
+	if lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err == nil {
+			defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
+		}
+		defer lock.Close()
+	}
+
 	// A socket left by a daemon that died is not a daemon. Only clear it away
-	// once nothing answers, so two daemons cannot fight over one path.
+	// once nothing answers.
 	if c, err := net.Dial("unix", path); err == nil {
 		c.Close()
 		return nil, errors.New("a daemon is already running")
@@ -114,6 +125,10 @@ func listenDaemon(path string) (*daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The 0700 directory is the guard; the socket's own mode is a second
+	// refusal, honoured where the kernel checks it, for a path the user has
+	// moved somewhere more open.
+	_ = os.Chmod(path, 0o600)
 	return &daemon{
 		sessions: map[int]*terminal{},
 		clients:  map[*client]bool{},
@@ -342,7 +357,12 @@ func (d *daemon) pump(t *terminal) {
 	}
 
 	d.mu.Lock()
-	delete(d.sessions, t.pid)
+	// Only this shell's own entry: the pid is free for the kernel to reuse
+	// the moment the shell is reaped, and a new shell could be standing at
+	// this number by the time an old pump gets here.
+	if d.sessions[t.pid] == t {
+		delete(d.sessions, t.pid)
+	}
 	d.idleFrom = time.Now()
 	d.mu.Unlock()
 
