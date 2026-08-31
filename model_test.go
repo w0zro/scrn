@@ -2373,6 +2373,47 @@ func TestEscapeWhileTypingAbandonsTheFilter(t *testing.T) {
 	}
 }
 
+func TestEscWhileTypingPutsTheCursorBack(t *testing.T) {
+	// Abandoning the look is not acting on anything, so it puts the cursor
+	// back on the row it left when / was pressed.
+	m := manyProjects(90, 14)
+	m = press(press(m, "down"), "down")
+	r, ok := m.selected()
+	if !ok {
+		t.Fatal("setup: nothing selected")
+	}
+	was := detailKey(r)
+
+	m = typeFilter(press(m, "/"), "scrn")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(model)
+
+	if r, ok = m.selected(); !ok || detailKey(r) != was {
+		t.Fatalf("cursor on %q, want back on %q", detailKey(r), was)
+	}
+}
+
+func TestEscWhileTypingStepsBackIntoTheShell(t *testing.T) {
+	// A filter opened from inside a shell was a look out of it; abandoning
+	// the look means the keys go back where they came from.
+	m := twoShells(700)
+	m, asked := pipeDaemon(t, m)
+	m = chord(m, "/")
+	if !m.typing || m.focus != 0 {
+		t.Fatalf("setup: typing=%v focus=%d, want the filter to have the keys", m.typing, m.focus)
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(model)
+
+	if m.focus != 700 {
+		t.Fatalf("focus = %d, want back in the shell, pid 700", m.focus)
+	}
+	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 700 {
+		t.Fatalf("asked %+v, want a re-attach to pid 700", got)
+	}
+}
+
 func TestAFilterThatMatchesNothingSaysSo(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "zzz")
 	wantRows(t, navColumn(m), []string{" no project matches"})

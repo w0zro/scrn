@@ -170,6 +170,13 @@ type model struct {
 	filter string
 	typing bool
 
+	// Where the look began: the subject under the cursor, and the shell the
+	// keys were in if they were in one. Abandoning the filter with esc puts
+	// both back — acting on a result does not, because acting is the point
+	// of having looked.
+	filterFrom      string
+	filterFromFocus int
+
 	// showAll toggles the navigator between every repository and only those
 	// with a process running in them. It starts off: the repositories with
 	// something running in them are the ones worth opening scrn to see.
@@ -983,8 +990,16 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.detailCmd()
 
 	case "esc":
+		// Abandoning the look is not acting on anything, so it puts things
+		// back as they were: the keys in the shell they came from, or the
+		// cursor on the row it left.
 		m.typing = false
 		m.setFilter("")
+		if t := m.terms[m.filterFromFocus]; t != nil {
+			m.attachTo(t)
+			return nil
+		}
+		m.selectKey(m.filterFrom)
 		return m.detailCmd()
 	case "backspace":
 		if r := []rune(m.filter); len(r) > 0 {
@@ -1031,6 +1046,22 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.detailCmd()
 	}
 	return nil
+}
+
+// selectKey puts the cursor back on a remembered subject, where it is still
+// listed. A subject that has gone leaves the cursor where the rebuild put
+// it, which held the position rather than jumping to the top.
+func (m *model) selectKey(key string) {
+	if key == "" {
+		return
+	}
+	for i, r := range m.rows {
+		if detailKey(r) == key {
+			m.cursor = i
+			m.scrollToCursor()
+			return
+		}
+	}
 }
 
 // selectProject puts the cursor on a repository, wherever it has ended up in
@@ -1162,6 +1193,11 @@ func (m *model) attachTo(t *remoteTerm) {
 // remembering which ones there are. As a chord it can arrive from inside a
 // shell or a transcript, which it leaves the way jumpWaiting does.
 func (m *model) openFilter() tea.Cmd {
+	m.filterFromFocus = m.focus
+	m.filterFrom = ""
+	if r, ok := m.selected(); ok {
+		m.filterFrom = detailKey(r)
+	}
 	m.setFocus(0)
 	m.scroll = nil
 	m.typing = true
