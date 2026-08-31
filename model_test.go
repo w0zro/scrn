@@ -1770,6 +1770,7 @@ const (
 	kindAttach = "attach"
 	kindClose  = "close"
 	kindInput  = "input"
+	kindTheme  = "theme"
 )
 
 // sayCollector stands in for the control client's stdin: every send-keys or
@@ -1860,8 +1861,12 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t\t%s", id, nextPID, dir, dir))
 			return fmt.Sprintf("%s %d", id, nextPID), nil
 		case "set":
-			// The name lands on the pane right after the open; the ask is
-			// whole once it does.
+			// The terminal's colors land as the server's window-style; a
+			// pane's name lands right after its open, making the ask whole.
+			if slices.Contains(args, "window-style") {
+				asked <- message{Kind: kindTheme, Run: args[len(args)-1]}
+				return "", nil
+			}
 			if opening != nil {
 				opening.Name = args[len(args)-1]
 				asked <- *opening
@@ -3596,4 +3601,26 @@ func TestTheJumpToAWaitingAgentLeavesTheFilter(t *testing.T) {
 	if m.typing {
 		t.Error("the jump should be the end of looking")
 	}
+}
+
+func TestTheTerminalsColorsReachTheServer(t *testing.T) {
+	// A pane asking OSC 11 — what color is this terminal — has to get the
+	// truth, so what the real terminal answered is carried to the server.
+	m := sized(90, 14)
+	m, asked := pipeDaemon(t, m)
+
+	next, _ := m.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#1a1b26")})
+	m = next.(model)
+	got := askedFor(t, asked)
+	if got.Kind != kindTheme || !strings.Contains(got.Run, "bg=#1a1b26") {
+		t.Fatalf("asked %+v, want the background carried over", got)
+	}
+
+	next, _ = m.Update(tea.ForegroundColorMsg{Color: lipgloss.Color("#e6e6e6")})
+	got = askedFor(t, asked)
+	if got.Kind != kindTheme || !strings.Contains(got.Run, "fg=#e6e6e6") ||
+		!strings.Contains(got.Run, "bg=#1a1b26") {
+		t.Fatalf("asked %+v, want both colors once both have answered", got)
+	}
+	_ = next
 }

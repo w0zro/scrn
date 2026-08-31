@@ -191,6 +191,7 @@ type session struct {
 	live     map[string]bool // captures in flight, by pane id
 	width    int             // the pane size this window declared,
 	height   int             // which is what every capture is padded to
+	fg, bg   string          // the real terminal's colors, as "#rrggbb"
 	probing  bool
 	closed   bool
 }
@@ -284,6 +285,55 @@ func (s *session) ensureCtl() {
 	if w > 0 && h > 0 {
 		ctl.say("refresh-client -C " + strconv.Itoa(w) + "x" + strconv.Itoa(h))
 	}
+	// The server this window found may be another window's; it answers for
+	// the terminal's colors either way, so it is told what this one sees.
+	s.applyTheme()
+}
+
+// theme records the real terminal's colors and carries them to the server.
+// The server needs them to answer a pane asking OSC 10 or 11 — what color
+// the terminal is — which is how programs pick their theming: the old
+// emulator answered from its own defaults, and a server with no styles set
+// answers nothing at all, which reads as a terminal with no opinion.
+func (s *session) theme(fg, bg string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	changed := fg != s.fg || bg != s.bg
+	s.fg, s.bg = fg, bg
+	s.mu.Unlock()
+	if changed {
+		go s.applyTheme()
+	}
+}
+
+// applyTheme sets the server's window-style to the terminal's own colors.
+// tmux answers OSC 10 and 11 from it, and a real client on the escape
+// hatch paints panes the way scrn's terminal would. It never lands in the
+// grid, so captures stay as they were. No server yet is fine: the colors
+// ride into the creation chain when the first shell brings one up.
+func (s *session) applyTheme() {
+	style := s.themeStyle()
+	if style == "" {
+		return
+	}
+	_, _ = s.run("set", "-g", "window-style", style)
+}
+
+// themeStyle is the window-style the terminal's colors spell, or nothing
+// while they are unknown.
+func (s *session) themeStyle() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var parts []string
+	if s.fg != "" {
+		parts = append(parts, "fg="+s.fg)
+	}
+	if s.bg != "" {
+		parts = append(parts, "bg="+s.bg)
+	}
+	return strings.Join(parts, ",")
 }
 
 // notify is what the control stream tells the session.
@@ -522,13 +572,17 @@ func (s *session) open(dir, run, name string, w, h int) {
 		if _, err := s.run("has-session", "-t", tmuxSession); err != nil {
 			// The first shell brings the server up around it. The options
 			// ride in the same invocation: the transcript cap has to stand
-			// before the first pane exists to keep any.
+			// before the first pane exists to keep any, and the terminal's
+			// colors before the first program asks what color it is.
 			args = []string{"start-server", ";",
 				"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
-				"set", "-g", "window-size", "smallest", ";",
-				"new-session", "-d", "-s", tmuxSession,
+				"set", "-g", "window-size", "smallest", ";"}
+			if style := s.themeStyle(); style != "" {
+				args = append(args, "set", "-g", "window-style", style, ";")
+			}
+			args = append(args, "new-session", "-d", "-s", tmuxSession,
 				"-x", strconv.Itoa(max(w, 1)), "-y", strconv.Itoa(max(h, 1)),
-				"-P", "-F", "#{pane_id} #{pane_pid}", "-c", dir}
+				"-P", "-F", "#{pane_id} #{pane_pid}", "-c", dir)
 		}
 		if cmd != "" {
 			args = append(args, cmd)

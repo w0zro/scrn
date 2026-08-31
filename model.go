@@ -296,6 +296,11 @@ type model struct {
 	// a standing fact about the window rather than a one-time ask.
 	windowTitle string
 
+	// termFG and termBG are the real terminal's colors, held for the server:
+	// they can answer before the session is up, and the server needs them to
+	// answer a pane asking what color the terminal is.
+	termFG, termBG string
+
 	// previewing is the shell this window watches only because the pane is
 	// showing it — the held shell under the cursor, as opposed to the one
 	// being typed into. Tracked so that leaving the row can detach it: a
@@ -324,8 +329,11 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(scanProjects, scanProcs, scanAgents, connectDaemon(),
 		tick(procPoll), agentTick(),
 		// The styles depend on the terminal's background, which lipgloss no
-		// longer guesses at: scrn asks, and rebuilds them on the answer.
-		func() tea.Msg { return tea.RequestBackgroundColor() })
+		// longer guesses at: scrn asks, and rebuilds them on the answer. The
+		// foreground is asked for the server's sake — it answers panes that
+		// ask what color the terminal is.
+		func() tea.Msg { return tea.RequestBackgroundColor() },
+		func() tea.Msg { return tea.RequestForegroundColor() })
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -438,6 +446,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.retryConnect()
 		}
 		m.daemon, m.daemonErr = msg.session, ""
+		// The colors can have answered before the session was up; a session
+		// that arrives second is told what the first answer said.
+		m.daemon.theme(m.termFG, m.termBG)
 		// A fresh connection holds no watches, whatever this window was
 		// previewing over the last one; the preview is asked for again once
 		// the daemon says what it holds.
@@ -697,8 +708,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.BackgroundColorMsg:
-		// The answer to Init's ask: now the styles can pick their side.
+		// The answer to Init's ask: now the styles can pick their side, and
+		// the server can answer panes asking what color the terminal is.
 		applyBackground(msg.IsDark())
+		if msg.Color != nil {
+			m.termBG = msg.String()
+			m.daemon.theme(m.termFG, m.termBG)
+		}
+		return m, nil
+
+	case tea.ForegroundColorMsg:
+		if msg.Color != nil {
+			m.termFG = msg.String()
+			m.daemon.theme(m.termFG, m.termBG)
+		}
 		return m, nil
 
 	case tea.PasteMsg:

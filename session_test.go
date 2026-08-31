@@ -164,3 +164,25 @@ func TestTheTranscriptComesBack(t *testing.T) {
 		}
 	}
 }
+
+func TestTheServerLearnsTheTerminalsColors(t *testing.T) {
+	// tmux answers a pane's OSC 10 and 11 from window-style; the session
+	// setting it is what lets programs in panes find out what color the
+	// terminal is, the way the old emulator's answers did.
+	m := connected(t, repoModel())
+	m.daemon.open("/tmp", "", "", 60, 12)
+	m = pump(t, m, hasShell, 10*time.Second)
+
+	m.daemon.theme("#e6e6e6", "#1a1b26")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, err := m.daemon.run("show", "-g", "window-style")
+		if err == nil && strings.Contains(out, "fg=#e6e6e6,bg=#1a1b26") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("window-style = %q, want the terminal's colors", out)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
