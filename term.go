@@ -337,11 +337,9 @@ func (t *terminal) send(m message) {
 		// rather than being made to believe someone typed all of it.
 		t.vt.Paste(m.Paste)
 	case m.Key != nil:
-		t.vt.SendKey(uv.KeyPressEvent{
-			Code: m.Key.Code,
-			Text: m.Key.Text,
-			Mod:  uv.KeyMod(m.Key.Mod),
-		})
+		for _, ev := range keyEvents(m.Key) {
+			t.vt.SendKey(ev)
+		}
 	case m.Mouse != nil:
 		// A wheel turned over the alternate screen, with the program not
 		// listening for the mouse, becomes the arrow keys it would have
@@ -355,6 +353,35 @@ func (t *terminal) send(m message) {
 		}
 		t.vt.SendMouse(m.Mouse.event())
 	}
+}
+
+// keyEvents is one keystroke as the emulator can be given it: usually the
+// event as it crossed, restated only where the emulator would lose it.
+//
+// The emulator encodes keys, not text. An unmodified printable is written as
+// its code and the chords have their tables — but a key that typed text under
+// a modifier matches no table, and its default arm writes only unmodified
+// codes. Under the kitty protocol that is every capital letter: shift+a
+// arrives as the code 'a', a shift, and the text "A", and the emulator wrote
+// nothing at all. A real terminal sends the text such a key produced,
+// ESC-prefixed under alt, so that is what is restated: the text's runes as
+// presses the emulator does write, bare but for the alt.
+//
+// A chord is a command whatever text rides along with it, so ctrl and the
+// meta-like modifiers are left to the emulator's own tables.
+func keyEvents(k *keyPress) []uv.KeyPressEvent {
+	ev := uv.KeyPressEvent{Code: k.Code, Text: k.Text, Mod: uv.KeyMod(k.Mod)}
+
+	command := ev.Mod&(uv.ModCtrl|uv.ModMeta|uv.ModHyper|uv.ModSuper) != 0
+	if ev.Text == "" || command || ev.Mod&^uv.ModAlt == 0 {
+		return []uv.KeyPressEvent{ev}
+	}
+
+	out := make([]uv.KeyPressEvent, 0, len(ev.Text))
+	for _, r := range ev.Text {
+		out = append(out, uv.KeyPressEvent{Code: r, Mod: ev.Mod & uv.ModAlt})
+	}
+	return out
 }
 
 // wheelArrowCount is how many arrow presses one wheel notch stands for, which

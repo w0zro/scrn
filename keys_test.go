@@ -51,8 +51,9 @@ func bytesFor(t *testing.T, msg tea.KeyPressMsg, modes ...string) string {
 		e.Write([]byte(mode))
 	}
 
-	k := keyEvent(msg)
-	e.SendKey(uv.KeyPressEvent{Code: k.Code, Text: k.Text, Mod: uv.KeyMod(k.Mod)})
+	for _, ev := range keyEvents(keyEvent(msg)) {
+		e.SendKey(ev)
+	}
 
 	select {
 	case s := <-out:
@@ -81,6 +82,18 @@ func TestAKeystrokeReachesTheShellAsTheRightBytes(t *testing.T) {
 		{"delete", tea.KeyPressMsg{Code: tea.KeyDelete}, "\x1b[3~"},
 		{"space", tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, " "},
 		{"alt is an escape prefix", tea.KeyPressMsg{Code: 'b', Mod: tea.ModAlt}, "\x1bb"},
+
+		// A key that typed under a modifier means its text. The kitty
+		// protocol reports a capital as the base code plus a shift, which
+		// the emulator's own tables drop on the floor; the legacy shape —
+		// the capital as its own code, no modifier — never needed help.
+		{"capitals under kitty's shift", tea.KeyPressMsg{Code: 'a', Text: "A", Mod: tea.ModShift}, "A"},
+		{"capitals the legacy way", tea.KeyPressMsg{Code: 'A', Text: "A"}, "A"},
+		{"capitals under caps lock", tea.KeyPressMsg{Code: 'a', Text: "A", Mod: tea.ModCapsLock}, "A"},
+		{"shifted punctuation", tea.KeyPressMsg{Code: '1', Text: "!", Mod: tea.ModShift}, "!"},
+		{"a shifted capital keeps alt's prefix",
+			tea.KeyPressMsg{Code: 'a', Text: "A", Mod: tea.ModAlt | tea.ModShift}, "\x1bA"},
+		{"shift+tab is still the emulator's", tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, "\x1b[Z"},
 	}
 	for _, c := range cases {
 		if got := bytesFor(t, c.msg); got != c.want {
