@@ -167,6 +167,7 @@ func startTerm(dir, command, name string, width, height int) (*terminal, error) 
 	if err != nil {
 		return nil, err
 	}
+	f = pollable(f)
 
 	t := &terminal{
 		pid:    c.Process.Pid,
@@ -197,6 +198,27 @@ func (t *terminal) start(wait func()) {
 	}()
 	go t.pump()
 	go t.reply()
+}
+
+// pollable moves the pty master onto a duplicate in non-blocking mode, which
+// puts it in the runtime poller's hands: a Close then interrupts a read or
+// write blocked in the kernel. The master arrives as a plain blocking fd,
+// and a write blocked into a full input queue — a raw-mode program that
+// stopped reading — could not be freed at all on that fd: not by the shell
+// dying, not by the close. A master that cannot be duplicated is kept as it
+// was, which is that old behaviour.
+func pollable(f *os.File) *os.File {
+	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_DUPFD_CLOEXEC, 0)
+	if errno != 0 {
+		return f
+	}
+	if err := syscall.SetNonblock(int(fd), true); err != nil {
+		_ = syscall.Close(int(fd))
+		return f
+	}
+	nf := os.NewFile(fd, f.Name())
+	_ = f.Close()
+	return nf
 }
 
 // pump feeds pty output into the emulator until the shell exits, waking the
@@ -234,11 +256,15 @@ func (t *terminal) pump() {
 // drawing it go with it. Every modern terminal program asks.
 func (t *terminal) reply() {
 	buf := make([]byte, 1024)
+	dead := false
 	for {
 		n, err := t.vt.Read(buf)
-		if n > 0 {
+		if n > 0 && !dead {
 			if _, err := t.pty.Write(buf[:n]); err != nil {
-				return
+				// The shell is gone, but the drain must not be: a send caught
+				// mid-paste is still blocked on this pipe, and close waits for
+				// that send. The answers go nowhere now; they still go.
+				dead = true
 			}
 		}
 		if err != nil {
@@ -485,12 +511,11 @@ func (t *terminal) resize(width, height int) {
 // finish, rather than sitting on a pipe nothing will ever write to again.
 func (t *terminal) close() {
 	t.closing.Do(func() {
-		// Stop taking input first, and wait out anything already inside send:
-		// past this the emulator is going, and nothing may be left holding it.
-		t.sendMu.Lock()
-		t.gone = true
-		t.sendMu.Unlock()
-
+		// The shell goes first, input stops second — not the other way
+		// around. A send can be wedged mid-paste behind a shell that stopped
+		// reading, and waiting out sends before anything else waited on that
+		// shell forever. Ending the shell is what frees the send.
+		//
 		// A shell already reaped has no group left to signal, and its pid is
 		// free to have been given to something else — which must not be sent
 		// a hangup meant for a process that has already gone.
@@ -508,8 +533,21 @@ func (t *terminal) close() {
 			}
 		}
 
-		_ = t.vt.Close()
+		// The pty goes before the sends are waited out, not after. A send can
+		// be stuck behind a raw-mode program that stopped reading — the pty's
+		// input queue full, reply blocked writing to it, the paste blocked
+		// behind reply — and the kernel does not free that write when the
+		// shell dies. Closing the pty is what frees it: reply's write comes
+		// back with the close, and reply keeps draining so the send finishes.
 		_ = t.pty.Close()
+
+		// Now stop taking input, and wait out anything already inside send:
+		// past this the emulator is going, and nothing may be left holding it.
+		t.sendMu.Lock()
+		t.gone = true
+		t.sendMu.Unlock()
+
+		_ = t.vt.Close()
 	})
 }
 

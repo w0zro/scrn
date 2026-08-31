@@ -130,8 +130,11 @@ func adoptTerm(h handoffTerm) *terminal {
 	// The fd crossed the exec only because keepOpen said so. Adopted, it goes
 	// back to closing on exec, or every shell forked from here on inherits the
 	// master — a stranger's copy that can read the session and keeps the
-	// kernel from ever hanging the slave up.
+	// kernel from ever hanging the slave up. And it goes back to non-blocking
+	// before it is wrapped, so the poller takes it and close can interrupt a
+	// blocked read or write, the same standing a freshly opened master has.
 	syscall.CloseOnExec(h.FD)
+	_ = syscall.SetNonblock(h.FD, true)
 	t := &terminal{
 		pid:    h.PID,
 		repo:   h.Dir,

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1803,5 +1804,54 @@ func TestAPaneSizeBeyondAnyRealScreenIsClamped(t *testing.T) {
 	term.resize(1<<20, 1<<20)
 	if w, h := term.vt.Width(), term.vt.Height(); w != termMaxWidth || h != termMaxHeight {
 		t.Errorf("resized to %dx%d, want the claim clamped to %dx%d", w, h, termMaxWidth, termMaxHeight)
+	}
+}
+
+func TestCloseFreesASendWedgedBehindAShellThatStoppedReading(t *testing.T) {
+	// A raw-mode program that stops reading stdin lets the pty's input queue
+	// fill — raw mode is what full-screen programs run in, and unlike a
+	// canonical tty, a full raw queue blocks the master instead of shedding.
+	// A big enough paste then wedges send behind it, and close used to wait
+	// out sends before touching the shell — waiting on the very thing only
+	// ending the shell could free.
+	t.Setenv("SHELL", "/bin/sh")
+	term, err := startTerm("/tmp", "stty raw; echo wedge-armed; kill -STOP $$", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the test decides, a stopped shell must not outlive it.
+	t.Cleanup(func() { _ = syscall.Kill(term.pid, syscall.SIGKILL) })
+
+	// Not a paste before raw mode is on: a canonical tty sheds a long line
+	// instead of blocking, and the wedge never forms.
+	waitFor(t, "raw mode to be armed", func() bool {
+		return strings.Contains(term.vt.Render(), "wedge-armed")
+	})
+
+	pasted := make(chan struct{})
+	go func() {
+		term.send(message{Paste: strings.Repeat("a", 1<<20)})
+		close(pasted)
+	}()
+	select {
+	case <-pasted:
+		t.Fatal("a megabyte went into a stopped shell; the wedge never formed")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		term.close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(hangupGrace + 3*time.Second):
+		t.Fatal("close is still waiting on a shell that stopped reading")
+	}
+	select {
+	case <-pasted:
+	case <-time.After(2 * time.Second):
+		t.Error("the wedged send never came back after the close")
 	}
 }
