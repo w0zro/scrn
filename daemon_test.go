@@ -509,3 +509,64 @@ func TestDetachingGrowsTheShellBack(t *testing.T) {
 		return s != nil && s.vt.Width() == 80 && s.vt.Height() == 24
 	})
 }
+
+func TestAWindowThatStopsReadingBlocksOnlyItself(t *testing.T) {
+	// A suspended window used to hold the shell's pump — and with it every
+	// other window watching, and the cleanup owed when the shell exited —
+	// until it read again, which a suspended window never does.
+	startDaemonFor(t)
+
+	// The window that will go quiet: it opens the shell, hears which one it
+	// got, and then reads nothing more, ever.
+	stalled, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1 := newConn(stalled)
+	defer c1.close()
+	c1.write(message{Kind: kindOpen, Dir: "/tmp", Width: 40, Height: 8})
+	var pid int
+	deadline := time.Now().Add(5 * time.Second)
+	for pid == 0 {
+		m, err := c1.readBy(deadline)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Kind == kindOpened {
+			pid = m.PID
+		}
+	}
+
+	// The healthy window watches the same shell and keeps reading.
+	watcher, err := dialDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := newConn(watcher)
+	defer c2.close()
+	c2.write(message{Kind: kindAttach, PID: pid, Width: 40, Height: 8})
+
+	// A torrent of output. The stalled window's socket fills in well under a
+	// second of this; the healthy window drains its own the whole time.
+	typeInto(c2, pid, "PS1=; i=0; while true; do i=$((i+1)); echo tick-$i; done\n")
+	awaitScreen(t, c2, "tick-")
+	torrent := time.Now().Add(2 * time.Second)
+	for time.Now().Before(torrent) {
+		if _, err := c2.readBy(torrent.Add(3 * time.Second)); err != nil {
+			t.Fatalf("the healthy window starved behind the stalled one: %v", err)
+		}
+	}
+
+	// Closing the shell exercises the far side of the pump: exit cleanup and
+	// the exited word reaching the windows still listening.
+	c2.write(message{Kind: kindClose, PID: pid})
+	for {
+		m, err := c2.readBy(time.Now().Add(hangupGrace + 5*time.Second))
+		if err != nil {
+			t.Fatalf("the exit never reached the healthy window: %v", err)
+		}
+		if m.Kind == kindExited && m.PID == pid {
+			return
+		}
+	}
+}

@@ -30,6 +30,12 @@ type daemon struct {
 type client struct {
 	conn *conn
 
+	// out is the queue between everyone with something to tell this window
+	// and the one goroutine that writes to its socket. done, closed when the
+	// window is gone, is what lets the writer and any sender stop waiting.
+	out  chan message
+	done chan struct{}
+
 	mu       sync.Mutex
 	watching map[int]bool
 	closed   bool
@@ -162,7 +168,14 @@ func (d *daemon) watchIdle() {
 // serve handles one client until it goes away. Its shells are not touched on
 // the way out: outliving the window is the point.
 func (d *daemon) serve(c *conn) {
-	cl := &client{conn: c, watching: map[int]bool{}, sizes: map[int][2]int{}}
+	cl := &client{
+		conn:     c,
+		out:      make(chan message, sendQueue),
+		done:     make(chan struct{}),
+		watching: map[int]bool{},
+		sizes:    map[int][2]int{},
+	}
+	go cl.write()
 
 	d.mu.Lock()
 	d.clients[cl] = true
@@ -174,6 +187,7 @@ func (d *daemon) serve(c *conn) {
 		d.idleFrom = time.Now()
 		d.mu.Unlock()
 		cl.markClosed()
+		close(cl.done)
 		c.close()
 		// A window gone takes its pane out of the sizing, so a shell held
 		// small on its account grows back for whoever is left watching.
@@ -399,17 +413,56 @@ func (d *daemon) allClients() []*client {
 	return out
 }
 
-// send writes to the client under its own lock, because screens arrive from a
-// goroutine per shell and an encoder shared between them interleaves.
+// sendQueue is how far one window may fall behind before its news starts
+// going stale unread. With the kernel's own socket buffer under it, only a
+// window that has stopped reading altogether ever gets here.
+const sendQueue = 64
+
+// send queues a message for the client's writer. It never blocks: a window
+// that stopped reading — suspended, wedged — must not hold a shell's pump,
+// and through it every other window, hostage. When the queue is full the
+// oldest message goes instead, which costs nothing that lasts: screens are
+// snapshots each superseding the last, and the sessions the window polls for
+// retell whatever news a dropped exit carried.
 func (cl *client) send(m message) {
+	for {
+		select {
+		case cl.out <- m:
+			return
+		case <-cl.done:
+			return
+		default:
+		}
+		select {
+		case <-cl.out: // full, and the oldest is the least true
+		default:
+		}
+	}
+}
+
+// write carries queued messages to the window, one goroutine per client, so
+// each window waits only on itself. A write that fails marks the client
+// closed; the draining goes on so no sender is ever left standing.
+func (cl *client) write() {
+	for {
+		select {
+		case <-cl.done:
+			return
+		case m := <-cl.out:
+			if cl.isClosed() {
+				continue
+			}
+			if err := cl.conn.write(m); err != nil {
+				cl.markClosed()
+			}
+		}
+	}
+}
+
+func (cl *client) isClosed() bool {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
-	if cl.closed {
-		return
-	}
-	if err := cl.conn.write(m); err != nil {
-		cl.closed = true
-	}
+	return cl.closed
 }
 
 func (cl *client) watch(pid int) {
