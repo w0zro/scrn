@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -188,6 +189,77 @@ func TestAnUpgradedDaemonKeepsItsShells(t *testing.T) {
 	// And the adopted pty still carries keystrokes both ways.
 	typeInto(conn2, pid, "echo still-answers\n")
 	awaitScreen(t, conn2, "still-answers")
+}
+
+// closesOnExec reports whether the fd would close across an exec.
+func closesOnExec(t *testing.T, fd uintptr) bool {
+	t.Helper()
+	flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFD, 0)
+	if errno != 0 {
+		t.Fatalf("reading fd flags: %v", errno)
+	}
+	return flags&syscall.FD_CLOEXEC != 0
+}
+
+func TestAnAdoptedPtyGoesBackToClosingOnExec(t *testing.T) {
+	// keepOpen cleared the flag so the fd could cross the exec. Left cleared,
+	// every shell forked by the new image inherits the master.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	// A dup for the terminal to own alone — two os.Files over one fd close it
+	// twice, the second time onto whatever test holds the number by then. Dup
+	// leaves close-on-exec clear, which is just how the exec delivers it.
+	fd, err := syscall.Dup(int(r.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A pid this large is no process on any platform, so the reaper hears
+	// ECHILD at once and close, waited for below, has nothing to signal.
+	term := adoptTerm(handoffTerm{PID: 1 << 30, FD: fd, Dir: "/tmp", Cols: 40, Rows: 8})
+	if !closesOnExec(t, uintptr(fd)) {
+		t.Error("the adopted pty would still cross the next exec uninvited")
+	}
+	<-term.done
+	term.close()
+}
+
+func TestARefusedExecPutsCloseOnExecBack(t *testing.T) {
+	// A failed exec leaves the daemon serving. The flags it cleared on the way
+	// out have to be cleared no longer, or the masters leak into every shell
+	// forked after the attempt.
+	dir, err := os.MkdirTemp("/tmp", "scrnd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Setenv("SCRN_SOCKET", filepath.Join(dir, "d.sock"))
+	t.Setenv("SHELL", "/bin/sh")
+
+	term, err := startTerm("/tmp", "", "", 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+
+	l, err := net.Listen("unix", filepath.Join(dir, "d.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	d := &daemon{sessions: map[int]*terminal{term.pid: term}, listener: l}
+	if err := d.execSelf(filepath.Join(dir, "no-such-binary")); err == nil {
+		t.Fatal("an exec of a missing binary somehow succeeded")
+	}
+	if !closesOnExec(t, term.pty.Fd()) {
+		t.Error("the pty was left inheritable after the exec was refused")
+	}
 }
 
 func TestAStaleDaemonHoldingShellsIsAskedToUpgrade(t *testing.T) {

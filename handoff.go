@@ -127,6 +127,11 @@ func (h handoffTerm) replay() []byte {
 // pid, which is the one thing a freshly forked shell has that an adopted one
 // lacks.
 func adoptTerm(h handoffTerm) *terminal {
+	// The fd crossed the exec only because keepOpen said so. Adopted, it goes
+	// back to closing on exec, or every shell forked from here on inherits the
+	// master — a stranger's copy that can read the session and keeps the
+	// kernel from ever hanging the slave up.
+	syscall.CloseOnExec(h.FD)
 	t := &terminal{
 		pid:    h.PID,
 		repo:   h.Dir,
@@ -172,8 +177,9 @@ func keepOpen(fd uintptr) error {
 // listener and every shell across as inherited file descriptors and a state
 // file. An ask without a path falls back to the daemon's own, for a window
 // old enough not to send one. On success it does not return: the exec is the
-// return. On failure the daemon is untouched — nothing is torn down before
-// the exec, so there is nothing to put back.
+// return. On failure the daemon carries on, so the one thing changed on the
+// way — close-on-exec cleared from every pty — is put back, or the failed
+// attempt leaves the masters leaking into every shell forked after it.
 func (d *daemon) execSelf(exe string) error {
 	if exe == "" {
 		var err error
@@ -192,26 +198,32 @@ func (d *daemon) execSelf(exe string) error {
 		return err
 	}
 	st := handoffState{ListenFD: int(lf.Fd())}
+	reclose := func(err error) error {
+		for _, h := range st.Terms {
+			syscall.CloseOnExec(h.FD)
+		}
+		return err
+	}
 	for _, t := range d.held() {
 		h := t.handoff()
 		if err := keepOpen(uintptr(h.FD)); err != nil {
-			return err
+			return reclose(err)
 		}
 		st.Terms = append(st.Terms, h)
 	}
 
 	data, err := json.Marshal(st)
 	if err != nil {
-		return err
+		return reclose(err)
 	}
 	path := handoffPath()
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return err
+		return reclose(err)
 	}
 
 	err = syscall.Exec(exe, []string{exe, "daemon"}, append(os.Environ(), "SCRN_HANDOFF="+path))
 	_ = os.Remove(path) // the exec refused, so nothing will read it
-	return err
+	return reclose(err)
 }
 
 // resumeDaemon is the far side of the exec: the same process, running the new
