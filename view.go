@@ -147,7 +147,13 @@ func (m model) leftColumn(rows int) []string {
 func (m model) trimmedHint(rows int) []string {
 	hint := m.hintLines(m.hintWidth())
 	if max := rows - 2; max > 0 && len(hint) > max {
-		hint = hint[:max]
+		// The chip is the first thing the foot gives up: in a window this
+		// short, what the keys are being asked matters more than where they
+		// are.
+		hint = hint[1:]
+		if len(hint) > max {
+			hint = hint[:max]
+		}
 	}
 	return hint
 }
@@ -169,15 +175,25 @@ func padTo(lines []string, n int) []string {
 	return lines[:n]
 }
 
-// hintLines is what scrn says at the foot of its column: normally one quiet
-// line, because the foot is beside the list all day and busyness there is
-// paid for on every frame.
-//
-// A pending confirmation or the report of the last action takes the whole
-// block: while either is on screen it is the only thing the next keystroke
-// is about.
+// hintLines is what scrn says at the foot of its column: the mode chip —
+// where the keys are, worn the way vim wears INSERT — and beneath it,
+// normally one quiet line, because the foot is beside the list all day and
+// busyness there is paid for on every frame.
 func (m model) hintLines(width int) []string {
+	md := m.mode()
+	chip := " " + modeStyles[md].Render(" "+md+" ")
+	return append([]string{chip}, m.footLines(width)...)
+}
+
+// footLines is the foot beneath the chip. A pending confirmation or the
+// report of the last action takes the whole block: while either is on
+// screen it is the only thing the next keystroke is about.
+func (m model) footLines(width int) []string {
 	switch {
+	case m.pendingPrefix:
+		return hintBlock("o out · j k shells · s a r here · / find · q quit · ? keys",
+			width, hintStyle)
+
 	case m.pendingReplace:
 		return append(
 			hintBlock("replace the daemon, ending "+
@@ -213,9 +229,9 @@ func (m model) hintLines(width int) []string {
 				width, hintStyle)...)
 
 	case m.focused() != nil:
-		return append(
-			hintBlock("shell", width, warnStyle),
-			hintBlock("^spc o back to the list", width, hintStyle)...)
+		// The chip already says the keys are in the process; the foot only
+		// has to say the way back.
+		return hintBlock("^spc o back to the list", width, hintStyle)
 
 	case m.status != "":
 		style := itemStyle

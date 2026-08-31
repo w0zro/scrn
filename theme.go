@@ -147,7 +147,24 @@ func applyBackground(dark bool) {
 	// a glance answers whether the keys are going there: full color is
 	// attached, gray is a preview.
 	previewStyle = lipgloss.NewStyle().Foreground(p.muted)
+
+	// modeStyles is the chip at the foot's left: which mode the keys are in,
+	// worn as a colored badge so the answer reads before any words do.
+	// Reverse rather than a background color, because the page's background
+	// is the terminal's own to know. Navigate is the selection's blue — the
+	// list is where choosing happens; proc is the green of something alive,
+	// because the keys are inside it; prefix is the amber of a question,
+	// because the next key is one.
+	modeStyles = map[string]lipgloss.Style{
+		modeNavigate: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.accent),
+		modeProc:     lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.success),
+		modePrefix:   lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.attention),
+	}
 }
+
+// modeStyles is declared with the other styles and rebuilt with them; see
+// applyBackground.
+var modeStyles map[string]lipgloss.Style
 
 // tone is how a value in the detail pane reads. Most facts are plain; the
 // few that carry a state carry it in the same colors the navigator's marks

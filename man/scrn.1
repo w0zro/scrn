@@ -51,7 +51,14 @@ tab\-separated, the name empty for a shell opened by hand. No daemon
 listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
-shows this list inside scrn.
+shows this list inside scrn. The foot of the column wears the mode the
+keys are in, the way vim says INSERT:
+.B navigate
+at the list,
+.B proc
+while the keys are inside a shell or its transcript,
+.B prefix
+while a chord hangs.
 .SS In the navigator
 .TP
 .B "j k"

@@ -964,6 +964,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// The modes the keys can be in, named for what they are aimed at. The foot
+// wears the current one as a chip, the way vim says INSERT.
+const (
+	modeNavigate = "navigate"
+	modeProc     = "proc"
+	modePrefix   = "prefix"
+)
+
+// mode is where the keys are going right now: held by the prefix, into a
+// process — a focused shell, or its transcript being read — or at the list.
+func (m model) mode() string {
+	switch {
+	case m.pendingPrefix:
+		return modePrefix
+	case m.focused() != nil, m.scroll != nil:
+		return modeProc
+	}
+	return modeNavigate
+}
+
 // filterKey handles a keystroke while something is being looked up.
 //
 // Looking something up is a way of getting somewhere, so the keys that get

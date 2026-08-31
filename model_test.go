@@ -118,7 +118,7 @@ func bodyRows(m model) []string {
 // bracket them in that column and are not part of the list.
 func navColumn(m model) []string {
 	rows := bodyRows(m)
-	end := len(rows) - len(m.hintLines(m.hintWidth()))
+	end := len(rows) - len(m.trimmedHint(m.height))
 	if end < 1 {
 		return nil
 	}
@@ -495,7 +495,7 @@ func manyRepos(n, h int) model {
 }
 
 func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
-	m := manyRepos(10, 6) // 3 body rows
+	m := manyRepos(10, 7) // 3 body rows, under the masthead, chip and foot
 	for range 3 {
 		m = press(m, "down")
 	}
@@ -2642,10 +2642,29 @@ func TestALoginShellIsStillAShell(t *testing.T) {
 
 // --- the keys, on request ------------------------------------------------
 
+func TestTheFootWearsTheMode(t *testing.T) {
+	// navigate at the list, proc while the keys are inside one, prefix while
+	// the chord hangs — the way vim says INSERT.
+	if f := footer(twoShells(0)); !strings.HasPrefix(f, "navigate") {
+		t.Errorf("footer = %q, want it to open with navigate", f)
+	}
+
+	m := twoShells(700)
+	if f := footer(m); !strings.HasPrefix(f, "proc") {
+		t.Errorf("footer = %q, want proc while the keys are in a shell", f)
+	}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	if f := footer(next.(model)); !strings.HasPrefix(f, "prefix") {
+		t.Errorf("footer = %q, want prefix while the chord hangs", f)
+	}
+}
+
 func TestTheKeysAreOneLineUntilAsked(t *testing.T) {
+	// The mode chip above it is the only other thing the foot wears.
 	m := manyProjects(90, 14)
-	if got := footer(m); got != "? keys" {
-		t.Errorf("footer = %q, want one line saying the keys exist", got)
+	if got := footer(m); got != "navigate ? keys" {
+		t.Errorf("footer = %q, want the mode and one line saying the keys exist", got)
 	}
 }
 
@@ -2657,8 +2676,8 @@ func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 			t.Errorf("view does not show %q with the modal open", key)
 		}
 	}
-	if got := footer(m); got != "? keys" {
-		t.Errorf("footer = %q, want the foot line untouched by the modal", got)
+	if got := footer(m); got != "navigate ? keys" {
+		t.Errorf("footer = %q, want the foot untouched by the modal", got)
 	}
 }
 
@@ -2749,8 +2768,8 @@ func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	if open != closed {
 		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
 	}
-	if closed != m.height-3 {
-		t.Errorf("the list has %d rows, want all but the masthead, its blank, and the one line", closed)
+	if closed != m.height-4 {
+		t.Errorf("the list has %d rows, want all but the masthead, its blank, the chip and the one line", closed)
 	}
 }
 
