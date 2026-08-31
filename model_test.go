@@ -188,9 +188,9 @@ func TestNavPaneOccupiesItsColumn(t *testing.T) {
 }
 
 func TestDetailPaneDroppedWhenTooNarrow(t *testing.T) {
-	view := stripANSI(sized(navMin-1, 24).View().Content)
+	view := stripANSI(sized(navWidth+paneMin, 24).View().Content)
 	if strings.Contains(view, "│") {
-		t.Errorf("detail pane drawn below %d columns:\n%s", navMin, view)
+		t.Errorf("detail pane drawn with less than %d columns of pane:\n%s", paneMin, view)
 	}
 }
 
@@ -3459,5 +3459,25 @@ func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
 	}
 	if m.previewing != 0 {
 		t.Errorf("previewing = %d, want nothing", m.previewing)
+	}
+}
+
+func TestAWideNavigatorInANarrowWindowDoesNotPanic(t *testing.T) {
+	// navWidth is the user's to set, up to 60 — and the window is the
+	// terminal's to size. At 60 columns each, the pane came out a column
+	// short of nothing, and the negative width walked into the renderer.
+	old := navWidth
+	t.Cleanup(func() { navWidth = old })
+	applyNavWidth(60)
+
+	m := withProcList(60, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "held"}}
+	m.cursor = 1 // the shell's row, where the banner and its rule would draw
+
+	view := stripANSI(m.View().Content)
+	if strings.Contains(view, "│") {
+		t.Errorf("a pane with no room was drawn anyway:\n%s", view)
 	}
 }

@@ -584,7 +584,7 @@ func (m model) detailWidth() int { return m.width - m.paneLeft() }
 
 // showDetail reports whether the terminal is wide enough to carry a detail
 // pane beside the navigator.
-func (m model) showDetail() bool { return m.width >= navMin }
+func (m model) showDetail() bool { return m.detailWidth() >= paneMin }
 
 // paneLines renders the pane beside the navigator: the shell it should be
 // showing, or, when there is none, what is known about the selected row.

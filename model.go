@@ -26,9 +26,13 @@ func applyNavWidth(w int) {
 	}
 }
 
-// navMin is the total width below which there is no room for a detail pane
-// beside the navigator, so the navigator takes the whole width.
-const navMin = 60
+// paneMin is the narrowest detail pane worth drawing beside the navigator;
+// with less room than this the navigator takes the whole width. It measures
+// the pane rather than the window, because the navigator's width is the
+// user's to set: a wide navigator in a narrow window leaves the pane no
+// room at all, and a pane of no room must not be drawn — negative widths
+// walk straight into the renderer.
+const paneMin = 31
 
 // procPoll is how often the process list is refreshed. Processes come and go
 // constantly, and an lsof sweep is cheap enough to repeat at this rate.
