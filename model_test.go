@@ -2184,7 +2184,7 @@ func TestFilterReachesProcessesByCommand(t *testing.T) {
 	}, []Proc{{PID: 100, PPID: 1, Command: "claude", Dir: "/p/brand"}})
 
 	m = typeFilter(press(narrowed(m), "/"), "claude")
-	wantRows(t, navColumn(m), []string{"▸brand"})
+	wantRows(t, navColumn(m), []string{" brand", "▸└─ claude"})
 }
 
 func TestFilterReachesAChildProcessCommand(t *testing.T) {
@@ -2197,7 +2197,7 @@ func TestFilterReachesAChildProcessCommand(t *testing.T) {
 		})
 
 	m = typeFilter(press(narrowed(m), "/"), "node")
-	wantRows(t, navColumn(m), []string{"▸brand"})
+	wantRows(t, navColumn(m), []string{" brand", "▸└─ node"})
 }
 
 func TestTypingListsTheProcessesThatAnswer(t *testing.T) {
@@ -2214,7 +2214,7 @@ func TestTypingListsTheProcessesThatAnswer(t *testing.T) {
 
 	m = typeFilter(press(narrowed(m), "/"), "node")
 	rows := navColumn(m)
-	wantRows(t, rows, []string{"▸brand", " └─ node"})
+	wantRows(t, rows, []string{" brand", "▸└─ node"})
 	if len(rows) != 2 {
 		t.Fatalf("rows = %q, want the vim pruned away", rows)
 	}
@@ -2240,8 +2240,8 @@ func TestEnterOnAFoundProcessStepsIn(t *testing.T) {
 	m.terms[100] = &remoteTerm{pid: 100}
 	m, asked := pipeDaemon(t, m)
 
+	// The cursor lands on the matching shell by itself; enter needs no move.
 	m = typeFilter(press(narrowed(m), "/"), "zsh")
-	m = press(m, "down")
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
@@ -2257,8 +2257,8 @@ func TestCtrlXWhileTypingAsksToKillWhatWasFound(t *testing.T) {
 	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
 		[]Proc{{PID: 100, PPID: 1, Command: "vim", Dir: "/p/brand"}})
 
+	// The cursor lands on the matching process by itself.
 	m = typeFilter(press(narrowed(m), "/"), "vim")
-	m = press(m, "down")
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = next.(model)
 
@@ -3242,8 +3242,8 @@ func TestTheFilterReachesAnIdleSubProject(t *testing.T) {
 	// somewhere you can press s or r.
 	m := typeFilter(press(subbed(), "/"), "api")
 	wantRows(t, navColumn(m), []string{
-		"▸mono",
-		" └─ services/api",
+		" mono",
+		"▸└─ services/api",
 	})
 	for _, row := range navColumn(m) {
 		if strings.Contains(row, "web") {

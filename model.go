@@ -1115,9 +1115,41 @@ func (m *model) setFilter(s string) {
 	// still listed, which is the whole of what is wanted when nothing changed.
 	m.rebuild()
 	if narrowed {
-		m.cursor = 0
+		m.cursor = m.firstAnswer()
 	}
 	m.scrollToCursor()
+}
+
+// firstAnswer is the row the narrowed cursor should land on: the first one
+// that answers the filter by what it itself is — its name, its path, its
+// command — rather than by standing above the answer. A repository listed
+// for its child's sake is scaffolding, and the look should land on what was
+// found.
+func (m model) firstAnswer() int {
+	f := strings.ToLower(strings.TrimSpace(m.filter))
+	if f == "" {
+		return 0
+	}
+	for i, r := range m.rows {
+		if rowAnswers(r, f) {
+			return i
+		}
+	}
+	return 0
+}
+
+// rowAnswers reports whether a row itself answers the filter: a process by
+// any command in its run, a place by its name or path.
+func rowAnswers(r navRow, f string) bool {
+	if r.kind == rowProc {
+		for _, n := range r.run {
+			if strings.Contains(strings.ToLower(n.Command), f) {
+				return true
+			}
+		}
+		return false
+	}
+	return matchesFilter(r.project, f)
 }
 
 // jump puts the cursor on a row and brings it into view. Out of range means
