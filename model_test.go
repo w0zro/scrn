@@ -3624,3 +3624,39 @@ func TestTheTerminalsColorsReachTheServer(t *testing.T) {
 	}
 	_ = next
 }
+
+func TestTheCursorRidesOutATransientChild(t *testing.T) {
+	// The scan can catch a brand-new shell mid-startup with a transient
+	// child — an rc-init command — which names its run for one scan. The
+	// cursor lands there (the run holds the wanted shell), and when the
+	// child exits the run renames itself back to the shell. The cursor has
+	// to ride the rename, not strand on whatever slides into the old row's
+	// place.
+	procs := []Proc{
+		{PID: 200, PPID: 1, Command: "zsh", Dir: "/p/repo"},
+		{PID: 201, PPID: 200, Command: "sleep", Argv: "sleep 400", Dir: "/p/repo"},
+	}
+	m := withProcList(96, 20, []Project{{Name: "repo", Path: "/p/repo"}}, procs)
+	m.terms = map[int]*remoteTerm{200: {pid: 200, dir: "/p/repo"}, 901: {pid: 901, dir: "/p/repo"}}
+	m.focus = 901
+	m.wantCursor = 901 // the shell just opened, as termOpenedMsg leaves it
+	m.rebuild()
+
+	// The scan catches the new shell with its rc-init child; the run is
+	// named for the child, and the want lands on it.
+	next, _ := m.Update(procsMsg{procs: append(procs,
+		Proc{PID: 901, PPID: 1, Command: "zsh", Dir: "/p/repo"},
+		Proc{PID: 902, PPID: 901, Command: "stat", Dir: "/p/repo"})})
+	m = next.(model)
+	if r, ok := m.selected(); !ok || !r.holds(901) {
+		t.Fatalf("setup: cursor should have landed on the new shell's run")
+	}
+
+	// The child exits; the run is a bare shell again.
+	next, _ = m.Update(procsMsg{procs: append(procs,
+		Proc{PID: 901, PPID: 1, Command: "zsh", Dir: "/p/repo"})})
+	m = next.(model)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || !r.holds(901) {
+		t.Errorf("cursor stranded off the shell when its transient child exited")
+	}
+}

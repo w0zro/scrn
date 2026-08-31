@@ -1984,8 +1984,16 @@ func (m *model) scrollToCursor() {
 // keeping the cursor on the same subject where that subject still exists.
 func (m *model) rebuild() {
 	was := ""
+	wasRoot := 0
 	if r, ok := m.selected(); ok {
 		was = detailKey(r)
+		// The root of the run too: the name a run is keyed by is borrowed —
+		// a transient child can name it for a single scan — but the top of
+		// the run is owned, and it is what the row still is when the name
+		// has moved on.
+		if r.kind == rowProc {
+			wasRoot = r.chain().PID
+		}
 	}
 
 	// What was just started has landed. The filter has done its job: the
@@ -2006,14 +2014,24 @@ func (m *model) rebuild() {
 	m.groupProcs()
 	m.rows = m.flatten()
 
-	// Prefer the same subject; failing that — a process that just exited —
-	// hold the same position in the list rather than jumping to the top.
-	found := -1
+	// Prefer the same subject; failing that, the row that grew from the
+	// same root — a run renames itself when what it is running comes or
+	// goes, and the cursor should ride the rename rather than strand on
+	// whatever slid into the old row's place. Only with both gone — a
+	// process that exited — hold the position in the list rather than
+	// jumping to the top.
+	found, root := -1, -1
 	for i, r := range m.rows {
 		if detailKey(r) == was {
 			found = i
 			break
 		}
+		if root < 0 && wasRoot != 0 && r.kind == rowProc && r.chain().PID == wasRoot {
+			root = i
+		}
+	}
+	if found < 0 {
+		found = root
 	}
 	switch {
 	case found >= 0:
