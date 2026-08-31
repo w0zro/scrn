@@ -810,7 +810,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "s":
 				return m, m.startHere("")
 			case "a":
-				return m, m.startHere(agentKinds[0].run)
+				return m, m.startHere(startAgent())
 			case "A":
 				return m, m.resumeHere()
 			case "r":
@@ -909,9 +909,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.start("")
 		case "a":
 			// An agent scrn owns, so it survives the window and can be
-			// stepped back into, unlike the ones it can only watch. The
-			// first kind is the default one.
-			return m, m.start(agentKinds[0].run)
+			// stepped back into, unlike the ones it can only watch. Which
+			// kind is the config's call; claude is the default.
+			return m, m.start(startAgent())
 		case "A":
 			// The same verb, reaching back: a starts a fresh conversation,
 			// A picks a suspended one back up.
@@ -1053,7 +1053,7 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		// outlives the filter and quietly takes the keys back the moment
 		// the shell it opened is gone.
 		m.typing = false
-		return m.start(agentKinds[0].run)
+		return m.start(startAgent())
 	case "ctrl+x":
 		// Killing what you found is also the end of looking for it. The
 		// typing stops so the confirmation's key is a confirmation, and the

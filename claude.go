@@ -66,8 +66,9 @@ const claudeCommand = "claude"
 // claudeKind is Claude Code as a kind of agent — the first, and so the one
 // the a key starts.
 var claudeKind = agentKind{
+	name:      "claude",
 	command:   claudeCommand,
-	run:       claudeCommand,
+	run:       func() string { return claudeCommand },
 	scan:      func() map[int]agent { return asAgents(claudeSessions()) },
 	suspended: claudeSuspended,
 	resume:    claudeResume,

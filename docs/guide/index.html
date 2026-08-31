@@ -113,7 +113,7 @@
 <section id="agents">
   <div class="kicker">§ 5</div>
   <h2>Agents</h2>
-  <p class="mb10"><b>a</b> starts Claude Code in the selected place, in a shell like any other. scrn reads the session files Claude leaves behind, so the navigator can show its state:</p>
+  <p class="mb10"><b>a</b> starts an agent in the selected place, in a shell like any other — Claude Code, unless the config's <code class="chip">agent</code> names another kind. Kinds are unequal on purpose: each shows only what its tool actually advertises. Claude Code advertises everything — scrn reads the session files it leaves behind, so the navigator can show its state:</p>
   <div class="def">
     <div class="def-row"><span class="term w60 accent">⠧</span><span class="desc">turning — an instance is working</span></div>
     <div class="def-row"><span class="term w60 accent">◆</span><span class="desc">blocked mid-turn on something specific: a permission prompt, a question</span></div>
@@ -122,7 +122,8 @@
   </div>
   <p>The mark tells you, from across the list, which projects need attention — the ◆ most of all, since answering it resumes work already underway. The detail pane for a Claude row names what a blocked instance is waiting on and shows the tail of its transcript.</p>
   <p><b>ctrl-space enter</b> goes to the next agent waiting on you, from wherever the keys were going — a focused shell, the filter, the list. Pressing it again continues around the waiting ones in turn.</p>
-  <p>A conversation doesn't end when its instance exits; it's suspended, and the transcript is enough to pick it back up. <b>A</b> on a place lists what's suspended there — sub-projects included — newest first: when each conversation last moved, its branch, and the last thing you asked of it. Letters narrow the list the way the filter does, <b>enter</b> continues the one under the cursor in a shell opened where the conversation was had, and <b>esc</b> closes the list. A conversation an instance is still carrying isn't offered.</p>
+  <p>A conversation doesn't end when its instance exits; it's suspended, and the transcript is enough to pick it back up. <b>A</b> on a place lists what's suspended there — sub-projects included — newest first: when each conversation last moved, its branch, and the last thing you asked of it. Letters narrow the list the way the filter does, <b>enter</b> continues the one under the cursor in a shell opened where the conversation was had, and <b>esc</b> closes the list. A conversation an instance is still carrying isn't offered. Every kind that keeps conversations answers the picker, and each is continued by the kind that had it.</p>
+  <p>A kind that advertises nothing — an ollama REPL — is still an agent to start: its rows are plain processes, unmarked, which is the whole truth about them. Ollama runs the first model it lists, unless <code class="chip">agentRuns</code> names one.</p>
 </section>
 
 <section id="plans">
@@ -169,6 +170,8 @@
     <div class="fields-row"><span class="f-name">projectsDirs</span><span class="f-default">—</span><span class="f-desc">several roots; when set, projectsDir is ignored. A root that only exists on another machine is fine</span></div>
     <div class="fields-row"><span class="f-name">scrollback</span><span class="f-default">10000</span><span class="f-desc">transcript lines each shell keeps. Settled into the server as the first shell brings it up, so raising it takes R — a fresh server — to reach anything</span></div>
     <div class="fields-row"><span class="f-name">navWidth</span><span class="f-default">28</span><span class="f-desc">the navigator column's width, 16–60</span></div>
+    <div class="fields-row"><span class="f-name">agent</span><span class="f-default">claude</span><span class="f-desc">the kind of agent <b>a</b> starts: claude or ollama</span></div>
+    <div class="fields-row"><span class="f-name">agentRuns</span><span class="f-default">—</span><span class="f-desc">what starting a kind runs, by name — {"ollama": "ollama run mistral"}</span></div>
     <div class="fields-row"><span class="f-name">skipDirs</span><span class="f-default">—</span><span class="f-desc">directory names the scan never enters, on top of the built-in list</span></div>
   </div>
 </section>

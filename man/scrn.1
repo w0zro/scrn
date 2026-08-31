@@ -71,7 +71,9 @@ jump to the top and the bottom
 open a shell at the selected place
 .TP
 .B a
-start Claude Code there
+start an agent there \(em Claude Code, unless the config's
+.B agent
+says otherwise
 .TP
 .B A
 continue a suspended conversation there: the place's past agent sessions,
@@ -181,9 +183,11 @@ returns to live. Each shell keeps 10,000 lines of transcript unless the
 config says otherwise.
 .SH AGENTS
 .B a
-starts Claude Code in a shell like any other. scrn reads the session
-files Claude leaves behind, and the navigator marks each instance's
-state: a spinner while it works, a diamond (\[u25C6]) when it is blocked
+starts an agent in a shell like any other. scrn knows agents as kinds
+\(em claude and ollama today \(em and the kinds are unequal on
+purpose: each shows only what its tool actually advertises. Claude
+Code advertises everything; scrn reads the session files it leaves
+behind, and the navigator marks each instance's state: a spinner while it works, a diamond (\[u25C6]) when it is blocked
 mid\-turn on a permission prompt or a question, a filled dot (\[u25CF])
 when it has finished its turn, a hollow dot (\[u25CB]) when it has been
 idle since it started. The diamond is the one worth crossing the room
@@ -210,7 +214,12 @@ conversation was had, running
 and from there it is a live instance like any other \(em and
 .B esc
 closes the list. A conversation an instance is still carrying is not
-offered.
+offered. Every kind that keeps conversations answers the picker, and
+each is continued by the kind that had it.
+.PP
+A kind that advertises nothing \(em an ollama REPL \(em is still an
+agent to start: its rows are plain processes, unmarked, which is the
+whole truth about them.
 .SH PLANS
 A project writes down its usual processes in
 .IR .scrn ,
@@ -260,6 +269,21 @@ server as the first shell brings it up, so raising it takes
 .TP
 .B navWidth
 the navigator column's width, 16\(en60 (default 28)
+.TP
+.B agent
+the kind of agent
+.B a
+starts:
+.B claude
+(the default) or
+.BR ollama .
+A name scrn does not know falls back to the default
+.TP
+.B agentRuns
+what starting a kind runs, by name, when its own answer is not the
+wanted one \(em
+.B {"ollama": "ollama run mistral"}
+picks the model ollama would otherwise guess at (its first listed)
 .TP
 .B skipDirs
 directory names the repository scan never enters, on top of the built\-in

@@ -1920,7 +1920,7 @@ func TestPrefixAStartsAnAgentBesideTheFocusedShell(t *testing.T) {
 	m, asked := pipeDaemon(t, m)
 
 	chord(m, "a")
-	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != agentKinds[0].run {
+	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != startAgent() {
 		t.Fatalf("asked %+v, want an agent started at /p/a", got)
 	}
 }

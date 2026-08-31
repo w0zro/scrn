@@ -144,6 +144,11 @@ func TestShortAge(t *testing.T) {
 // listing already landed.
 func pickerOn(convos ...conversation) model {
 	m := withProcs(96, 14, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+	for i := range convos {
+		if convos[i].Kind == "" {
+			convos[i].Kind = "claude" // stamped by the layer in earnest
+		}
+	}
 	m.resume = &resumeView{place: Project{Name: "scrn", Path: "/p/scrn"}, loaded: true, convos: convos}
 	return m
 }

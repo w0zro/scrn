@@ -33,6 +33,15 @@ type Config struct {
 	// too tight for the qualified names a work checkout produces. Held
 	// between 16 and 60; zero means the default.
 	NavWidth int `json:"navWidth,omitempty"`
+
+	// Agent names the kind of agent the a key starts — "claude" unless said
+	// otherwise. A name scrn does not know falls back to the default.
+	Agent string `json:"agent,omitempty"`
+
+	// AgentRuns overrides what starting a kind runs, by the kind's name —
+	// "ollama": "ollama run mistral" picks the model the kind would
+	// otherwise guess at.
+	AgentRuns map[string]string `json:"agentRuns,omitempty"`
 }
 
 func defaultConfig() Config {

@@ -75,6 +75,7 @@ func main() {
 	if cfg, err := loadConfig(); err == nil {
 		applyNavWidth(cfg.NavWidth)
 		applyScrollback(cfg.Scrollback)
+		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
 	}
 
 	// The alternate screen and the mouse are asked for on the view rather

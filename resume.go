@@ -64,12 +64,11 @@ func (m *model) resumeHere() tea.Cmd {
 // openResumePlace opens the picker and asks for the listing off the render
 // path: it is dozens of files, and the pane says "looking" until they land.
 func (m *model) openResumePlace(p Project) tea.Cmd {
-	kind := agentKinds[0]
 	dirs := m.convoDirs(p)
 	live := m.liveConversations()
 	m.resume = &resumeView{place: p}
 	return func() tea.Msg {
-		return convosMsg{place: p.Path, convos: kind.suspended(dirs, live)}
+		return convosMsg{place: p.Path, convos: suspendedConversations(dirs, live)}
 	}
 }
 
@@ -181,8 +180,13 @@ func (m *model) resumePick() tea.Cmd {
 		return nil
 	}
 	c := list[min(m.resume.cursor, len(list)-1)]
+	run := resumeCommand(c)
+	if run == "" {
+		m.status, m.statusErr = "no way to continue a "+c.Kind+" conversation", true
+		return nil
+	}
 	m.resume = nil
-	m.daemon.open(c.Dir, agentKinds[0].resume(c.ID), "", m.detailWidth(), m.paneHeight())
+	m.daemon.open(c.Dir, run, "", m.detailWidth(), m.paneHeight())
 	return nil
 }
 
