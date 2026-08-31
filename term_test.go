@@ -1784,3 +1784,24 @@ func TestABareHeldShellGetsItsFactsAboveItsScreen(t *testing.T) {
 		t.Error("a focused shell should have the pane whole, without the banner")
 	}
 }
+
+func TestAPaneSizeBeyondAnyRealScreenIsClamped(t *testing.T) {
+	// The emulator allocates its whole grid up front. A window claiming an
+	// absurd pane — a corrupted message, a buggy client — must not be able to
+	// make the daemon commit that memory and take every held shell with it.
+	t.Setenv("SHELL", "/bin/sh")
+	term, err := startTerm("/tmp", "", "", 1<<20, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.close()
+	if w, h := term.vt.Width(), term.vt.Height(); w != termMaxWidth || h != termMaxHeight {
+		t.Errorf("opened at %dx%d, want the claim clamped to %dx%d", w, h, termMaxWidth, termMaxHeight)
+	}
+
+	term.resize(40, 8)
+	term.resize(1<<20, 1<<20)
+	if w, h := term.vt.Width(), term.vt.Height(); w != termMaxWidth || h != termMaxHeight {
+		t.Errorf("resized to %dx%d, want the claim clamped to %dx%d", w, h, termMaxWidth, termMaxHeight)
+	}
+}

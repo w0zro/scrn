@@ -125,17 +125,30 @@ type termStartedMsg struct {
 const (
 	termMinWidth  = 80
 	termMinHeight = 24
+
+	// The emulator allocates its whole grid up front, so a claimed size is
+	// memory the daemon commits to on the spot. No real pane comes close to
+	// these; a claim past them is a bug or a lie, and either way not worth
+	// every shell the daemon holds.
+	termMaxWidth  = 1024
+	termMaxHeight = 512
 )
 
-// startTerm runs command in dir on a pty of its own. An empty command means
-// the user's shell, which is what most of them are.
-func startTerm(dir, command, name string, width, height int) (*terminal, error) {
+// clampSize keeps a claimed pane within the sizes a pane can actually be.
+func clampSize(width, height int) (int, int) {
 	if width <= 0 {
 		width = termMinWidth
 	}
 	if height <= 0 {
 		height = termMinHeight
 	}
+	return min(width, termMaxWidth), min(height, termMaxHeight)
+}
+
+// startTerm runs command in dir on a pty of its own. An empty command means
+// the user's shell, which is what most of them are.
+func startTerm(dir, command, name string, width, height int) (*terminal, error) {
+	width, height = clampSize(width, height)
 
 	// Whatever is asked for is run under a shell, so that it is found on the
 	// PATH the user actually has rather than the one scrn inherited, and so a
@@ -435,6 +448,7 @@ func (t *terminal) resize(width, height int) {
 	if width <= 0 || height <= 0 {
 		return
 	}
+	width, height = clampSize(width, height)
 	// The size arbitration re-applies on every ask, so the same answer comes
 	// through here again and again; unchanged is not a resize.
 	if width == t.vt.Width() && height == t.vt.Height() {
