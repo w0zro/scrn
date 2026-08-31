@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -192,16 +194,47 @@ func dialDaemon() (net.Conn, error) {
 	return net.Dial("unix", socketPath())
 }
 
+// maxMessage is the ceiling on one message's size. The decoder otherwise
+// materialises whatever length the wire claims, so a single absurd frame —
+// corrupt, hostile — could take the process and every shell it holds with
+// it. The largest honest message is a whole styled transcript, megabytes at
+// most; the ceiling stands far past it.
+const maxMessage = 64 << 20
+
+var errMessageTooBig = errors.New("message past any honest size")
+
+// budgetReader hands the decoder at most budget bytes until it is topped up
+// again, which read does per message: an honest stream never runs dry, and a
+// message that does is refused rather than held in memory whole.
+type budgetReader struct {
+	r      io.Reader
+	budget int
+}
+
+func (b *budgetReader) Read(p []byte) (int, error) {
+	if b.budget <= 0 {
+		return 0, errMessageTooBig
+	}
+	if len(p) > b.budget {
+		p = p[:b.budget]
+	}
+	n, err := b.r.Read(p)
+	b.budget -= n
+	return n, err
+}
+
 // conn is a message-framed connection to the other side.
 type conn struct {
 	net  net.Conn
 	enc  *json.Encoder
 	dec  *json.Decoder
+	rd   *budgetReader
 	send chan message
 }
 
 func newConn(c net.Conn) *conn {
-	return &conn{net: c, enc: json.NewEncoder(c), dec: json.NewDecoder(c)}
+	rd := &budgetReader{r: c}
+	return &conn{net: c, enc: json.NewEncoder(c), dec: json.NewDecoder(rd), rd: rd}
 }
 
 // write sends one message. Callers on the daemon side serialise through a
@@ -210,6 +243,7 @@ func (c *conn) write(m message) error { return c.enc.Encode(m) }
 
 // read blocks for the next message.
 func (c *conn) read() (message, error) {
+	c.rd.budget = maxMessage
 	var m message
 	err := c.dec.Decode(&m)
 	return m, err
