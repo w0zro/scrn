@@ -840,3 +840,26 @@ func TestStartingAnAgentFromTheFilterEndsTheTyping(t *testing.T) {
 		t.Error("starting an agent should be the end of looking for the place to start it")
 	}
 }
+
+func TestAPaneRowCannotBleedIntoTheNextLine(t *testing.T) {
+	// A captured row can end with a background still open — a full-width
+	// prompt bar does. Left unreset it would run across the newline and
+	// paint the next line's navigator, so every composed line ends reset.
+	m := watchingTail(t)
+	rows := strings.Split(m.terms[700].screen, "\n")
+	rows[2] = "\x1b[42mpainted to the edge"
+	m.terms[700].screen = strings.Join(rows, "\n")
+
+	for i, line := range strings.Split(m.layout(), "\n") {
+		if !strings.HasSuffix(line, "\x1b[m") {
+			t.Fatalf("line %d = %q, want it to end with the styles reset", i, line)
+		}
+	}
+}
+
+func TestPaddingIsNotPaintedWithTheRowsLeftovers(t *testing.T) {
+	got := padScreen([]string{"\x1b[42mgreen"}, 10, 1)
+	if !strings.Contains(got, "\x1b[42mgreen\x1b[m ") {
+		t.Errorf("row = %q, want the padding to start reset", got)
+	}
+}

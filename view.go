@@ -101,7 +101,11 @@ func (m model) layout() string {
 
 		lines = make([]string, 0, rows)
 		for i := 0; i < rows; i++ {
-			lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i))
+			// The pane's rows are somebody else's styling, captured as it
+			// stood — a background left open at a row's end would run across
+			// the newline and paint the next line's navigator. Every line
+			// ends reset, so nothing a program set can outlive its row.
+			lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i)+ansi.ResetStyle)
 		}
 	}
 	if m.showHelp {

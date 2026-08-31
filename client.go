@@ -417,7 +417,9 @@ func padScreen(rows []string, width, height int) string {
 	}
 	for i, row := range rows {
 		if pad := width - ansi.StringWidth(row); pad > 0 {
-			rows[i] = row + strings.Repeat(" ", pad)
+			// Reset before padding: the padding is scrn's blank, not more of
+			// whatever background the row's last cell left open.
+			rows[i] = row + ansi.ResetStyle + strings.Repeat(" ", pad)
 		}
 	}
 	return strings.Join(rows, "\n")
