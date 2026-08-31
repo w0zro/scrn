@@ -26,6 +26,12 @@ type palette struct {
 	attention color.Color // an answer owed, worth a glance
 	urgent    color.Color // an answer holding up work, worth crossing the room
 	danger    color.Color // dying, failed, destructive
+
+	// The washes: three of the same answers, pale enough to paint a field
+	// under text rather than speak. The mode bar rides on them.
+	accentWash    color.Color
+	successWash   color.Color
+	attentionWash color.Color
 }
 
 // newPalette picks each role's color for the background the terminal
@@ -47,6 +53,10 @@ func newPalette(dark bool) palette {
 		attention: c("#9A6700", "#D29922"),
 		urgent:    c("#BF3989", "#F778BA"),
 		danger:    c("#CF222E", "#F85149"),
+
+		accentWash:    c("#DDF4FF", "#15294A"),
+		successWash:   c("#DAFBE1", "#12351F"),
+		attentionWash: c("#FFF8C5", "#372E12"),
 	}
 }
 
@@ -148,23 +158,39 @@ func applyBackground(dark bool) {
 	// attached, gray is a preview.
 	previewStyle = lipgloss.NewStyle().Foreground(p.muted)
 
-	// modeStyles is the chip at the foot's left: which mode the keys are in,
-	// worn as a colored badge so the answer reads before any words do.
-	// Reverse rather than a background color, because the page's background
-	// is the terminal's own to know. Navigate is the selection's blue — the
-	// list is where choosing happens; proc is the green of something alive,
-	// because the keys are inside it; prefix is the amber of a question,
-	// because the next key is one.
-	modeStyles = map[string]lipgloss.Style{
-		modeNavigate: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.accent),
-		modeProc:     lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.success),
-		modePrefix:   lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.attention),
+	// modeLooks is the bar across the foot: the chip in the mode's own
+	// color, and the rest of the line washed in a pale field of the same
+	// hue, so it reads as one bar to the divider rather than a floating
+	// badge. Reverse for the chip rather than a background color, because
+	// the page's background is the terminal's own to know. Navigate is the
+	// selection's blue — the list is where choosing happens; proc is the
+	// green of something alive, because the keys are inside it; prefix is
+	// the amber of a question, because the next key is one.
+	modeLooks = map[string]modeLook{
+		modeNavigate: {
+			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.accent),
+			bar:  lipgloss.NewStyle().Background(p.accentWash),
+		},
+		modeProc: {
+			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.success),
+			bar:  lipgloss.NewStyle().Background(p.successWash),
+		},
+		modePrefix: {
+			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.attention),
+			bar:  lipgloss.NewStyle().Background(p.attentionWash),
+		},
 	}
 }
 
-// modeStyles is declared with the other styles and rebuilt with them; see
+// modeLook is how one mode dresses the foot's bar: the chip, and the field
+// it rides on. Declared with the other styles and rebuilt with them; see
 // applyBackground.
-var modeStyles map[string]lipgloss.Style
+type modeLook struct {
+	chip lipgloss.Style
+	bar  lipgloss.Style
+}
+
+var modeLooks map[string]modeLook
 
 // tone is how a value in the detail pane reads. Most facts are plain; the
 // few that carry a state carry it in the same colors the navigator's marks

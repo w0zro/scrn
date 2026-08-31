@@ -179,8 +179,12 @@ func padTo(lines []string, n int) []string {
 // the chip. The keys themselves live behind ?.
 func (m model) hintLines(width int) []string {
 	md := m.mode()
-	chip := " " + modeStyles[md].Render(" "+md+" ")
-	return append(m.footLines(width), chip)
+	look := modeLooks[md]
+	bar := look.chip.Render(" " + md + " ")
+	if fill := width - lipgloss.Width(bar); fill > 0 {
+		bar += look.bar.Render(strings.Repeat(" ", fill))
+	}
+	return append(m.footLines(width), bar)
 }
 
 // footLines is the messaging above the chip, empty when there is nothing to
