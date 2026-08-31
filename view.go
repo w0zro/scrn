@@ -246,7 +246,7 @@ func (m model) keysModal(rows int) []string {
 		{"a", "agent"},
 		{"r", "run"},
 		{"x · X", "kill · kill the tree"},
-		{"/", "find a project"},
+		{"/", "find a project · a process"},
 		{"space · -", "fold · unfold all"},
 		{".", "all · running"},
 		{"gg · G", "top · bottom"},

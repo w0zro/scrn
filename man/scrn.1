@@ -82,7 +82,7 @@ fold or unfold everything; unfolded rows also show pids
 toggle between everything and only what is running
 .TP
 .B /
-find a repository by name
+find by name: repositories, and the processes whose commands answer
 .TP
 .B x
 kill the selected process; on a repository or group, everything running
@@ -104,6 +104,30 @@ or
 .B enter
 confirms, anything else cancels. Processes get SIGTERM, and the list
 never claims an exit it has not observed.
+.SS In the filter
+Letters type, and the list narrows under a cursor that
+.B up
+and
+.B down
+(or
+.B ctrl\-p
+and
+.BR ctrl\-n )
+move. A query lists the processes whose commands answer it as well as the
+places, pruned to the branches that answer; an empty query lists places
+alone. Acting on what the cursor is on ends the looking:
+.B enter
+opens a shell on a place and steps into a found process's shell,
+.B ctrl\-r
+runs the plan there,
+.B ctrl\-a
+starts an agent, and
+.B ctrl\-x
+asks to kill \(em the filter holds, so the subject stays listed.
+.B ctrl\-u
+clears the query,
+.B esc
+abandons it.
 .SS In a shell
 Keystrokes go to the shell. scrn keeps two keys for itself:
 .TP

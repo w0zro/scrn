@@ -2186,6 +2186,79 @@ func TestFilterReachesAChildProcessCommand(t *testing.T) {
 	wantRows(t, navColumn(m), []string{"▸brand"})
 }
 
+func TestTypingListsTheProcessesThatAnswer(t *testing.T) {
+	// A query is a name, and a process that answers to it is as much the
+	// thing being looked for as a project is: it is listed under its place,
+	// pruned to the branches that answer, so it can be acted on straight
+	// from the look.
+	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
+		[]Proc{
+			{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/brand"},
+			{PID: 101, PPID: 100, Command: "node", Dir: "/p/brand"},
+			{PID: 102, PPID: 1, Command: "vim", Dir: "/p/brand"},
+		})
+
+	m = typeFilter(press(narrowed(m), "/"), "node")
+	rows := navColumn(m)
+	wantRows(t, rows, []string{"▸brand", " └─ node"})
+	if len(rows) != 2 {
+		t.Fatalf("rows = %q, want the vim pruned away", rows)
+	}
+}
+
+func TestTypingAnEmptyQueryListsPlacesAlone(t *testing.T) {
+	// Every process of every project would bury the names being scanned for;
+	// the processes join the list only once a query gives them a reason to.
+	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
+		[]Proc{{PID: 100, PPID: 1, Command: "vim", Dir: "/p/brand"}})
+
+	m = press(narrowed(m), "/")
+	for _, row := range navColumn(m) {
+		if strings.Contains(row, "─") {
+			t.Fatalf("row %q lists a process before anything was typed", row)
+		}
+	}
+}
+
+func TestEnterOnAFoundProcessStepsIn(t *testing.T) {
+	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
+		[]Proc{{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/brand"}})
+	m.terms[100] = &remoteTerm{pid: 100}
+	m, asked := pipeDaemon(t, m)
+
+	m = typeFilter(press(narrowed(m), "/"), "zsh")
+	m = press(m, "down")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(model)
+
+	if m.focus != 100 {
+		t.Fatalf("focus = %d, want the found shell, pid 100", m.focus)
+	}
+	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 100 {
+		t.Fatalf("asked %+v, want an attach to pid 100", got)
+	}
+}
+
+func TestCtrlXWhileTypingAsksToKillWhatWasFound(t *testing.T) {
+	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
+		[]Proc{{PID: 100, PPID: 1, Command: "vim", Dir: "/p/brand"}})
+
+	m = typeFilter(press(narrowed(m), "/"), "vim")
+	m = press(m, "down")
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = next.(model)
+
+	if m.typing {
+		t.Error("ctrl+x should end the typing, so the confirmation's key confirms")
+	}
+	if m.filter != "vim" {
+		t.Errorf("filter = %q, want it held so the subject stays listed", m.filter)
+	}
+	if got := targets(m.pendingKill); len(got) != 1 || got[0] != 100 {
+		t.Fatalf("pending kill on %v, want the vim, pid 100", got)
+	}
+}
+
 func TestNavWidthComesFromConfigWithinReason(t *testing.T) {
 	defer func(w int) { navWidth = w }(navWidth)
 

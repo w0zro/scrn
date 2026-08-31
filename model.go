@@ -949,21 +949,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// filterKey handles a keystroke while a project is being looked up.
+// filterKey handles a keystroke while something is being looked up.
 //
-// Looking one up is a way of getting somewhere, so the keys that get you
-// somewhere work while you are still typing: the list is narrowing under a
-// cursor you can move, and n or c or enter acts on whatever that cursor is on.
-// Having to accept the filter first made finding a project and doing something
-// in it two separate acts, when it is one.
+// Looking something up is a way of getting somewhere, so the keys that get
+// you somewhere work while you are still typing: the list is narrowing under
+// a cursor you can move, and enter, ctrl+r, ctrl+a or ctrl+x acts on
+// whatever that cursor is on — a place, or a process that answered. Having
+// to accept the filter first made finding a thing and doing something with
+// it two separate acts, when it is one.
 func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "enter":
 		// Enter is the one key that means both things. On a repository or a
 		// sub-project it opens a shell there, which is the point of having
-		// looked it up; the filter is finished either way.
+		// looked it up; on a process it steps into the shell holding it, the
+		// way it does in the list. The filter is finished either way.
 		m.typing = false
-		if r, ok := m.selected(); ok && r.kind != rowProc {
+		if _, ok := m.selected(); ok {
 			return m.openShell()
 		}
 		return m.detailCmd()
@@ -1012,6 +1014,12 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.run()
 	case "ctrl+a":
 		return m.start(agentKinds[0].run)
+	case "ctrl+x":
+		// Killing what you found is also the end of looking for it. The
+		// typing stops so the confirmation's key is a confirmation, and the
+		// filter holds so the subject stays where the cursor has it.
+		m.typing = false
+		return m.askKill(false)
 	}
 
 	// A letter is a letter: a project called "scrn" has to be typeable
@@ -2107,6 +2115,14 @@ func (m model) flatten() []navRow {
 		rows = append(rows, top)
 		repos := m.visibleRepos(top.project)
 		if m.typing {
+			// Work at the group's own level answers a query the same way it
+			// is listed without one: before the repositories it sits beside.
+			if f := strings.ToLower(strings.TrimSpace(m.filter)); f != "" {
+				roots := matchingProcs(m.byPlace[top.project.Path], f)
+				for i, n := range roots {
+					rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1)...)
+				}
+			}
 			for _, p := range repos {
 				rows = append(rows, m.flattenRepo(p, "  ")...)
 			}
@@ -2179,16 +2195,28 @@ func (m model) procAnswers(place, filter string) bool {
 	if f == "" {
 		return false
 	}
-	var any func(ns []*ProcNode) bool
-	any = func(ns []*ProcNode) bool {
-		for _, n := range ns {
-			if strings.Contains(strings.ToLower(n.Command), f) || any(n.Children) {
-				return true
-			}
+	return len(matchingProcs(m.byPlace[place], f)) > 0
+}
+
+// matchingProcs prunes process trees to what answers the filter, folded and
+// lowered already: a process whose own command answers stays with its whole
+// subtree, and a parent whose child answers stays as the trimmed copy that
+// leads there. The copies carry the original pids, which is all a step-in or
+// a kill reads.
+func matchingProcs(ns []*ProcNode, f string) []*ProcNode {
+	var out []*ProcNode
+	for _, n := range ns {
+		if strings.Contains(strings.ToLower(n.Command), f) {
+			out = append(out, n)
+			continue
 		}
-		return false
+		if kept := matchingProcs(n.Children, f); len(kept) > 0 {
+			c := *n
+			c.Children = kept
+			out = append(out, &c)
+		}
 	}
-	return any(m.byPlace[place])
+	return out
 }
 
 // groupVisible is the same rule at the group's altitude: its own name or a
@@ -2230,13 +2258,35 @@ func (m model) flattenRepo(p Project, indent string) []navRow {
 	row := navRow{kind: rowProject, project: p, prefix: indent}
 	rows := []navRow{row}
 	subs := m.visibleSubs(p)
-	// While a project is being looked up the list is of places to land. What
-	// is running inside them is not what is being chosen between, and it
-	// would bury the names being scanned for.
+	// While a project is being looked up, an empty query lists places alone —
+	// every process of every project would bury the names being scanned for.
+	// But a query is a name, and a process that answers to it is as much a
+	// thing being looked for as a project is: it is listed, pruned to the
+	// branches that answer, so enter can step into it and ctrl+x can kill it.
 	if m.typing {
+		f := strings.ToLower(strings.TrimSpace(m.filter))
+		var roots []*ProcNode
+		if f != "" {
+			roots = matchingProcs(m.byPlace[p.Path], f)
+		}
+		for i, n := range roots {
+			rows = append(rows, m.flattenProc(p, n, indent, i == len(roots)-1 && len(subs) == 0)...)
+		}
 		for i, sp := range subs {
-			rows = append(rows, navRow{kind: rowSub, project: sp, prefix: indent,
-				last: i == len(subs)-1})
+			srow := navRow{kind: rowSub, project: sp, prefix: indent,
+				last: i == len(subs)-1}
+			rows = append(rows, srow)
+			if f == "" {
+				continue
+			}
+			rail := indent + glyphRail + " "
+			if srow.last {
+				rail = indent + "  "
+			}
+			sroots := matchingProcs(m.byPlace[sp.Path], f)
+			for j, n := range sroots {
+				rows = append(rows, m.flattenProc(sp, n, rail, j == len(sroots)-1)...)
+			}
 		}
 		return rows
 	}
