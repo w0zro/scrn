@@ -35,30 +35,20 @@ const usage = `scrn is a terminal UI for working on projects at the command line
 usage:
   scrn             open the window
   scrn ls          list the held shells: pid, directory, name
-  scrn daemon      run the daemon that holds the shells (started for you)
   scrn -h, --help  show this
   scrn --version   report the version
 
 files:
   ~/.config/scrn/config.json  configuration
-  ~/.local/state/scrn/        the daemon's socket and log
+  ~/.local/state/scrn/        the socket of the tmux server holding the shells
 
 environment:
-  SCRN_SOCKET  where the daemon listens, instead of the state directory
+  SCRN_SOCKET  where that server listens, instead of the state directory
 `
 
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		// The daemon is the same binary. It is started by the client when
-		// none is listening, so nothing has to be installed or launched by
-		// hand.
-		case "daemon":
-			if err := runDaemon(); err != nil {
-				fmt.Fprintf(os.Stderr, "scrnd: %v\n", err)
-				os.Exit(1)
-			}
-			return
 		case "-h", "--help", "help":
 			fmt.Print(usage)
 			return
@@ -79,10 +69,12 @@ func main() {
 		}
 	}
 
-	// The navigator's width is drawn from before the first paint, so it is the
-	// one piece of config the client applies here rather than on a scan.
+	// The navigator's width is drawn from before the first paint, and the
+	// transcript cap has to stand before the first shell brings the server
+	// up, so both are applied here rather than on a scan.
 	if cfg, err := loadConfig(); err == nil {
 		applyNavWidth(cfg.NavWidth)
+		applyScrollback(cfg.Scrollback)
 	}
 
 	// The alternate screen and the mouse are asked for on the view rather

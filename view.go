@@ -193,7 +193,7 @@ func (m model) hintLines(width int) []string {
 func (m model) footLines(width int) []string {
 	switch {
 	case m.pendingReplace:
-		return hintBlock("replace the daemon, ending "+
+		return hintBlock("end the server, and "+
 			plural(len(m.terms), "shell", "shells")+"? · R confirms", width, warnStyle)
 
 	case m.pendingKill != nil:
@@ -269,7 +269,7 @@ func (m model) keysModal(rows int) []string {
 		{"^spc enter", "the next waiting agent"},
 		{"^spc q", "quit, even from a shell"},
 		{"^spc ?", "these keys"},
-		{"R", "replace the daemon"},
+		{"R", "end the server, shells and all"},
 		{"q", "quit"},
 	}
 	// Four rows around the list: the borders, and a blank inside each — the

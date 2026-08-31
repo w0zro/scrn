@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#e7e3d8">
 <title>Guide — scrn</title>
-<meta name="description" content="Installing and using scrn: the navigator, shells, agents, plans, kills, configuration, and the daemon.">
+<meta name="description" content="Installing and using scrn: the navigator, shells, agents, plans, kills, configuration, and the server.">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -40,7 +40,7 @@
     <a href="#plans"><span class="sec">§ 6</span>&nbsp;&nbsp;Plans</a>
     <a href="#kills"><span class="sec">§ 7</span>&nbsp;&nbsp;Killing</a>
     <a href="#configuration"><span class="sec">§ 8</span>&nbsp;&nbsp;Configuration</a>
-    <a href="#daemon"><span class="sec">§ 9</span>&nbsp;&nbsp;The daemon</a>
+    <a href="#daemon"><span class="sec">§ 9</span>&nbsp;&nbsp;The server</a>
     <a href="#upgrading"><span class="sec">§ 10</span>&nbsp;Upgrading</a>
     <a href="#linux"><span class="sec">§ 11</span>&nbsp;Linux</a>
   </nav>
@@ -59,7 +59,7 @@
     <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
     <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh">[copy]</button>
   </div>
-  <p>The script fetches the release built for this machine, verifies it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code> with the manpage beside it — <code class="chip">man scrn</code> has all of this in reference order. Two variables override it:</p>
+  <p>The script fetches the release built for this machine, verifies it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code> with the manpage beside it — <code class="chip">man scrn</code> has all of this in reference order. scrn keeps its shells in <code class="chip">tmux</code>, so have that installed too (on a Mac: <code class="chip">brew install tmux</code>). Two variables override the script:</p>
   <div class="def mb14">
     <div class="def-row"><span class="term w170">SCRN_INSTALL_DIR</span><span class="desc">install somewhere else</span></div>
     <div class="def-row"><span class="term w170">SCRN_VERSION</span><span class="desc">a release other than the latest</span></div>
@@ -72,7 +72,7 @@
   <div class="kicker">§ 2</div>
   <h2>First run</h2>
   <div class="cmd lead"><code>scrn</code></div>
-  <p>There is nothing else to set up. The first window starts the daemon — the same binary — and later windows attach to it. By default scrn looks for repositories under <code class="chip">~/projects</code>; point it elsewhere in the <a class="accent" href="#configuration">config</a>.</p>
+  <p>There is nothing else to set up beyond having <code class="chip">tmux</code> installed. The first shell brings up a tmux server of scrn's own — private socket, out of reach of any .tmux.conf — and every window attaches to it. By default scrn looks for repositories under <code class="chip">~/projects</code>; point it elsewhere in the <a class="accent" href="#configuration">config</a>.</p>
   <p class="mb8">The list opens showing what is running, so on a quiet machine it may say <code class="chip">nothing running</code>. Two keys from there:</p>
   <div class="def">
     <div class="def-row"><span class="term w60">.</span><span class="desc">show every repository, running or not</span></div>
@@ -105,7 +105,7 @@
   <div class="kicker">§ 4</div>
   <h2>Shells</h2>
   <p><b>s</b> opens a shell at the selected place. <b>enter</b> on a shell's row steps into it: keystrokes go to the shell. scrn keeps one key for itself: <b>ctrl-space</b>, the prefix — it reaches scrn from anywhere, even a focused shell, and every other keystroke belongs to the pane. The chords keep their letters' meanings: <b>o</b> steps back out, <b>j</b> and <b>k</b> attach to the next and previous shell, another <b>ctrl-space</b> toggles back to the shell you were in before, <b>/</b> opens the filter, <b>s</b> <b>a</b> <b>A</b> <b>r</b> open a shell, start an agent, continue a conversation, or run the plan where you are, <b>q</b> quits, <b>?</b> shows the keys. Anything unbound after it cancels it. The foot of the column wears the mode the keys are in, the way vim says INSERT: <b>navigate</b> at the list, <b>proc</b> inside a shell or its transcript, <b>prefix</b> while a chord hangs. The mode keeps the bottom line to itself; anything scrn has to say — a report, an error, a confirmation — appears above it.</p>
-  <p>Shells live in the daemon, so they survive the window — close the terminal, quit the terminal app, come back and everything is where it was. The pane is a real emulator: alternate screen, mouse reporting, window title and progress all pass through, so full-screen programs behave.</p>
+  <p>Shells live in scrn's private tmux server, so they survive the window — close the terminal, quit the terminal app, come back and everything is where it was. The pane behaves the way a pane behaves in tmux, because it is one: keys, modes, mouse reporting, the alternate screen, all of it.</p>
   <p>Scroll up to read what has scrolled away; <b>j</b> <b>k</b> move, <b>esc</b> returns to live. Each shell keeps 10,000 lines of transcript by default — <code class="chip">scrollback</code> in the config raises it.</p>
   <p>When several windows watch the same shell, it is sized for the smallest of them, so no window sees a torn screen.</p>
 </section>
@@ -167,7 +167,7 @@
     <div class="fields-head"><span>FIELD</span><span>DEFAULT</span><span></span></div>
     <div class="fields-row"><span class="f-name">projectsDir</span><span class="f-default">$HOME/projects</span><span class="f-desc">the directory searched for repositories; ~ and $VARS expand</span></div>
     <div class="fields-row"><span class="f-name">projectsDirs</span><span class="f-default">—</span><span class="f-desc">several roots; when set, projectsDir is ignored. A root that only exists on another machine is fine</span></div>
-    <div class="fields-row"><span class="f-name">scrollback</span><span class="f-default">10000</span><span class="f-desc">transcript lines each shell keeps. Read at daemon start, so raising it takes R to reach running shells</span></div>
+    <div class="fields-row"><span class="f-name">scrollback</span><span class="f-default">10000</span><span class="f-desc">transcript lines each shell keeps. Settled into the server as the first shell brings it up, so raising it takes R — a fresh server — to reach anything</span></div>
     <div class="fields-row"><span class="f-name">navWidth</span><span class="f-default">28</span><span class="f-desc">the navigator column's width, 16–60</span></div>
     <div class="fields-row"><span class="f-name">skipDirs</span><span class="f-default">—</span><span class="f-desc">directory names the scan never enters, on top of the built-in list</span></div>
   </div>
@@ -175,24 +175,23 @@
 
 <section id="daemon">
   <div class="kicker">§ 9</div>
-  <h2>The daemon</h2>
-  <p>The daemon is the same <code>scrn</code> binary, started by the first window that finds none listening. It owns the ptys, holds the transcripts, and serves every window over a unix socket at <code class="chip">~/.local/state/scrn/scrnd-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). One daemon per user, for all projects.</p>
-  <p>Holding no shells and watched by no window for a minute, it exits. A window that loses its daemon says so and reconnects when one is back. A daemon that dies leaves its last words in <code class="chip">scrnd.log</code>, beside the socket.</p>
-  <p><code class="chip">scrn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No daemon listening is an empty list, not an error.</p>
+  <h2>The server</h2>
+  <p>The shells live in a tmux server of scrn's own: it owns the ptys, the emulation and the transcripts, and every window talks to it — one server per user, for all projects, on a socket at <code class="chip">~/.local/state/scrn/tmux-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory) where no .tmux.conf reaches. Everything in a pane behaves the way it behaves in tmux, because it is tmux.</p>
+  <p>The server lives exactly as long as it holds something: the first shell brings it up, the last one closing takes it down. Upgrading scrn never disturbs it — the server is not scrn's binary, so a new build talks to the same server and the shells never notice. In a pinch the shells are reachable without scrn at all: <code class="chip">tmux -S ~/.local/state/scrn/tmux-&lt;uid&gt;.sock attach</code>.</p>
+  <p><code class="chip">scrn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No server listening is an empty list, not an error.</p>
 </section>
 
 <section id="upgrading">
   <div class="kicker">§ 10</div>
   <h2>Upgrading</h2>
-  <p>Install the new binary (the install script again, or <code>go install</code>). The next window to open notices the daemon is older than its build and asks it to carry its shells into the new one by exec — same process, new code. Pids, ptys, transcripts and screen state all cross; the programs in the shells never notice. There is nothing to press.</p>
-  <p>A daemon too old to know how is the one case that takes a hand: the window says so and offers <b>R</b>, which replaces the daemon outright and ends the shells it holds. Like any kill, it asks first.</p>
+  <p>Install the new binary (the install script again, or <code>go install</code>). The shells live in the tmux server, not in scrn's binary, so an upgrade disturbs nothing: the next window simply talks to the same server. There is nothing to press, and nothing to notice.</p>
 </section>
 
 <section id="linux">
   <div class="kicker">§ 11</div>
   <h2>Linux</h2>
-  <p class="mb10">Linux builds are published for arm64 and amd64, cross-compiled and so far untested — reports welcome. scrn reads the process list through <code class="chip">lsof</code>, so it must be installed:</p>
-  <div class="cmd flush"><code>apt install lsof   <span class="dim"># or dnf, pacman, apk…</span></code></div>
+  <p class="mb10">Linux builds are published for arm64 and amd64, cross-compiled and so far untested — reports welcome. scrn leans on two neighbors: <code class="chip">tmux</code>, whose server holds the shells, and <code class="chip">lsof</code>, which is how the process list is read:</p>
+  <div class="cmd flush"><code>apt install tmux lsof   <span class="dim"># or dnf, pacman, apk…</span></code></div>
 </section>
 
 </article>

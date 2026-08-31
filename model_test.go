@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
-	"net"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -907,13 +909,13 @@ func TestKillSuccessStartsTheMarker(t *testing.T) {
 }
 
 func TestStatusClearsOnTheNextKey(t *testing.T) {
-	m := press(nestedTree(12), "r") // leaves a status about the missing daemon
-	if !strings.Contains(footer(m), "no daemon") {
+	m := press(nestedTree(12), "r") // leaves a status about the missing server
+	if !strings.Contains(footer(m), "no server") {
 		t.Fatal("expected a status to clear")
 	}
 
 	m = press(m, "down")
-	if strings.Contains(footer(m), "no daemon") {
+	if strings.Contains(footer(m), "no server") {
 		t.Errorf("status should clear once the cursor moves, footer = %q", footer(m))
 	}
 }
@@ -1753,25 +1755,135 @@ func TestPrefixJWithNoOtherShellSaysSo(t *testing.T) {
 	}
 }
 
-// pipeDaemon gives a model a daemon whose asks land on the returned channel.
+// message is a daemon-era ask, reconstructed from the tmux commands the
+// session runs, so the tests keep asserting intent rather than plumbing.
+type message struct {
+	Kind string
+	PID  int
+	Dir  string
+	Run  string
+	Name string
+}
+
+const (
+	kindOpen   = "open"
+	kindAttach = "attach"
+	kindClose  = "close"
+	kindInput  = "input"
+)
+
+// sayCollector stands in for the control client's stdin: every send-keys or
+// paste line the session says becomes a kindInput ask, with the line itself
+// riding in Run.
+type sayCollector struct {
+	asked chan message
+}
+
+func (c sayCollector) Write(p []byte) (int, error) {
+	line := strings.TrimRight(string(p), "\n")
+	if strings.HasPrefix(line, "send-keys ") || strings.HasPrefix(line, "set-buffer ") ||
+		strings.HasPrefix(line, "paste-buffer ") {
+		pid := 0
+		f := strings.Fields(line)
+		for i, a := range f {
+			if a == "-t" && i+1 < len(f) && strings.HasPrefix(f[i+1], "%") {
+				pid, _ = strconv.Atoi(strings.TrimPrefix(f[i+1], "%"))
+			}
+		}
+		c.asked <- message{Kind: kindInput, PID: pid, Run: line}
+	}
+	return len(p), nil
+}
+
+func (c sayCollector) Close() error { return nil }
+
+// pipeDaemon gives a model a session whose asks land on the returned
+// channel. The session runs over a fake tmux: panes are seeded from the
+// terms the test built, commands are answered plausibly, and the control
+// side never starts, so no real server is touched.
 func pipeDaemon(t *testing.T, m model) (model, chan message) {
 	t.Helper()
-	ours, theirs := net.Pipe()
-	t.Cleanup(func() { ours.Close(); theirs.Close() })
-
-	asked := make(chan message, 8)
-	go func() {
-		c := newConn(ours)
-		for {
-			msg, err := c.read()
-			if err != nil {
-				return
-			}
-			asked <- msg
-		}
-	}()
-	m.daemon = &session{conn: newConn(theirs), events: make(chan tea.Msg, 4)}
+	s, asked := recordingSession(m.terms)
+	m.daemon = s
 	return m, asked
+}
+
+func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
+	s := newSession()
+	s.closed = true // never attach a control client or probe for a server
+
+	asked := make(chan message, 16)
+	s.ctl = &ctlClient{in: sayCollector{asked: asked}}
+	var mu sync.Mutex
+	var opening *message
+	var listing []string
+	nextPID := 900
+
+	for pid, rt := range terms {
+		id := "%" + strconv.Itoa(pid)
+		s.panes[pid] = &pane{id: id, pid: pid, dir: rt.dir, name: rt.name, sgr: true}
+		s.byPane[id] = pid
+		listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t%s\t%s", id, pid, rt.dir, rt.name, rt.dir))
+	}
+
+	target := func(args []string) int {
+		for i, a := range args {
+			if a == "-t" && i+1 < len(args) && strings.HasPrefix(args[i+1], "%") {
+				pid, _ := strconv.Atoi(strings.TrimPrefix(args[i+1], "%"))
+				return pid
+			}
+		}
+		return 0
+	}
+
+	s.run = func(args ...string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch args[0] {
+		case "has-session":
+			return "", nil
+		case "new-window", "start-server":
+			// An open: the directory rides behind -c, the command — when
+			// there is one — is the last argument, wearing the shell wrapper.
+			dir, run := "", ""
+			for i, a := range args {
+				if a == "-c" && i+1 < len(args) {
+					dir = args[i+1]
+				}
+			}
+			if last := args[len(args)-1]; strings.Contains(last, "; exec ") {
+				run, _, _ = strings.Cut(last, "; exec ")
+			}
+			nextPID++
+			opening = &message{Kind: kindOpen, PID: nextPID, Dir: dir, Run: run}
+			id := "%" + strconv.Itoa(nextPID)
+			listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t\t%s", id, nextPID, dir, dir))
+			return fmt.Sprintf("%s %d", id, nextPID), nil
+		case "set":
+			// The name lands on the pane right after the open; the ask is
+			// whole once it does.
+			if opening != nil {
+				opening.Name = args[len(args)-1]
+				asked <- *opening
+				opening = nil
+			}
+			return "", nil
+		case "list-panes":
+			return strings.Join(listing, "\n"), nil
+		case "capture-pane":
+			// A screen ask means the pane is being watched; a history read
+			// (-S) is the transcript, not a watch.
+			if !slices.Contains(args, "-S") {
+				asked <- message{Kind: kindAttach, PID: target(args)}
+			}
+			return "", nil
+		case "kill-pane":
+			asked <- message{Kind: kindClose, PID: target(args)}
+			return "", nil
+		}
+		return "", nil
+	}
+	return s, asked
 }
 
 // askedFor waits for the daemon to be asked something, or fails the test.
@@ -2497,8 +2609,8 @@ func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
 	m := withProcList(90, 14,
 		[]Project{{Name: "brand", Path: "/p/hsg/brand"}, {Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/hsg/brand"}})
-	m = connected(t, m)
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/hsg/brand"}}
+	m, _ = pipeDaemon(t, m)
 	m.showAll = false
 	m.filter = "brand"
 	m.rebuild()
@@ -2777,8 +2889,8 @@ func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 func TestSomethingBeingSaidStillTakesTheFoot(t *testing.T) {
 	// A confirmation or a report is about the next keystroke, so it is shown
 	// whether or not the keys have been asked for.
-	m := press(nestedTree(24), "r") // no daemon, so it explains itself
-	if !strings.Contains(footer(m), "no daemon") {
+	m := press(nestedTree(24), "r") // no server, so it explains itself
+	if !strings.Contains(footer(m), "no server") {
 		t.Errorf("footer = %q, want what was just said", footer(m))
 	}
 }
@@ -3066,15 +3178,21 @@ func TestASpaceInTheSearchDoesNotMoveTheCursor(t *testing.T) {
 	}
 }
 
-func TestALostDaemonIsChased(t *testing.T) {
-	// A daemon that went without being asked — a crash, a kill — schedules a
-	// reconnect rather than leaving a window that has to be restarted to work.
-	next, cmd := sized(90, 14).Update(daemonLostMsg{err: errors.New("gone")})
-	if cmd == nil {
-		t.Fatal("no command, want a reconnect scheduled")
+func TestALostServerClearsTheShells(t *testing.T) {
+	// The server hanging up is the ordinary end of holding nothing: the last
+	// shell closed and the session went with it. The window only stops
+	// showing what is no longer held; the bridge watches for a new server on
+	// its own.
+	m := sized(90, 14)
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m.focus = 700
+	next, _ := m.Update(daemonLostMsg{})
+	got := next.(model)
+	if len(got.terms) != 0 || got.focus != 0 {
+		t.Errorf("terms = %d, focus = %d; want the held shells cleared", len(got.terms), got.focus)
 	}
-	if got := next.(model).backoff; got != reconnectWait {
-		t.Errorf("backoff = %v, want the chase to start at %v", got, reconnectWait)
+	if got.status != "" {
+		t.Errorf("status = %q, want a clean loss to say nothing", got.status)
 	}
 }
 
@@ -3087,13 +3205,15 @@ func TestAFailedConnectIsRetried(t *testing.T) {
 }
 
 func TestTheChaseBacksOffToACap(t *testing.T) {
+	// The one failure retried from the model is tmux itself missing; the
+	// retries slow down rather than hammering.
 	m := sized(90, 14)
 	for range 12 {
-		next, _ := m.Update(daemonLostMsg{err: errors.New("gone")})
+		next, _ := m.Update(daemonReadyMsg{err: errors.New("tmux is not installed")})
 		m = next.(model)
 	}
 	if m.backoff != reconnectMax {
-		t.Errorf("backoff = %v after many losses, want capped at %v", m.backoff, reconnectMax)
+		t.Errorf("backoff = %v after many failures, want capped at %v", m.backoff, reconnectMax)
 	}
 }
 
@@ -3414,51 +3534,28 @@ func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
 	// A shell this window never stepped into previews blank unless the pane
 	// asks for its screens: landing on the row attaches, and moving off
 	// detaches, so a glance does not keep a say in the shell's size forever.
-	ours, theirs := net.Pipe()
-	defer ours.Close()
-	defer theirs.Close()
-
-	asked := make(chan message, 8)
-	go func() {
-		c := newConn(ours)
-		for {
-			m, err := c.read()
-			if err != nil {
-				return
-			}
-			asked <- m
-		}
-	}()
-
 	m := withProcList(90, 14,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
-	m.daemon = &session{conn: newConn(theirs), events: make(chan tea.Msg, 4)}
 	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m, asked := pipeDaemon(t, m)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // onto the shell's row
 	m = next.(model)
-	select {
-	case got := <-asked:
-		if got.Kind != kindAttach || got.PID != 700 {
-			t.Fatalf("asked %q for pid %d, want an attach for 700", got.Kind, got.PID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("landing on a held shell's row asked for nothing")
+	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 700 {
+		t.Fatalf("asked %q for pid %d, want the shell's screen for 700", got.Kind, got.PID)
 	}
 
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // back to the repo row
 	m = next.(model)
-	select {
-	case got := <-asked:
-		if got.Kind != kindDetach || got.PID != 700 {
-			t.Fatalf("asked %q for pid %d, want a detach for 700", got.Kind, got.PID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("leaving the row let the watch stand")
-	}
 	if m.previewing != 0 {
 		t.Errorf("previewing = %d, want nothing", m.previewing)
+	}
+	m.daemon.mu.Lock()
+	watching := m.daemon.watching[700]
+	m.daemon.mu.Unlock()
+	if watching {
+		t.Error("leaving the row let the watch stand")
 	}
 }
 

@@ -1,7 +1,7 @@
 .\" scrn(1) is written by hand in man(7) troff. The guide at
 .\" https://scrn.w0zro.com/guide tells the same story in walking order;
 .\" this page is the reference. Keep the two agreeing.
-.TH SCRN 1 2026-08-30 scrn "User Commands"
+.TH SCRN 1 2026-08-31 scrn "User Commands"
 .SH NAME
 scrn \- a terminal UI for working on projects at the command line
 .SH SYNOPSIS
@@ -9,22 +9,20 @@ scrn \- a terminal UI for working on projects at the command line
 .br
 .B scrn ls
 .br
-.B scrn daemon
-.br
 .B scrn
 .RB [ \-h | \-\-help | \-\-version ]
 .SH DESCRIPTION
 .B scrn
 shows every git repository under your project roots, what is running in
-each, and the shells you open there. The shells live in a daemon, so they
-survive the window: close the terminal, come back, and everything is where
-it was.
+each, and the shells you open there. The shells live in a
+.BR tmux (1)
+server of scrn's own, so they survive the window: close the terminal,
+come back, and everything is where it was.
 .PP
-There is nothing to set up. The first window starts the daemon \(em the
-same binary, as
-.B scrn daemon
-\(em and later windows attach to it. By default scrn looks for
-repositories under
+There is nothing to set up beyond having tmux installed. The first shell
+brings the server up \(em private to scrn, on its own socket, out of
+reach of any .tmux.conf \(em and every window attaches to it. By
+default scrn looks for repositories under
 .IR ~/projects ;
 the config points it elsewhere.
 .PP
@@ -45,9 +43,9 @@ Dim rows are processes started outside scrn: listed and killable, but
 with no shell to step into.
 .PP
 .B scrn ls
-is the same daemon's state for a reader that is not a person: the held
+is the same server's state for a reader that is not a person: the held
 shells, one per line on stdout \(em pid, directory and name,
-tab\-separated, the name empty for a shell opened by hand. No daemon
+tab\-separated, the name empty for a shell opened by hand. No server
 listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
@@ -105,7 +103,7 @@ in it
 kill the selected process and everything under it
 .TP
 .B R
-replace the daemon outright, ending the shells it holds
+end the server outright, and every shell it holds with it
 .TP
 .B q
 quit the window; the shells keep running
@@ -255,10 +253,10 @@ several roots; when set,
 is ignored. A root that only exists on another machine is fine.
 .TP
 .B scrollback
-transcript lines each shell keeps (default 10000). Read at daemon start,
-so raising it takes
+transcript lines each shell keeps (default 10000). Settled into the
+server as the first shell brings it up, so raising it takes
 .B R
-to reach running shells.
+\(em a fresh server \(em to reach anything.
 .TP
 .B navWidth
 the navigator column's width, 16\(en60 (default 28)
@@ -270,30 +268,31 @@ list
 .IR vendor ,
 .IR target ,
 and the like)
-.SH DAEMON
-The daemon owns the ptys, holds the transcripts, and serves every window
-over a unix socket. One daemon per user, for all projects. Holding no
-shells and watched by no window for a minute, it exits.
+.SH THE SERVER
+The shells live in a tmux server of scrn's own: it owns the ptys, the
+emulation and the transcripts, and every window talks to it \(em one
+server per user, for all projects, on a socket private to scrn where no
+.I .tmux.conf
+reaches. Keys, modes, mouse reporting, the alternate screen: all of it
+behaves the way it behaves in tmux, because it is tmux.
 .PP
-After an upgrade, the next window to open notices the daemon is older
-than its own build and asks it to carry its shells into the new binary by
-exec \(em pids, ptys, transcripts and screen state all cross, and the
-programs in the shells never notice. A daemon too old to know how is
-offered
-.BR R ,
-which replaces it outright and ends its shells.
+The server lives exactly as long as it holds something: the first shell
+brings it up, the last one closing takes it down. Upgrading scrn never
+disturbs it \(em the server is not scrn's binary, so a new build talks
+to the same server and the shells never notice.
+.PP
+In a pinch the shells are reachable without scrn at all:
+.EX
+tmux -S ~/.local/state/scrn/tmux-<uid>.sock attach
+.EE
 .SH FILES
 .TP
 .I ~/.config/scrn/config.json
 configuration; see
 .B CONFIGURATION
 .TP
-.I ~/.local/state/scrn/scrnd\-<uid>.sock
-the daemon's socket
-.TP
-.I ~/.local/state/scrn/scrnd.log
-the daemon's stderr: its last words, if it died with any, and nothing
-else. Truncated when a fresh daemon starts.
+.I ~/.local/state/scrn/tmux\-<uid>.sock
+the socket of the tmux server holding the shells
 .TP
 .I .scrn
 a project's plan; see
@@ -301,14 +300,14 @@ a project's plan; see
 .SH ENVIRONMENT
 .TP
 .B SCRN_SOCKET
-where the daemon listens, instead of the state directory
+where the server listens, instead of the state directory
 .TP
 .B XDG_CONFIG_HOME
 where the config lives, instead of
 .I ~/.config
 .TP
 .B XDG_STATE_HOME
-where the daemon's socket and log live, instead of
+where the server's socket lives, instead of
 .I ~/.local/state
 .TP
 .B SHELL
@@ -329,9 +328,10 @@ are honored too.
 where Claude Code's session files are read from, instead of
 .I ~/.claude
 .SH EXIT STATUS
-0 on a clean exit, 1 when scrn or its daemon fails, 2 for an argument it
+0 on a clean exit, 1 when scrn or its server fails, 2 for an argument it
 does not understand.
 .SH SEE ALSO
+.BR tmux (1),
 .BR lsof (1),
 .BR git (1)
 .PP

@@ -98,14 +98,6 @@ tar -xzf "$tmp/$asset" -C "$tmp"
 mkdir -p "$dir"
 chmod 755 "$tmp/scrn"
 
-# builtAt reads this file's modification time to tell whether a running daemon
-# is older than the scrn talking to it. Left as the archive recorded it, that
-# time would be when the release was built, and a daemon started since then
-# from an older scrn would look newer than the binary that is replacing it.
-# Touching it makes the time mean what the check reads it as: when this scrn
-# arrived here.
-touch "$tmp/scrn"
-
 # Moved into place rather than written over, so that a scrn already running
 # from this path keeps the binary it started with.
 mv -f "$tmp/scrn" "$dir/scrn" ||

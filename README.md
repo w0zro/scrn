@@ -14,8 +14,9 @@ checksums, and puts it in `~/.local/bin`, with the manpage beside it —
 put it and `SCRN_VERSION` names a release other than the latest.
 
 Builds are published for macOS and Linux, on both arm64 and amd64. The Linux
-ones are cross-compiled and untested; scrn reads the process list through
-`lsof`, which has to be installed for it to see anything.
+ones are cross-compiled and untested. scrn needs two neighbors installed:
+`tmux`, whose server holds the shells, and `lsof`, which is how the process
+list is read.
 
 ## Build it yourself
 

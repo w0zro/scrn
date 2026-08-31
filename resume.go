@@ -177,7 +177,7 @@ func (m *model) resumePick() tea.Cmd {
 		return nil
 	}
 	if m.daemon == nil {
-		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
+		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
 		return nil
 	}
 	c := list[min(m.resume.cursor, len(list)-1)]

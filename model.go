@@ -269,23 +269,9 @@ type model struct {
 	// once a daemon is talking.
 	backoff time.Duration
 
-	// daemonStale is set when the daemon is older than the build talking to
-	// it and is being kept alive by the shells it holds. Those shells have to
-	// go for it to be replaced, so that takes asking. pendingReplace is the
-	// asking.
-	daemonStale    bool
+	// pendingReplace is R waiting on its confirmation: ending the server
+	// ends the work it holds, so it takes a second key like any other kill.
 	pendingReplace bool
-
-	// upgradeAsked says this window has already asked the daemon to carry its
-	// shells into this build, so a daemon that cannot — one that ignored the
-	// ask, or whose exec failed — is offered R instead of being asked again.
-	// It clears when a sessions message arrives that is not stale.
-	upgradeAsked bool
-
-	// upgradeErr is the daemon's own account of an upgrade that failed — an
-	// exec that returned. The limbo message defers to it, because "did not
-	// take the upgrade" is a guess and this is the answer.
-	upgradeErr string
 
 	// wantProject is a project whose processes were just started, holding the
 	// cursor until they are in the tree.
@@ -441,13 +427,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, tea.Batch(m.detailCmd(), owed)
 
-	case replacedMsg:
-		if msg.err != nil {
-			m.status, m.statusErr = msg.err.Error(), true
-			return m, connectDaemon()
-		}
-		return m, reconnect(reconnectWait)
-
 	case reconnectMsg:
 		return m, connectDaemon()
 
@@ -472,26 +451,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// One ask failed; the daemon and its shells are fine. Say what it said
 		// and carry on listening.
 		m.status, m.statusErr = msg.err.Error(), true
-		if m.upgradeAsked && strings.HasPrefix(msg.err.Error(), "upgrade: ") {
-			m.upgradeErr = msg.err.Error()
-		}
 		return m, nextEvent(m.daemon)
 
 	case daemonLostMsg:
-		m.daemon, m.daemonErr = nil, msg.err.Error()
+		// The server hung this window up — the last shell closed and the
+		// session went with it, or something ended the server outright. The
+		// bridge keeps watching for a new one on its own; here the window
+		// only stops showing shells that are no longer held.
 		m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
-		m.scroll = nil // the transcript went with the daemon holding it
-		if m.upgradeAsked {
-			// An upgrading daemon drops every connection on its way through
-			// the exec. That is it working, not it going away, so the window
-			// comes straight back rather than reporting a loss.
-			m.daemonErr = ""
-			return m, reconnect(reconnectWait)
+		m.scroll = nil // the transcript went with the server holding it
+		if msg.err != nil {
+			m.status, m.statusErr = msg.err.Error(), true
 		}
-		// A daemon that went without being asked — a crash, a kill — is chased
-		// rather than mourned: connecting starts a fresh one, and the window
-		// stops being one that has to be restarted to work again.
-		return m, m.retryConnect()
+		m.rebuild()
+		return m, nextEvent(m.daemon)
 
 	case termOpenedMsg:
 		if _, ok := m.terms[msg.pid]; !ok {
@@ -507,40 +480,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
 	case sessionsMsg:
-		// The daemon is talking, so whatever chase was on is over.
+		// The server is talking, so whatever chase was on is over.
 		m.backoff = 0
-		// A daemon outlives the window that started it, which is the point of
-		// it — and means it also outlives rebuilds. One older than this build
-		// is running code this window does not have, and the difference is
-		// invisible until something it holds behaves the way it used to.
-		m.daemonStale = false
-		var limbo tea.Cmd
-		if stale(msg.since) {
-			if len(msg.sessions) == 0 {
-				// Holding nothing, so replacing it costs nothing.
-				m.daemon.standDown()
-				m.status, m.statusErr = "replacing a daemon older than this build", false
-				return m, tea.Batch(nextEvent(m.daemon), reconnect(reconnectWait))
-			}
-			m.daemonStale = true
-			if !m.upgradeAsked {
-				// Holding shells, so it is asked to carry them into this
-				// build rather than to go: the exec keeps its children and
-				// their ptys, and a state file carries what its emulators
-				// knew. Nothing is lost, so nothing has to be asked twice.
-				m.upgradeAsked, m.upgradeErr = true, ""
-				m.daemon.upgrade()
-				m.status, m.statusErr = "carrying the daemon's shells into this build", false
-				limbo = awaitUpgrade()
-			} else {
-				m.status, m.statusErr = "daemon predates this build; R replaces it, ending its "+
-					plural(len(msg.sessions), "shell", "shells"), true
-			}
-		} else {
-			m.upgradeAsked, m.upgradeErr = false, ""
-		}
-
-		// The daemon is the authority on what it holds, so the client takes
+		// The server is the authority on what it holds, so the client takes
 		// the list rather than merging into what it thought it knew.
 		held := make(map[int]*remoteTerm, len(msg.sessions))
 		for _, s := range msg.sessions {
@@ -559,21 +501,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// already standing on one of those shells; the pane should not wait
 		// for the cursor to move before showing it.
 		m.syncPreview()
-		return m, tea.Batch(nextEvent(m.daemon), m.scanNow(), limbo)
-
-	case upgradeLimboMsg:
-		// The upgrade was asked of a daemon that acted on nothing: too old to
-		// know the word. The fallback costs the shells, so it only offers.
-		if m.daemon != nil && m.daemonStale {
-			why := "the daemon did not take the upgrade"
-			if m.upgradeErr != "" {
-				// The daemon said why its exec returned; that beats the guess.
-				why = m.upgradeErr
-			}
-			m.status, m.statusErr = why+"; R replaces it, ending its "+
-				plural(len(m.terms), "shell", "shells"), true
-		}
-		return m, nil
+		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
 
 	case screenMsg:
 		t, ok := m.terms[msg.pid]
@@ -750,11 +678,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// A wheel turned up over a pane whose program is not listening for
 		// the mouse starts reading the transcript — on the primary screen,
-		// which is the one a transcript is above. The alternate screen's
-		// wheel still crosses: the daemon turns it into arrows.
+		// which is the one a transcript is above.
 		if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
 			m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg)}
 			m.daemon.history(t.pid)
+			return m, nil
+		}
+		// Over the alternate screen the wheel becomes the arrow keys it
+		// would have meant — how less and man scroll under any terminal
+		// that implements alternate scroll, and here scrn is the terminal.
+		if key, ok := wheelAsArrow(msg); ok && !t.mouse && t.alt {
+			for range wheelArrowCount {
+				m.daemon.key(t.pid, &keyPress{Code: key})
+			}
 			return m, nil
 		}
 		m.daemon.mouse(t.pid, ev)
@@ -910,12 +846,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingReplace = false
 			switch msg.String() {
 			case "R", "y", "enter":
-				old := m.daemon
-				m.terms, m.focus, m.lastFocus, m.daemonStale = map[int]*remoteTerm{}, 0, 0, false
-				m.daemon, m.status, m.statusErr = nil, "replacing the daemon", false
-				return m, replaceDaemon(old)
+				// The bridge notices the server going and says so; clearing
+				// here as well just spares the window a beat of stale rows.
+				m.daemon.replace()
+				m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
+				m.status, m.statusErr = "ending the server and its shells", false
+				m.rebuild()
+				return m, nil
 			}
-			m.status, m.statusErr = "left the daemon alone", false
+			m.status, m.statusErr = "left the server alone", false
 			return m, nil
 		}
 
@@ -1358,7 +1297,7 @@ func (m *model) startHere(command string) tea.Cmd {
 		return m.start(command)
 	}
 	if m.daemon == nil {
-		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
+		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
 		return nil
 	}
 	m.daemon.open(t.dir, command, "", m.detailWidth(), m.paneHeight())
@@ -1491,7 +1430,7 @@ func (m *model) start(command string) tea.Cmd {
 		return nil
 	}
 	if m.daemon == nil {
-		m.status, m.statusErr = "no daemon to hold it: "+m.daemonErr, true
+		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
 		return nil
 	}
 	m.daemon.open(m.shellDir(r), command, "", m.detailWidth(), m.paneHeight())
@@ -1586,12 +1525,13 @@ func (m *model) retryConnect() tea.Cmd {
 	return reconnect(m.backoff)
 }
 
-// askReplace arms the replacement of a daemon older than this build. It is
-// only offered when there is one, because ending shells to swap a daemon that
-// is already current would be destroying work for nothing.
+// askReplace arms R: ending the server outright, and the shells with it.
+// There is no upgrade dance to gate it on any more — a tmux server never
+// goes stale under a new build — so it is the blunt instrument, kept for
+// the day something wedges, and it always asks first.
 func (m *model) askReplace() tea.Cmd {
-	if !m.daemonStale {
-		m.status, m.statusErr = "the daemon is the one this build expects", false
+	if len(m.terms) == 0 && m.daemonErr == "" {
+		m.status, m.statusErr = "nothing is held; there is nothing to replace", false
 		return nil
 	}
 	m.pendingReplace = true
@@ -1612,7 +1552,7 @@ func (m *model) run() tea.Cmd {
 // runPlace starts what one place's plan says it needs and is not running.
 func (m *model) runPlace(p Project) tea.Cmd {
 	if m.daemon == nil {
-		m.status, m.statusErr = "no daemon to hold them: "+m.daemonErr, true
+		m.status, m.statusErr = "no server to hold them: "+m.daemonErr, true
 		return nil
 	}
 
