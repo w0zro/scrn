@@ -233,8 +233,18 @@ func (m model) footLines(width int) []string {
 		return lines
 
 	case m.scroll != nil && m.scroll.doc != nil:
-		return hintBlock("scrollback · "+strconv.Itoa(m.scroll.above)+" up",
-			width, warnStyle)
+		word := "scrollback · " + strconv.Itoa(m.scroll.above) + " up"
+		if m.scroll.anchor >= 0 {
+			lo, hi := m.scroll.selection(m.scrollBottom())
+			word = plural(hi-lo+1, "line", "lines") + " marked · y copies"
+		}
+		lines := hintBlock(word, width, warnStyle)
+		if m.status != "" {
+			// A report mid-reading — an unmarked y's hint — takes the line
+			// above, the way it does while typing.
+			lines = append(hintBlock(m.status, width, itemStyle), lines...)
+		}
+		return lines
 
 	case m.status != "":
 		style := itemStyle
@@ -269,6 +279,7 @@ func (m model) keysModal(rows int) []string {
 		{"^spc j k", "next · previous shell"},
 		{"^spc /", "find from anywhere"},
 		{"^spc s a r A", "shell · agent · run · continue, here"},
+		{"^spc v", "read the pane · v marks · y copies"},
 		{"^spc ^spc", "back to the last shell"},
 		{"^spc enter", "the next waiting agent"},
 		{"^spc q", "quit, even from a shell"},
@@ -775,13 +786,23 @@ func screenTail(t *remoteTerm, rows int) []string {
 // scrollWindow is the transcript as the reader has it: the rows that fit the
 // pane, stopping above lines short of the live tail. No cursor is drawn —
 // typing lands nowhere while reading — and rows older than a narrowing
-// resize can be wider than the pane, so each is cut to it.
+// resize can be wider than the pane, so each is cut to it. A selection
+// wears reverse video, plain: marked lines are on their way to the
+// clipboard, and the clipboard gets text, not styling.
 func scrollWindow(s *scrollView, width, rows int) []string {
 	top := max(len(s.doc)-rows-s.above, 0)
 	end := min(top+rows, len(s.doc))
+	lo, hi := -1, -1
+	if s.anchor >= 0 {
+		lo, hi = s.selection(max(len(s.doc)-1-s.above, 0))
+	}
 	out := make([]string, 0, rows)
-	for _, row := range s.doc[top:end] {
-		out = append(out, ansi.Truncate(row, width, ""))
+	for i, row := range s.doc[top:end] {
+		line := ansi.Truncate(row, width, "")
+		if at := top + i; lo >= 0 && at >= lo && at <= hi {
+			line = cursorStyle.Render(ansi.Strip(line))
+		}
+		out = append(out, line)
 	}
 	return out
 }

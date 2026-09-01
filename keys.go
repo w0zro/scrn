@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"os/exec"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -66,6 +68,28 @@ func pasteFromClipboard() tea.Cmd {
 		}
 		return tea.PasteMsg{Content: text}
 	}
+}
+
+// copiedMsg reports a yank: how many lines went to the clipboard, or why
+// they did not.
+type copiedMsg struct {
+	n   int
+	err error
+}
+
+// writeClipboard puts text on the system clipboard, by the tool the platform
+// provides. A seam for the tests.
+var writeClipboard = func(text string) error {
+	tools := [][]string{{"pbcopy"}, {"wl-copy"}, {"xclip", "-i", "-selection", "clipboard"}}
+	for _, tool := range tools {
+		if _, err := exec.LookPath(tool[0]); err != nil {
+			continue
+		}
+		cmd := exec.Command(tool[0], tool[1:]...)
+		cmd.Stdin = strings.NewReader(text)
+		return cmd.Run()
+	}
+	return errors.New("no clipboard tool: pbcopy, wl-copy or xclip")
 }
 
 // wheelArrowCount is how many arrow presses one wheel notch stands for, which

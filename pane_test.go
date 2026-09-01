@@ -969,3 +969,97 @@ func TestAClickInTheNavigatorTouchesNoPane(t *testing.T) {
 		t.Errorf("focus = %d, want a navigator click to enter nothing", got)
 	}
 }
+
+func TestPrefixVOpensTheReaderEvenOnTheAlternateScreen(t *testing.T) {
+	// The wheel cannot start reading over a pager, but the chord can: the
+	// pager's screen is the document, which is exactly what a selection
+	// out of git log wants.
+	m := watchingTail(t)
+	m.terms[700].alt = true
+	m, _ = pipeDaemon(t, m)
+
+	m = chord(m, "v")
+	if m.scroll == nil || m.scroll.pid != 700 || m.scroll.doc == nil {
+		t.Fatalf("scroll = %+v, want the reader open over the screen", m.scroll)
+	}
+	if m.scroll.anchor != -1 {
+		t.Error("nothing should be marked until v says so")
+	}
+}
+
+func TestVMarksAndYCopiesToTheClipboard(t *testing.T) {
+	copied := ""
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied = text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := readingBack(t) // h-1 oldest … h-40 newest, three lines up
+	next, _ := m.Update(typed("v"))
+	m = next.(model)
+	if m.scroll.anchor < 0 {
+		t.Fatal("v should have marked the bottom visible line")
+	}
+	next, _ = m.Update(typed("k")) // extend one line up
+	m = next.(model)
+
+	next, cmd := m.Update(typed("y"))
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("y should have scheduled the copy")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(model)
+
+	if !strings.Contains(copied, "\n") || copied == "" {
+		t.Fatalf("copied = %q, want the two marked lines", copied)
+	}
+	if m.scroll != nil {
+		t.Error("the yank is the end of the reading")
+	}
+	if !strings.Contains(footer(m), "copied 2 lines") {
+		t.Errorf("footer = %q, want the yank reported", footer(m))
+	}
+}
+
+func TestEscClearsTheMarkBeforeTheReading(t *testing.T) {
+	m := readingBack(t)
+	next, _ := m.Update(typed("v"))
+	m = next.(model)
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(model)
+	if m.scroll == nil || m.scroll.anchor != -1 {
+		t.Fatalf("scroll = %+v, want the mark gone and the reading kept", m.scroll)
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if next.(model).scroll != nil {
+		t.Error("the second esc should end the reading")
+	}
+}
+
+func TestASelectionHoldsTheReaderAtTheLiveTail(t *testing.T) {
+	// Rolling past the bottom is back to now — but not out from under a
+	// selection being made.
+	m := readingBack(t)
+	next, _ := m.Update(typed("v"))
+	m = next.(model)
+	for range 10 {
+		next, _ = m.Update(typed("j"))
+		m = next.(model)
+	}
+	if m.scroll == nil || m.scroll.above != 0 {
+		t.Fatalf("scroll = %+v, want the reader held at the tail", m.scroll)
+	}
+}
+
+func TestYWithoutAMarkExplainsItself(t *testing.T) {
+	m := readingBack(t)
+	next, _ := m.Update(typed("y"))
+	m = next.(model)
+	if m.scroll == nil {
+		t.Fatal("an unmarked y should not end the reading")
+	}
+	if !strings.Contains(footer(m), "v marks") {
+		t.Errorf("footer = %q, want the hint", footer(m))
+	}
+}

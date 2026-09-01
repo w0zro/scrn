@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // navWidth is the column the navigator occupies, divider excluded. The
@@ -551,7 +552,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if max := m.scrollMax(); s.above > max {
 			s.above = max
 		}
-		if s.above <= 0 {
+		if s.above <= 0 && s.anchor < 0 {
 			m.scroll = nil // nothing above after all
 		}
 		return m, nextEvent(m.daemon)
@@ -597,6 +598,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case detailMsg:
 		m.details[msg.key] = msg.fields
+
+	case copiedMsg:
+		if msg.err != nil {
+			m.status, m.statusErr = "could not copy: "+msg.err.Error(), true
+		} else {
+			m.status, m.statusErr = "copied "+plural(msg.n, "line", "lines"), false
+		}
 
 	case convosMsg:
 		// Only the picker that asked wants this; one opened on another place
@@ -691,7 +699,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the mouse starts reading the transcript — on the primary screen,
 		// which is the one a transcript is above.
 		if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
-			m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg)}
+			m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg), anchor: -1}
 			m.daemon.history(t.pid)
 			return m, nil
 		}
@@ -832,6 +840,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.startHere(startAgent())
 			case "A":
 				return m, m.resumeHere()
+			case "v":
+				// Into the reader on purpose — the pager's screen included,
+				// where the wheel cannot start it. v marks, y copies.
+				return m, m.openReader()
 			case "r":
 				return m, m.runHere()
 			case "n":
@@ -1907,6 +1919,11 @@ type scrollView struct {
 	pid   int
 	doc   []string // nil until the transcript arrives
 	above int      // lines between the bottom of the viewport and the live tail
+
+	// anchor is the line v marked, and -1 while nothing is selected. The
+	// selection runs from it to the bottom visible line, and y carries the
+	// span to the system clipboard.
+	anchor int
 }
 
 // wheelLines is how many lines one wheel notch moves the transcript, the same
@@ -1939,6 +1956,12 @@ func (m *model) scrollBy(delta int) {
 	}
 	s.above += delta
 	if s.above <= 0 {
+		// Rolling past the bottom is back to now — unless a selection is
+		// being made, which holds the reader at the live tail instead.
+		if s.anchor >= 0 {
+			s.above = 0
+			return
+		}
 		m.scroll = nil
 		return
 	}
@@ -1956,15 +1979,81 @@ func (m *model) scrollMax() int {
 	return 0
 }
 
+// openReader starts reading the pane's shell deliberately — the chord's way
+// in, where the wheel's way needs a primary screen with lines above it. It
+// works on the alternate screen too: the pager's screen becomes the
+// document, which is exactly the page a selection wants.
+func (m *model) openReader() tea.Cmd {
+	t := m.paneTerm()
+	if t == nil {
+		m.status, m.statusErr = "nothing in the pane to read", false
+		return nil
+	}
+	m.typing = false
+	m.scroll = &scrollView{pid: t.pid, doc: strings.Split(t.screen, "\n"), anchor: -1}
+	if !t.alt {
+		// The transcript above joins the document when it arrives; the
+		// alternate screen has none, and is whole already.
+		m.daemon.history(t.pid)
+	}
+	return nil
+}
+
+// scrollBottom is the line of the document at the bottom of the viewport,
+// which is where a selection is marked and extended.
+func (m *model) scrollBottom() int {
+	s := m.scroll
+	if s == nil || len(s.doc) == 0 {
+		return 0
+	}
+	return max(len(s.doc)-1-s.above, 0)
+}
+
+// selection is the span between the mark and the bottom visible line,
+// inclusive, in document order.
+func (s *scrollView) selection(bottom int) (int, int) {
+	lo, hi := s.anchor, bottom
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	return lo, hi
+}
+
 // scrollKey is a keystroke while the transcript is being read: vim's motions,
-// the ends, and the ways out.
+// the ends, the mark and the yank, and the ways out.
 func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
+	s := m.scroll
 	page := m.paneHeight()
 	switch msg.String() {
-	case "esc", "q", "G":
+	case "esc":
+		// Layered, the way esc always is: first the selection, then the
+		// reading.
+		if s.anchor >= 0 {
+			s.anchor = -1
+			return nil
+		}
+		m.scroll = nil
+	case "q", "G":
 		// The bottom of the transcript is the live screen, so going to the
 		// end and leaving are the same place.
 		m.scroll = nil
+	case "v":
+		// v marks the bottom visible line; moving extends the selection to
+		// wherever the bottom goes. Pressed again, it marks afresh.
+		s.anchor = m.scrollBottom()
+	case "y":
+		if s.anchor < 0 {
+			m.status, m.statusErr = "v marks before y copies", false
+			return nil
+		}
+		lo, hi := s.selection(m.scrollBottom())
+		lines := make([]string, 0, hi-lo+1)
+		for _, row := range s.doc[lo : hi+1] {
+			lines = append(lines, ansi.Strip(row))
+		}
+		m.scroll = nil // the yank is the end of the reading
+		text := strings.Join(lines, "\n")
+		return func() tea.Msg { return copiedMsg{n: len(lines), err: writeClipboard(text)} }
 	case "up", "k":
 		m.scrollBy(1)
 	case "down", "j":
@@ -1978,8 +2067,8 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+d":
 		m.scrollBy(-page / 2)
 	case "g":
-		if m.scroll.doc != nil {
-			m.scroll.above = m.scrollMax()
+		if s.doc != nil {
+			s.above = m.scrollMax()
 		}
 	}
 	return nil
