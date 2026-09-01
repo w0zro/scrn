@@ -33,3 +33,7 @@ cross-compiles the four builds, and publishes them with a `checksums.txt` that
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+## License
+
+MIT; see [LICENSE](LICENSE).
