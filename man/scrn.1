@@ -152,30 +152,42 @@ every other keystroke belongs to the pane
 cmd\-v pastes even in a terminal that hands the chord to scrn instead
 of translating it: the clipboard is read, and the paste lands wherever
 typing goes.
-.PP
-The chords keep their letters' meanings:
-.B n
-steps back out to the navigator,
-.B j
-and
-.B k
-attach to the next and previous shell, another
+.SS The chords
+Each hangs off
 .B ctrl\-space
-toggles back to the shell viewed before,
+and keeps its letter's meaning; anything unbound cancels the prefix
+and is swallowed.
+.TP
+.B n
+out to the navigator, from anywhere \(em a shell, the transcript, the
+filter mid\-word
+.TP
+.B "j k"
+attach to the next and previous shell
+.TP
+.B ctrl\-space
+back to the shell viewed before
+.TP
 .B enter
-goes to the next agent waiting on you,
+the next agent waiting on you; again continues around them
+.TP
 .B /
-opens the filter,
-.BR s ,
-.BR a ,
+the filter, from anywhere
+.TP
+.B "s a r"
+a shell, an agent, the plan \(em where the keys are
+.TP
 .B A
-and
-.B r
-act where you are,
+continue a suspended conversation where the keys are
+.TP
+.B v
+the reader, over the pane's transcript; see below
+.TP
 .B q
-quits, and
+quit the window
+.TP
 .B ?
-shows the keys. Anything unbound cancels the prefix.
+the keys
 .PP
 scrn mostly does not hold the mouse at all: dragging, double\-clicking
 and copying are the terminal's own, everywhere, exactly as they are
@@ -187,15 +199,20 @@ for itself \(em vim's clipboard yank, anything speaking OSC 52 \(em
 reaches the system clipboard the way it would with no scrn in the
 middle, and the reader below copies by keyboard alone.
 .PP
+.SS Reading back
 .B ctrl\-space v
 opens the reader over what has scrolled away \(em the pager's screen
 included.
 .B j
 and
 .B k
-move,
+move its cursor,
+.B g
+and
+.B G
+reach the ends,
 .B v
-marks the bottom line and moving extends the mark,
+marks the cursor's line and moving extends the mark,
 .B y
 copies the marked lines to the system clipboard, and
 .B esc
