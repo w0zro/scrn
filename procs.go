@@ -259,8 +259,13 @@ func indexNodes(n *ProcNode, into map[int]*ProcNode) {
 func listeningPorts(pid int) []string {
 	out, err := listing(scanTimeout, "lsof", "-nP", "-a", "-p", strconv.Itoa(pid),
 		"-iTCP", "-sTCP:LISTEN", "-F", "n")
-	if err != nil {
-		return nil // no listeners is an error exit, and is not worth reporting
+	if err != nil && len(out) == 0 {
+		// No listeners is an error exit and not worth reporting. What was
+		// written before a failure still counts — the same lesson the
+		// process scan learned: lsof exits nonzero for reasons that say
+		// nothing about the sockets it did list, and Linux's is freer with
+		// those reasons than macOS's.
+		return nil
 	}
 
 	seen := map[string]bool{}

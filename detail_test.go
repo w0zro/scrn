@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -257,13 +258,27 @@ func TestTheRunsPortsAreTheRowsPorts(t *testing.T) {
 	// A dev server is a shell running an npm running a node, and it is the
 	// node at the bottom that holds the port — the one the fold exists to
 	// hide. Asking only the process the row is named for found nothing.
-	c := exec.Command("python3", "-m", "http.server", "8932")
+	c := exec.Command("python3", "-m", "http.server", "8932", "--bind", "127.0.0.1")
 	c.Dir = "/tmp"
 	if err := c.Start(); err != nil {
 		t.Skip(err)
 	}
 	defer func() { _ = c.Process.Kill() }()
-	time.Sleep(1500 * time.Millisecond)
+
+	// Until the port answers, not a hopeful sleep: a loaded runner can
+	// outwait any number chosen in advance.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		conn, err := net.Dial("tcp", "127.0.0.1:8932")
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the listener never came up")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// The row is named for something above the listener, as a folded run is.
 	named := &ProcNode{Proc: Proc{PID: os.Getpid(), Command: "npm", Dir: "/tmp"}}
