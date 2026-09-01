@@ -92,7 +92,7 @@ var (
 	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
 	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
 	attnStyle, blockedStyle, cursorStyle, headingStyle     lipgloss.Style
-	offSelStyle, noteStyle, previewStyle                   lipgloss.Style
+	offSelStyle, noteStyle, previewStyle, matchStyle       lipgloss.Style
 )
 
 func init() { applyBackground(true) }
@@ -136,6 +136,11 @@ func applyBackground(dark bool) {
 	// offSelStyle marks the selected row when that row is one scrn cannot
 	// step into: bold enough to find, dim enough to still read as unavailable.
 	offSelStyle = faintStyle.Bold(true)
+
+	// matchStyle lights the letters a query matched, inside whatever style
+	// the row is otherwise wearing: a narrowed list always shows why it
+	// narrowed.
+	matchStyle = lipgloss.NewStyle().Bold(true).Foreground(p.accent)
 
 	// noteStyle is scrn speaking for itself — the path under a heading, an
 	// empty list saying why it is empty. Italic sets the voice apart from

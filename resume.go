@@ -200,10 +200,8 @@ func (v *resumeView) matches() []conversation {
 	}
 	var out []conversation
 	for _, c := range v.convos {
-		if strings.Contains(strings.ToLower(c.Prompt), f) ||
-			strings.Contains(strings.ToLower(c.Summary), f) ||
-			strings.Contains(strings.ToLower(c.Branch), f) ||
-			strings.Contains(strings.ToLower(c.Dir), f) {
+		if answers(f, c.Prompt) || answers(f, c.Summary) ||
+			answers(f, c.Branch) || answers(f, c.Dir) {
 			out = append(out, c)
 		}
 	}

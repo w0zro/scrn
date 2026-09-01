@@ -118,7 +118,14 @@ or
 confirms, anything else cancels. Processes get SIGTERM, and the list
 never claims an exit it has not observed.
 .SS In the filter
-Letters type, and the list narrows under a cursor that
+Letters type, and the list narrows \(em each word of the query has to
+appear in order inside a name, a path or a command, not contiguously,
+so
+.B tsl
+finds tressle\-api and
+.B mono api
+finds the api inside mono, with the letters that matched lit in the
+rows \(em under a cursor that
 .B up
 and
 .B down

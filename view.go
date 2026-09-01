@@ -478,16 +478,28 @@ func (m model) renderRow(r navRow, selected bool) string {
 	// A repository is cut from the left and a command from the right, because
 	// what identifies each is at that end: the repo name after its parents,
 	// and the program before its arguments.
-	cut := truncate
 	label := r.project.Name
+	fromLeft := strings.Contains(label, "/")
 	if r.kind == rowProc {
 		label = m.rowLabel(r)
-		cut = truncateTail
+		fromLeft = false
 	}
 
 	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark)
-	return marker + faintStyle.Render(rules) + style.Render(cut(label, room)) +
+
+	// While a query is at work the matched letters are lit, so the narrowed
+	// list always shows why it narrowed. The styled label is cut ansi-aware;
+	// the plain path stays the plain cut.
+	var seg string
+	if q := strings.TrimSpace(m.filter); q != "" && (m.typing || m.filter != "") {
+		seg = truncateStyled(highlight(label, matchSpans(q, label), style), room, fromLeft)
+	} else if fromLeft {
+		seg = style.Render(truncate(label, room))
+	} else {
+		seg = style.Render(truncateTail(label, room))
+	}
+	return marker + faintStyle.Render(rules) + seg +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
@@ -746,7 +758,11 @@ func (m model) resumeLines(width, rows int) []string {
 		if text == "" {
 			text = c.ID
 		}
-		lines = append(lines, row+style.Render(truncateTail(text, width-lead)))
+		seg := style.Render(truncateTail(text, width-lead))
+		if q := strings.TrimSpace(v.query); q != "" {
+			seg = truncateStyled(highlight(text, matchSpans(q, text), style), width-lead, false)
+		}
+		lines = append(lines, row+seg)
 	}
 	return lines
 }

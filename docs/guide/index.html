@@ -98,6 +98,7 @@
     <div class="def-row"><span class="term w60">.</span><span class="desc">toggle between everything and only what's running</span></div>
   </div>
   <p>Dim rows are processes that were started outside scrn, on some other terminal. They are listed and killable, but there is no shell to step into.</p>
+  <p>Matching is fuzzy: each word of the query appears in order, not contiguously — <code class="chip">tsl</code> finds tressle-api, <code class="chip">mono api</code> finds the api inside mono — and the letters that matched are lit in the rows.</p>
   <p><b>/</b> finds processes as well as places: a query lists the ones whose command answers it, under the places they run, pruned to the branches that answer. <b>enter</b> steps into a found shell, and <b>ctrl-x</b> asks to kill what the cursor is on, without leaving the look. An empty query lists places alone.</p>
 </section>
 

@@ -1170,7 +1170,7 @@ func (m model) firstAnswer() int {
 func rowAnswers(r navRow, f string) bool {
 	if r.kind == rowProc {
 		for _, n := range r.run {
-			if strings.Contains(strings.ToLower(n.Command), f) {
+			if answers(f, n.Command) {
 				return true
 			}
 		}
@@ -2472,7 +2472,7 @@ func (m model) procAnswers(place, filter string) bool {
 func matchingProcs(ns []*ProcNode, f string) []*ProcNode {
 	var out []*ProcNode
 	for _, n := range ns {
-		if strings.Contains(strings.ToLower(n.Command), f) {
+		if answers(f, n.Command) {
 			out = append(out, n)
 			continue
 		}
@@ -2617,8 +2617,7 @@ func (m model) matchingSubs(p Project) []Project {
 	}
 	var out []Project
 	for _, sp := range m.subs[p.Path] {
-		if strings.Contains(strings.ToLower(sp.Name), f) ||
-			strings.Contains(strings.ToLower(p.Name+"/"+sp.Name), f) ||
+		if answers(f, sp.Name) || answers(f, p.Name+"/"+sp.Name) ||
 			m.procAnswers(sp.Path, f) {
 			out = append(out, sp)
 		}
@@ -2684,12 +2683,7 @@ func isShell(command string) bool { return shells[strings.TrimPrefix(command, "-
 // The path is searched as well as the name, so a directory that is only in the
 // name of a repository's parent still finds it.
 func matchesFilter(p Project, filter string) bool {
-	f := strings.ToLower(strings.TrimSpace(filter))
-	if f == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(p.Name), f) ||
-		strings.Contains(strings.ToLower(p.Path), f)
+	return answers(filter, p.Name) || answers(filter, p.Path)
 }
 
 // selected returns the row under the cursor.
