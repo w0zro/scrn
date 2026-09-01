@@ -213,6 +213,11 @@ type model struct {
 	// pane is drawing — and release carries it to the clipboard.
 	drag *paneDrag
 
+	// lastClick is where and when the pane was last pressed, for telling a
+	// double-click — which copies the word under it — from two clicks that
+	// merely happened.
+	lastClick paneClick
+
 	// resume is the picker over a place's suspended conversations, and nil
 	// while it is closed. Open, it has the pane and the keys.
 	resume *resumeView
@@ -623,9 +628,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.details[msg.key] = msg.fields
 
 	case copiedMsg:
-		if msg.err != nil {
+		switch {
+		case msg.err != nil:
 			m.status, m.statusErr = "could not copy: "+msg.err.Error(), true
-		} else {
+		case msg.what != "":
+			m.status, m.statusErr = "copied "+truncateRunes(msg.what, 40), false
+		default:
 			m.status, m.statusErr = "copied "+plural(msg.n, "line", "lines"), false
 		}
 
@@ -794,6 +802,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ev.Button == int(tea.MouseLeft) || (ev.Button == int(tea.MouseNone) && m.drag != nil) {
 			switch ev.Action {
 			case actPress:
+				// The same cell pressed twice in a beat is a double-click:
+				// the word under it goes to the clipboard, and this press
+				// goes no further — the first click already said what a
+				// click says.
+				if ev.X == m.lastClick.x && ev.Y == m.lastClick.y &&
+					time.Since(m.lastClick.at) < doubleClickWithin {
+					m.lastClick = paneClick{}
+					word := wordAt(m.paneLines(m.detailWidth(), m.paneHeight()), ev.X, ev.Y)
+					if word == "" {
+						return m, nil
+					}
+					return m, func() tea.Msg {
+						return copiedMsg{what: word, err: writeClipboard(word)}
+					}
+				}
+				m.lastClick = paneClick{x: ev.X, y: ev.Y, at: time.Now()}
 				m.drag = &paneDrag{sx: ev.X, sy: ev.Y, x: ev.X, y: ev.Y, press: ev}
 				return m, nil
 			case actMotion:
@@ -2016,6 +2040,16 @@ func (m model) paneHeight() int {
 	}
 	return 1
 }
+
+// paneClick is one press, remembered long enough to recognize its double.
+type paneClick struct {
+	x, y int
+	at   time.Time
+}
+
+// doubleClickWithin is how close together two presses on one cell have to
+// land to be a double-click.
+const doubleClickWithin = 400 * time.Millisecond
 
 // paneDrag is the sweep: where the button went down, where it is now, and
 // whether it has moved at all — a motionless press is still a click. The

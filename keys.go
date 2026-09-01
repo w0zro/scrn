@@ -73,8 +73,9 @@ func pasteFromClipboard() tea.Cmd {
 // copiedMsg reports a yank: how many lines went to the clipboard, or why
 // they did not.
 type copiedMsg struct {
-	n   int
-	err error
+	n    int
+	what string // a word, when the copy was one; the count speaks otherwise
+	err  error
 }
 
 // writeClipboard puts text on the system clipboard, by the tool the platform

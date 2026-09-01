@@ -1195,3 +1195,70 @@ func TestASweepUpstreamCopiesInReadingOrder(t *testing.T) {
 		t.Fatalf("copied = %q, want reading order whatever the drag's direction", copied)
 	}
 }
+
+func TestADoubleClickCopiesTheWordUnderIt(t *testing.T) {
+	copied := ""
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied = text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := previewedShell(t)
+	rows := strings.Split(m.terms[700].screen, "\n")
+	rows[2] = "commit deadbeef1234 (HEAD)"
+	m.terms[700].screen = strings.Join(rows, "\n")
+	m, _ = pipeDaemon(t, m)
+	m.setFocus(700)
+
+	// Two presses on the same cell, inside the double-click window.
+	click := tea.MouseClickMsg{X: navWidth + 1 + 10, Y: 2, Button: tea.MouseLeft}
+	next, _ := m.Update(click)
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: click.X, Y: click.Y, Button: tea.MouseLeft})
+	next, cmd := next.(model).Update(click)
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("the second press should have copied the word")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(model)
+
+	if copied != "deadbeef1234" {
+		t.Fatalf("copied = %q, want the word under the pointer", copied)
+	}
+	if !strings.Contains(footer(m), "copied deadbeef1234") {
+		t.Errorf("footer = %q, want the word reported", footer(m))
+	}
+}
+
+func TestTwoClicksOnDifferentCellsAreJustClicks(t *testing.T) {
+	m := previewedShell(t)
+	m, _ = pipeDaemon(t, m)
+	m.setFocus(700)
+
+	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 3, Y: 2, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: navWidth + 3, Y: 2, Button: tea.MouseLeft})
+	next, cmd := next.(model).Update(tea.MouseClickMsg{X: navWidth + 9, Y: 3, Button: tea.MouseLeft})
+	if cmd != nil {
+		t.Fatal("a click somewhere else is not a double")
+	}
+	if next.(model).drag == nil {
+		t.Error("the second press should have armed an ordinary sweep")
+	}
+}
+
+func TestWordAtReadsTheGlass(t *testing.T) {
+	lines := []string{"", "", "  go run ./cmd/api --port=8080"}
+	cases := []struct {
+		x    int
+		want string
+	}{
+		{3, "go"},
+		{9, "./cmd/api"},
+		{22, "--port"},
+		{1, ""}, // a blank cell holds no word
+	}
+	for _, c := range cases {
+		if got := wordAt(lines, c.x, 2); got != c.want {
+			t.Errorf("wordAt(%d) = %q, want %q", c.x, got, c.want)
+		}
+	}
+}

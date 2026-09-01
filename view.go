@@ -864,6 +864,48 @@ func dragText(lines []string, width, sx, sy, ex, ey int) (string, int) {
 	return strings.Join(out, "\n"), len(out)
 }
 
+// wordChars are what a double-click's word is made of, beyond letters and
+// digits: the joiners that hold identifiers, paths, flags and versions
+// together — the things a terminal gets double-clicked for.
+func wordChar(r rune) bool {
+	if r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r > 127 {
+		return true
+	}
+	return strings.ContainsRune("_-./~+@", r)
+}
+
+// wordAt is the word under a pane cell, read off the glass. Columns are
+// walked by their drawn width, so a wide character earlier in the row does
+// not shift the word under the pointer.
+func wordAt(lines []string, x, y int) string {
+	if y < 0 || y >= len(lines) {
+		return ""
+	}
+	runes := []rune(ansi.Strip(lines[y]))
+
+	// The rune the clicked column lands in.
+	at, col := -1, 0
+	for i, r := range runes {
+		w := lipgloss.Width(string(r))
+		if x >= col && x < col+w {
+			at = i
+			break
+		}
+		col += w
+	}
+	if at < 0 || !wordChar(runes[at]) {
+		return ""
+	}
+	lo, hi := at, at
+	for lo > 0 && wordChar(runes[lo-1]) {
+		lo--
+	}
+	for hi < len(runes)-1 && wordChar(runes[hi+1]) {
+		hi++
+	}
+	return string(runes[lo : hi+1])
+}
+
 // withCursor marks the cell the shell's cursor is on. The line already carries
 // the shell's own styling, so it is cut around the cell rather than indexed
 // into: a byte offset would land in the middle of an escape sequence. The cut
