@@ -967,15 +967,6 @@ func TestClickingAPreviewStepsIn(t *testing.T) {
 	}
 }
 
-func TestAClickInTheNavigatorTouchesNoPane(t *testing.T) {
-	m := previewedShell(t)
-	m, _ = pipeDaemon(t, m)
-	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
-	if got := next.(model).focus; got != 0 {
-		t.Errorf("focus = %d, want a navigator click to enter nothing", got)
-	}
-}
-
 func TestPrefixVOpensTheReaderEvenOnTheAlternateScreen(t *testing.T) {
 	// The wheel cannot start reading over a pager, but the chord can: the
 	// pager's screen is the document, which is exactly what a selection
@@ -1070,7 +1061,9 @@ func TestYWithoutAMarkExplainsItself(t *testing.T) {
 	}
 }
 
-func TestAClickInTheNavigatorSelectsItsRow(t *testing.T) {
+func TestClickingAShellsRowSwitchesToIt(t *testing.T) {
+	// From wherever the keys were: clicking a process in the list is
+	// switching to it, the one-click way a window manager switches.
 	m := previewedShell(t)
 	m.cursor = 0
 	m, _ = pipeDaemon(t, m)
@@ -1081,8 +1074,23 @@ func TestAClickInTheNavigatorSelectsItsRow(t *testing.T) {
 	if r, ok := m.selected(); !ok || r.kind != rowProc || !r.holds(700) {
 		t.Fatalf("selected %+v, want the clicked row", r)
 	}
+	if m.focus != 700 {
+		t.Errorf("focus = %d, want the click to have stepped in", m.focus)
+	}
+}
+
+func TestClickingAPlacesRowOnlySelectsIt(t *testing.T) {
+	m := previewedShell(t)
+	m.cursor = 1
+	m, _ = pipeDaemon(t, m)
+
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 2, Button: tea.MouseLeft})
+	m = next.(model)
+	if r, ok := m.selected(); !ok || r.kind != rowProject {
+		t.Fatalf("selected %+v, want the repo row", r)
+	}
 	if m.focus != 0 {
-		t.Error("a navigator click selects; it does not step in")
+		t.Error("a place has no shell to step into; the click selects alone")
 	}
 }
 

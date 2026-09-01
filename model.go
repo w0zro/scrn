@@ -722,7 +722,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if _, press := msg.(tea.MouseClickMsg); press {
 				if i, ok := m.rowAt(mo.Y); ok {
-					return m, m.jump(i)
+					cmd := m.jump(i)
+					// A row that can be stepped into is stepped into:
+					// clicking a process is switching to it, from wherever
+					// the keys were. Anything else — a place, a process
+					// scrn cannot reach — is selected, the pane previewing
+					// it, and a click on the preview goes no further.
+					if r := m.rows[i]; r.kind == rowProc {
+						if t := m.owningTerm(r.node.PID); t != nil {
+							m.attachTo(t)
+							return m, nil
+						}
+					}
+					return m, cmd
 				}
 			}
 			return m, nil
