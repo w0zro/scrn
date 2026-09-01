@@ -677,6 +677,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.MouseMsg:
+		// The keys modal leaves on any keystroke; a click is no different.
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+		// An armed confirmation is about the next key alone; the mouse must
+		// not move the subject out from under it.
+		if m.pendingKill != nil || m.pendingReplace {
+			return m, nil
+		}
+
+		// Left of the divider the mouse is the navigator's: the wheel walks
+		// the list and a press puts the cursor on the row it landed on —
+		// the pane previews it, and a click on the preview then steps in.
+		// Not while reading or picking: those own the pane, and the list
+		// should not slide beneath them.
+		if mo := msg.Mouse(); mo.X < navWidth && m.scroll == nil && m.resume == nil {
+			if delta := wheelDelta(msg); delta != 0 {
+				return m, m.jump(m.cursor - delta/wheelLines*navWheelRows)
+			}
+			if _, press := msg.(tea.MouseClickMsg); press {
+				if i, ok := m.rowAt(mo.Y); ok {
+					return m, m.jump(i)
+				}
+			}
+			return m, nil
+		}
+
 		// The mouse belongs to whatever the pane is showing — the focused
 		// shell, or the one the cursor has on preview. Every process gets
 		// its wheel, not just the one being typed into.
@@ -2072,6 +2100,25 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// navWheelRows is how many rows one wheel notch moves the navigator's
+// cursor, the pace a notch moves anything else.
+const navWheelRows = 3
+
+// rowAt is the navigator row drawn on window line y, mirroring leftColumn:
+// the masthead first, its blank while the window can spare one, then the
+// list from the scrolled-to offset.
+func (m model) rowAt(y int) (int, bool) {
+	top := 1
+	if m.height-2-len(m.trimmedHint(m.height)) > 0 {
+		top++
+	}
+	i := m.offset + y - top
+	if y < top || i >= len(m.rows) {
+		return 0, false
+	}
+	return i, true
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back

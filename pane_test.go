@@ -1063,3 +1063,44 @@ func TestYWithoutAMarkExplainsItself(t *testing.T) {
 		t.Errorf("footer = %q, want the hint", footer(m))
 	}
 }
+
+func TestAClickInTheNavigatorSelectsItsRow(t *testing.T) {
+	m := previewedShell(t)
+	m.cursor = 0
+	m, _ = pipeDaemon(t, m)
+
+	// The shell's row: masthead, blank, repo at y=2, the shell at y=3.
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
+	m = next.(model)
+	if r, ok := m.selected(); !ok || r.kind != rowProc || !r.holds(700) {
+		t.Fatalf("selected %+v, want the clicked row", r)
+	}
+	if m.focus != 0 {
+		t.Error("a navigator click selects; it does not step in")
+	}
+}
+
+func TestTheNavigatorsWheelWalksTheList(t *testing.T) {
+	m := withProcs(96, 20, []Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]string{"/p/scrn", "/p/scrn", "/p/scrn", "/p/scrn", "/p/scrn"})
+	m.cursor = 0
+
+	next, _ := m.Update(tea.MouseWheelMsg{X: 3, Y: 4, Button: tea.MouseWheelDown})
+	m = next.(model)
+	if m.cursor != navWheelRows {
+		t.Errorf("cursor = %d, want the wheel to have walked %d rows", m.cursor, navWheelRows)
+	}
+	next, _ = m.Update(tea.MouseWheelMsg{X: 3, Y: 4, Button: tea.MouseWheelUp})
+	if got := next.(model).cursor; got != 0 {
+		t.Errorf("cursor = %d, want the wheel back at the top", got)
+	}
+}
+
+func TestAClickPastTheListSelectsNothing(t *testing.T) {
+	m := previewedShell(t)
+	was := m.cursor
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 12, Button: tea.MouseLeft})
+	if got := next.(model).cursor; got != was {
+		t.Errorf("cursor = %d, want a click on empty rows to move nothing", got)
+	}
+}
