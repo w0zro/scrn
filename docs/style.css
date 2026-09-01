@@ -260,3 +260,109 @@ a:hover { color: var(--accent); }
 .doc .mb10 { margin-bottom: 10px; }
 .doc .mb14 { margin-bottom: 14px; }
 .doc .mb16 { margin-bottom: 16px; }
+
+/* ── landing: hero demo ──────────────────────────────── */
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  gap: 44px;
+  align-items: center;
+}
+.hero-grid h1 { max-width: none; }
+.hero-grid .sub { max-width: none; }
+.hero-copy > :first-child { margin-top: 0; }
+
+/* the window: scrn's two columns, drawn the way scrn draws them */
+.scr {
+  background: var(--term);
+  color: #E6E6E6;
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: 28ch 1ch minmax(0, 1fr);
+  font: 400 11px/1.62 var(--mono);
+  overflow: hidden;
+}
+.scr pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre;
+  overflow: hidden;
+}
+.scr .cell { display: inline-block; overflow: hidden; vertical-align: bottom; }
+.scr .scr-div { width: 1px; justify-self: center; background: #30363D; }
+.scr .b { font-weight: 600; }
+
+.c-brand  { color: #B9A7FF; font-weight: 600; }
+.c-fg     { color: #E6E6E6; }
+.c-dim    { color: #5C6570; }
+.c-label  { color: #8B949E; }
+.c-rule   { color: #30363D; }
+.c-sel    { color: #79C0FF; font-weight: 600; }
+.c-accent { color: #79C0FF; }
+.c-good   { color: #3FB950; }
+.c-attn   { color: #D29922; }
+.c-urgent { color: #F778BA; font-weight: 600; }
+.c-note   { color: #5C6570; font-style: italic; }
+.c-prev   { color: #5C6570; }
+.c-cur    { background: #E6E6E6; color: var(--term); }
+
+/* the mode chip and the field it rides on, one per mode */
+.chip { font-weight: 600; color: var(--term); }
+.chip-navigate { background: #79C0FF; }
+.chip-proc     { background: #3FB950; }
+.chip-prefix   { background: #D29922; }
+.wash-navigate { background: #15294A; }
+.wash-proc     { background: #12351F; }
+.wash-prefix   { background: #372E12; }
+
+.demo-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  margin-top: 10px;
+}
+.demo-cap {
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.demo-cap kbd {
+  font: 500 11.5px var(--mono);
+  font-style: normal;
+  background: var(--chip);
+  color: var(--ink);
+  padding: 1px 5px;
+  border-bottom: 1px solid var(--rule);
+  animation: keyflash 620ms ease-out;
+}
+@keyframes keyflash {
+  from { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  to   { background: var(--chip); color: var(--ink); border-color: var(--rule); }
+}
+.demo-toggle {
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: 400 11.5px var(--mono);
+  color: var(--muted);
+  cursor: pointer;
+}
+.demo-toggle:hover { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-cap kbd { animation: none; }
+}
+
+/* The window sits beside the copy only where both have room; under that it
+   takes the sheet's full width, which is where the pane reads best anyway. */
+@media (max-width: 1099px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+}
+@media (max-width: 700px) {
+  .scr { grid-template-columns: 28ch; font-size: 12px; }
+  .scr-div, .scr-pane { display: none; }
+}

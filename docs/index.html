@@ -30,8 +30,23 @@
 </header>
 
 <section class="hero">
-  <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
-  <p class="sub">A terminal UI. Shells live in a private tmux server, so they keep running after the window closes. macOS and Linux.</p>
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
+      <p class="sub">A terminal UI. Shells live in a private tmux server, so they keep running after the window closes. macOS and Linux.</p>
+    </div>
+    <div class="hero-demo">
+      <div class="scr" id="demo" role="img" aria-label="scrn running: a navigator listing the repositories acme/web, acme/api and scrn with the processes under each, beside a pane showing the shell the cursor is on. The keys move the cursor, step into a shell, and jump to the Claude session waiting for an answer.">
+        <pre class="scr-nav"></pre>
+        <div class="scr-div"></div>
+        <pre class="scr-pane"></pre>
+      </div>
+      <div class="demo-foot">
+        <p class="demo-cap"></p>
+        <button class="demo-toggle" type="button">[pause]</button>
+      </div>
+    </div>
+  </div>
   <div class="cmd" role="group" aria-label="install command">
     <span class="prompt" aria-hidden="true">$</span>
     <code>curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh</code>
@@ -97,6 +112,180 @@
 </footer>
 
 </div>
+
+<script>
+// The hero's window: scrn drawn the way scrn draws itself, stepping through
+// the loop the tool is for — read the list, step into a shell, answer the
+// agent that is waiting, step back out. Every glyph sits in a cell of an
+// exact character width, so a font without a box rule or a braille dot
+// cannot shift the column beside it.
+(() => {
+  const scr = document.getElementById('demo');
+  if (!scr) return;
+  const nav = scr.querySelector('.scr-nav');
+  const div = scr.querySelector('.scr-div');
+  const pane = scr.querySelector('.scr-pane');
+  const cap = document.querySelector('.demo-cap');
+  const toggle = document.querySelector('.demo-toggle');
+
+  const ROWS = 16, NAV_W = 28;
+  const SPIN = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+
+  const cell = (n, text, cls) =>
+    '<span class="cell ' + (cls || '') + '" style="width:' + n + 'ch">' + text + '</span>';
+  const span = (cls, text) => '<span class="' + cls + '">' + text + '</span>';
+
+  // The navigator: a group, its repositories, and the processes under each.
+  const TREE = [
+    { pre: '',   label: 'acme' },
+    { pre: '  ', label: 'web' },
+    { pre: '  ', rule: '├─ ', label: 'npm run dev' },
+    { pre: '  ', rule: '└─ ', label: 'claude', mark: 'spin' },
+    { pre: '  ', label: 'api' },
+    { pre: '  ', rule: '└─ ', label: 'go run ./cmd/api' },
+    { pre: '',   label: 'scrn' },
+    { pre: '',   rule: '├─ ', label: 'claude', mark: 'ask' },
+    { pre: '',   rule: '└─ ', label: 'go test ./...' },
+  ];
+
+  function navRow(i, cursor) {
+    const r = TREE[i], sel = i === cursor;
+    const rules = r.pre + (r.rule || '');
+    // A blocked agent lights its whole row until the cursor is on it.
+    const cls = sel ? 'c-sel' : (r.mark === 'ask' ? 'c-urgent' : 'c-fg');
+    let mark = '';
+    if (r.mark === 'spin') mark = ' ' + span('c-good spin', '⠧');
+    if (r.mark === 'ask') mark = ' ' + span('c-urgent', '◆');
+    return cell(1, sel ? '▸' : ' ') +
+      (rules ? span('c-dim', rules) : '') +
+      span(cls, r.label) + mark;
+  }
+
+  function navLines(cursor, mode) {
+    const lines = [' ' + span('c-brand', 'scrn'), ''];
+    for (let i = 0; i < TREE.length; i++) lines.push(navRow(i, cursor));
+    while (lines.length < ROWS - 1) lines.push('');
+    const chip = ' ' + mode + ' ';
+    lines.push(span('chip chip-' + mode, chip) +
+      span('wash-' + mode, ' '.repeat(Math.max(0, NAV_W - chip.length))));
+    return lines;
+  }
+
+  // The pane. A label and its value line up under the widest label in their
+  // group, the way the detail pane lays them out.
+  const G = '  ';
+  const fld = (label, w, value, cls) =>
+    G + span('c-label', label) + ' '.repeat(w - label.length) + G + span(cls || 'c-fg', value);
+  const cont = (w, value, cls) => G + ' '.repeat(w) + G + span(cls || 'c-fg', value);
+
+  const PANE_REPO = [
+    G + span('c-fg b', 'web'),
+    G + span('c-note', '~/projects/acme/web'),
+    '',
+    fld('branch', 8, 'main', 'c-accent'),
+    fld('status', 8, '3 modified', 'c-attn'),
+    fld('upstream', 8, 'origin/main  (2 ahead)', 'c-attn'),
+    '',
+    fld('last commit', 11, '9f21c4c  cache the scan'),
+    cont(11, '2 hours ago  by you', 'c-dim'),
+    '',
+    fld('running', 7, '2 processes', 'c-good'),
+    '',
+    fld('needs', 5, '● dev   npm run dev', 'c-good'),
+    cont(5, '○ test  npm test', 'c-dim'),
+    fld('from', 5, '.scrn', 'c-dim'),
+  ];
+
+  // A shell's screen: gray while it is only being previewed, its own colors
+  // once the keys are going to it.
+  const DEV = [
+    ['c-good', 'VITE v5.4.2', '  ready in 412 ms'],
+    null,
+    ['c-good', '  ➜', '  Local:   http://localhost:5173/'],
+    ['c-good', '  ➜', '  Network: http://192.168.1.24:5173/'],
+    null,
+    ['c-dim', '12:04:33', ' [vite] hmr update /src/App.tsx'],
+    ['c-dim', '12:04:41', ' [vite] hmr update /src/nav.tsx'],
+  ];
+  const DEV_MORE = DEV.concat([['c-dim', '12:04:52', ' [vite] hmr update /src/theme.css']]);
+
+  const screen = (rows, live) => rows.map(r => {
+    if (!r) return '';
+    return live ? span(r[0], r[1]) + span('c-fg', r[2]) : span('c-prev', r[1] + r[2]);
+  });
+
+  const CLAUDE = [
+    ['c-good', '●', ' Update(view.go)'],
+    ['c-dim', '  ⎿', '  Updated view.go with 3 additions'],
+    null,
+    ['c-good', '●', ' Bash(go test ./...)'],
+    ['c-dim', '  ⎿', '  Do you want to run this command?'],
+    null,
+    ['c-attn', '   ❯ 1. Yes', ''],
+    ['c-dim', '     2. No, tell Claude what to do', ''],
+  ];
+
+  const cursorLine = line => line + span('c-cur', ' ');
+
+  // The beats: what the cursor is on, what mode the keys are in, what the
+  // pane shows, and the sentence under the window that says why.
+  const BEATS = [
+    { cursor: 1, mode: 'navigate', pane: PANE_REPO, hold: 2400,
+      cap: 'The list: every repository under your project roots, and everything running in each.' },
+    { cursor: 2, mode: 'navigate', pane: screen(DEV, false), hold: 1700,
+      cap: '<kbd>j</kbd> <kbd>k</kbd> move. The pane previews the shell under the cursor.' },
+    { cursor: 2, mode: 'proc', pane: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 2600,
+      cap: '<kbd>enter</kbd> attaches — from here the keystrokes are the shell&rsquo;s.' },
+    { cursor: 2, mode: 'prefix', pane: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 950,
+      cap: '<kbd>ctrl-space</kbd> is the one key scrn keeps: it reaches scrn from inside any shell.' },
+    { cursor: 7, mode: 'proc', pane: screen(CLAUDE, true), hold: 2900,
+      cap: '<kbd>enter</kbd> goes to the agent that is waiting on you — the ◆ across the list.' },
+    { cursor: 7, mode: 'navigate', pane: screen(CLAUDE, false), hold: 2400,
+      cap: '<kbd>n</kbd> steps back out to the list. Nothing stopped along the way.' },
+  ];
+
+  function draw(b) {
+    nav.innerHTML = navLines(b.cursor, b.mode).join('\n');
+    const lines = b.pane.slice(0, ROWS);
+    while (lines.length < ROWS) lines.push('');
+    pane.innerHTML = lines.join('\n');
+    cap.innerHTML = b.cap;
+  }
+
+  let at = 0, frame = 0, beatTimer = null, spinTimer = null;
+
+  function play() {
+    spinTimer = setInterval(() => {
+      frame = (frame + 1) % SPIN.length;
+      for (const s of nav.querySelectorAll('.spin')) s.textContent = SPIN[frame];
+    }, 110);
+    const next = () => {
+      at = (at + 1) % BEATS.length;
+      draw(BEATS[at]);
+      beatTimer = setTimeout(next, BEATS[at].hold);
+    };
+    beatTimer = setTimeout(next, BEATS[at].hold);
+  }
+
+  function stop() {
+    clearTimeout(beatTimer);
+    clearInterval(spinTimer);
+    beatTimer = spinTimer = null;
+  }
+
+  toggle.addEventListener('click', () => {
+    if (beatTimer) { stop(); toggle.textContent = '[play]'; }
+    else { play(); toggle.textContent = '[pause]'; }
+  });
+
+  draw(BEATS[0]);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    toggle.textContent = '[play]';
+  } else {
+    play();
+  }
+})();
+</script>
 
 <script>
 for (const b of document.querySelectorAll('.copy')) {
