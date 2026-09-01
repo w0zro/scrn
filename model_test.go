@@ -2566,8 +2566,12 @@ func TestTheFooterShowsWhatIsBeingTyped(t *testing.T) {
 
 func TestTheEmptyListPointsAtTheFilter(t *testing.T) {
 	m := narrowed(manyProjects(90, 14))
-	if col := strings.Join(navColumn(m), "\n"); !strings.Contains(col, "/  find a project") {
+	col := strings.Join(navColumn(m), "\n")
+	if !strings.Contains(col, "/  find a project") {
 		t.Errorf("empty list = %q, want it to point at the way out", col)
+	}
+	if !strings.Contains(col, "?  the keys") {
+		t.Errorf("empty list = %q, want the front door to teach the keys", col)
 	}
 }
 

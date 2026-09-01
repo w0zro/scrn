@@ -402,11 +402,14 @@ func (m model) navLines(rows int) []string {
 	case len(m.rows) == 0 && m.filter != "":
 		return []string{" " + noteStyle.Render("no project matches")}
 	case len(m.rows) == 0:
+		// The front door teaches the three doors out of it — including the
+		// one that teaches everything else.
 		return []string{
 			" " + noteStyle.Render("nothing running"),
 			"",
 			" " + faintStyle.Render(".  show all"),
 			" " + faintStyle.Render("/  find a project"),
+			" " + faintStyle.Render("?  the keys"),
 		}
 	}
 
