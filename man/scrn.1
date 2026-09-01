@@ -177,19 +177,15 @@ quits, and
 .B ?
 shows the keys. Anything unbound cancels the prefix.
 .PP
-The mouse belongs to whatever the pane is showing, entered or merely
-selected: the wheel scrolls a preview's transcript or the program in
-it, and a click on a preview steps into its shell, the way clicking an
-unfocused window focuses it.
 scrn mostly does not hold the mouse at all: dragging, double\-clicking
 and copying are the terminal's own, everywhere, exactly as they are
 with no scrn in the middle. Only while the focused program has asked
 for the mouse \(em vim, htop \(em does scrn take it, and then every
-event crosses raw: press, drag, release, wheel. While it is held, the
-navigator still takes a click and the wheel. The terminal's own selection also works, with shift held while
-dragging, and the reader below copies by keyboard alone. A program that copies for itself \(em vim's
-clipboard yank, anything speaking OSC 52 \(em reaches the system
-clipboard the way it would with no scrn in the middle.
+event crosses raw: press, drag, release, wheel. The navigator never
+takes the mouse; the list is the keys' alone. A program that copies
+for itself \(em vim's clipboard yank, anything speaking OSC 52 \(em
+reaches the system clipboard the way it would with no scrn in the
+middle, and the reader below copies by keyboard alone.
 .PP
 .B ctrl\-space v
 opens the reader over what has scrolled away \(em the pager's screen

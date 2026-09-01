@@ -954,64 +954,6 @@ func TestYWithoutAMarkExplainsItself(t *testing.T) {
 	}
 }
 
-func TestClickingAShellsRowSwitchesToIt(t *testing.T) {
-	// From wherever the keys were: clicking a process in the list is
-	// switching to it, the one-click way a window manager switches.
-	m := previewedShell(t)
-	m.cursor = 0
-	m, _ = pipeDaemon(t, m)
-
-	// The shell's row: masthead, blank, repo at y=2, the shell at y=3.
-	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
-	m = next.(model)
-	if r, ok := m.selected(); !ok || r.kind != rowProc || !r.holds(700) {
-		t.Fatalf("selected %+v, want the clicked row", r)
-	}
-	if m.focus != 700 {
-		t.Errorf("focus = %d, want the click to have stepped in", m.focus)
-	}
-}
-
-func TestClickingAPlacesRowOnlySelectsIt(t *testing.T) {
-	m := previewedShell(t)
-	m.cursor = 1
-	m, _ = pipeDaemon(t, m)
-
-	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 2, Button: tea.MouseLeft})
-	m = next.(model)
-	if r, ok := m.selected(); !ok || r.kind != rowProject {
-		t.Fatalf("selected %+v, want the repo row", r)
-	}
-	if m.focus != 0 {
-		t.Error("a place has no shell to step into; the click selects alone")
-	}
-}
-
-func TestTheNavigatorsWheelWalksTheList(t *testing.T) {
-	m := withProcs(96, 20, []Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]string{"/p/scrn", "/p/scrn", "/p/scrn", "/p/scrn", "/p/scrn"})
-	m.cursor = 0
-
-	next, _ := m.Update(tea.MouseWheelMsg{X: 3, Y: 4, Button: tea.MouseWheelDown})
-	m = next.(model)
-	if m.cursor != navWheelRows {
-		t.Errorf("cursor = %d, want the wheel to have walked %d rows", m.cursor, navWheelRows)
-	}
-	next, _ = m.Update(tea.MouseWheelMsg{X: 3, Y: 4, Button: tea.MouseWheelUp})
-	if got := next.(model).cursor; got != 0 {
-		t.Errorf("cursor = %d, want the wheel back at the top", got)
-	}
-}
-
-func TestAClickPastTheListSelectsNothing(t *testing.T) {
-	m := previewedShell(t)
-	was := m.cursor
-	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 12, Button: tea.MouseLeft})
-	if got := next.(model).cursor; got != was {
-		t.Errorf("cursor = %d, want a click on empty rows to move nothing", got)
-	}
-}
-
 func TestAListeningProgramGetsTheMouseRaw(t *testing.T) {
 	// The one reason scrn holds the mouse at all: the focused program
 	// asked for it. Every event crosses as it happens — press, drag,
@@ -1047,5 +989,24 @@ func TestTheMouseIsTheTerminalsWhenNobodyListens(t *testing.T) {
 	m.setFocus(700) // a shell at a prompt asks for nothing
 	if m.mouseMode() != tea.MouseModeNone {
 		t.Error("a quiet shell focused, the mouse still belongs to the terminal")
+	}
+}
+
+func TestTheNavigatorIgnoresTheMouseEvenWhenItIsHeld(t *testing.T) {
+	// The navigator is keyboard-only, whoever holds the mouse: while a
+	// listening program has scrn tracking, a click left of the divider
+	// lands on nothing — the same nothing it lands on when tracking is
+	// off and the terminal owns the click.
+	m := previewedShell(t)
+	m, _ = pipeDaemon(t, m)
+	m.setFocus(700)
+	m.terms[700].mouse = true
+	was := m.cursor
+
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
+	got := next.(model)
+	if got.cursor != was || got.focus != 700 {
+		t.Errorf("cursor %d→%d focus %d, want a navigator click to change nothing",
+			was, got.cursor, got.focus)
 	}
 }
