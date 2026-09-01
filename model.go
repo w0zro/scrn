@@ -669,10 +669,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tea.MouseMsg:
-		// The mouse belongs to whatever is drawing in the pane. Only a focused
-		// shell gets it: an unfocused pane is something being looked at rather
-		// than worked in, and a click meant for the list would land in it.
-		t := m.focused()
+		// The mouse belongs to whatever the pane is showing — the focused
+		// shell, or the one the cursor has on preview. Every process gets
+		// its wheel, not just the one being typed into.
+		t := m.paneTerm()
 		if t == nil || !m.showDetail() {
 			return m, nil
 		}
@@ -701,6 +701,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key, ok := wheelAsArrow(msg); ok && !t.mouse && t.alt {
 			for range wheelArrowCount {
 				m.daemon.key(t.pid, &keyPress{Code: key})
+			}
+			return m, nil
+		}
+		if m.focused() != t {
+			// The wheel crosses to a preview whole — scrolling is looking.
+			// A press is more than looking: it steps into the shell, the
+			// way clicking an unfocused window focuses it. It is not
+			// forwarded as a click too: a preview draws under a banner, so
+			// its coordinates are not the pane's own, and the programs most
+			// worth clicking in are reached exactly by stepping in first.
+			if _, wheel := msg.(tea.MouseWheelMsg); wheel {
+				m.daemon.mouse(t.pid, ev)
+				return m, nil
+			}
+			if ev.Action == actPress {
+				m.attachTo(t)
 			}
 			return m, nil
 		}

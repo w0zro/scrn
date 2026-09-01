@@ -900,3 +900,72 @@ func TestCmdVReachesTheShellAsAPaste(t *testing.T) {
 		t.Fatalf("ask = %+v, want the clipboard crossing as a buffer", got)
 	}
 }
+
+// previewedShell is a model standing on a held shell's row without having
+// entered it: the pane is a preview, the keys are the navigator's.
+func previewedShell(t *testing.T) model {
+	th := t.Helper
+	th()
+	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, []Proc{
+		{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"},
+	})
+	rows := make([]string, m.paneHeight())
+	for i := range rows {
+		rows[i] = "srow"
+	}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n"), sb: 40}}
+	m.rebuild()
+	for i, r := range m.rows {
+		if r.kind == rowProc && r.holds(700) {
+			m.cursor = i
+		}
+	}
+	return m
+}
+
+func TestAPreviewsWheelReadsItsTranscript(t *testing.T) {
+	// Scrolling is looking, and a preview is exactly the pane being looked
+	// at: the wheel reads back without stepping in.
+	m := previewedShell(t)
+	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
+	m = next.(model)
+	if m.scroll == nil || m.scroll.pid != 700 {
+		t.Fatalf("scroll = %+v, want the preview's transcript being read", m.scroll)
+	}
+	if m.focus != 0 {
+		t.Error("the wheel should not have stepped into the shell")
+	}
+}
+
+func TestAPreviewsWheelReachesAProgramThatAskedForIt(t *testing.T) {
+	m := previewedShell(t)
+	m.terms[700].mouse = true
+	m, asked := pipeDaemon(t, m)
+
+	m.Update(wheelMsg(tea.MouseWheelUp))
+	got := askedFor(t, asked)
+	if got.Kind != kindInput || !strings.Contains(got.Run, "-H 1b 5b 3c") {
+		t.Fatalf("ask = %+v, want the wheel as SGR bytes to the previewed pane", got)
+	}
+}
+
+func TestClickingAPreviewStepsIn(t *testing.T) {
+	// A press is more than looking: like clicking an unfocused window, it
+	// focuses what was clicked.
+	m := previewedShell(t)
+	m, _ = pipeDaemon(t, m)
+
+	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 5, Y: 3, Button: tea.MouseLeft})
+	if got := next.(model).focus; got != 700 {
+		t.Errorf("focus = %d, want the click to step into the shell", got)
+	}
+}
+
+func TestAClickInTheNavigatorTouchesNoPane(t *testing.T) {
+	m := previewedShell(t)
+	m, _ = pipeDaemon(t, m)
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
+	if got := next.(model).focus; got != 0 {
+		t.Errorf("focus = %d, want a navigator click to enter nothing", got)
+	}
+}
