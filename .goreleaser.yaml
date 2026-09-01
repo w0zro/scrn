@@ -1,0 +1,35 @@
+# goreleaser builds the release install.sh downloads from. The names are the
+# contract: scrn_<version>_<os>_<arch>.tar.gz holding scrn and its manpage,
+# beside a checksums.txt — exactly what the hand-rolled workflow produced,
+# now with the changelog and the rest for free. `goreleaser release
+# --snapshot --clean` rehearses the whole thing locally.
+version: 2
+
+project_name: scrn
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "scrn_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - src: man/scrn.1
+        dst: scrn.1
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc

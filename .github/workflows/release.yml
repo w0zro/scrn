@@ -1,8 +1,11 @@
-# Pushing a v* tag builds the release install.sh downloads from.
+# Pushing a v* tag runs the tests and hands the build to goreleaser, which
+# produces what install.sh expects — scrn_<version>_<os>_<arch>.tar.gz with
+# the manpage inside, beside a checksums.txt — plus the changelog. The
+# artifact names are .goreleaser.yaml's contract; rehearse changes to it with
+# `goreleaser release --snapshot --clean`.
 #
-# The tests run on macOS because that is where scrn is developed and where it
-# reads the process list the way it does. The other builds are cross-compiled
-# from the same runner, which Go does without a toolchain for each one.
+# The tests run on macOS because that is where scrn is developed; the push
+# workflow has already run them on Linux by the time any tag is cut.
 name: release
 
 on:
@@ -17,37 +20,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
-      - name: Build
-        run: |
-          set -eu
-          version="${GITHUB_REF_NAME#v}"
-          mkdir -p dist
-          cp man/scrn.1 dist/scrn.1
-          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
-            os="${target%/*}"
-            arch="${target#*/}"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-              go build -trimpath -ldflags "-s -w -X main.version=$version" -o dist/scrn .
-            tar -czf "dist/scrn_${version}_${os}_${arch}.tar.gz" -C dist scrn scrn.1
-            rm dist/scrn
-          done
-          rm dist/scrn.1
-          cd dist && shasum -a 256 ./*.tar.gz | sed 's| \./| |' > checksums.txt
-          cat checksums.txt
-
-      - name: Publish
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            dist/*.tar.gz dist/checksums.txt
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
