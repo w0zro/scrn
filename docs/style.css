@@ -9,6 +9,7 @@
   --muted: #7a745f;
   --rule: #cfc8b4;
   --chip: #e9e4d4;
+  --figure-radius: 4px;
   --accent: #5A3FD9;
   --accent-dark: #B9A7FF;
   --term: #141310;
@@ -54,6 +55,7 @@ a:hover { color: var(--accent); }
 
 .cmd {
   display: flex;
+  border-radius: var(--figure-radius);
   align-items: center;
   gap: 13px;
   background: var(--ink);
@@ -108,7 +110,7 @@ a:hover { color: var(--accent); }
   border-bottom: 1px solid var(--ink);
 }
 .figure-left { padding: 40px 48px 36px; border-right: 1px solid var(--rule); }
-.tui { background: var(--term); padding: 20px 22px; }
+.tui { background: var(--term); padding: 20px 22px; border-radius: var(--figure-radius); }
 .tui pre { margin: 0; font: 400 13.5px/1.65 var(--mono); color: var(--term-text); }
 .t-ttl { color: var(--accent-dark); font-weight: 600; }
 .t-num { color: var(--accent-dark); }
@@ -213,7 +215,12 @@ a:hover { color: var(--accent); }
 
 /* code blocks */
 .code-cap { font: 400 12px var(--mono); color: var(--muted); margin-bottom: 6px; }
-.codeblock { background: var(--term); padding: 14px 18px; margin-bottom: 14px; }
+.codeblock {
+  background: var(--term);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border-radius: var(--figure-radius);
+}
 .codeblock pre { margin: 0; font: 400 13px/1.7 var(--mono); color: var(--term-text); }
 .t-key { color: var(--accent-dark); }
 .t-str { color: #a3c9a8; }
@@ -281,6 +288,7 @@ a:hover { color: var(--accent); }
   display: grid;
   grid-template-columns: 28ch 1ch minmax(0, 1fr);
   font: 400 11px/1.62 var(--mono);
+  border-radius: var(--figure-radius);
   overflow: hidden;
 }
 .scr pre {
