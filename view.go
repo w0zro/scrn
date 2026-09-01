@@ -294,7 +294,7 @@ func (m model) keysModal(rows int) []string {
 		{"^spc /", "find from anywhere"},
 		{"^spc s a r A", "shell · agent · run · continue, here"},
 		{"^spc v", "read the pane · v marks · y copies"},
-		{"^spc ^spc", "back to the last shell"},
+		{"^spc ^spc", "back to the last process"},
 		{"^spc enter", "the next waiting agent"},
 		{"^spc q", "quit, even from a shell"},
 		{"^spc ?", "these keys"},
