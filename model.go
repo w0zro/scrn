@@ -755,6 +755,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setFilter(m.filter + msg.Content)
 			return m, m.detailCmd()
 		}
+		// At the navigator, pasted text lands nowhere — and saying so beats
+		// a paste that silently vanishes and reads as broken.
+		m.status, m.statusErr = "nothing is focused to paste into", false
 		return m, nil
 
 	case tea.KeyPressMsg:

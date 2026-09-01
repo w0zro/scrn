@@ -863,3 +863,14 @@ func TestPaddingIsNotPaintedWithTheRowsLeftovers(t *testing.T) {
 		t.Errorf("row = %q, want the padding to start reset", got)
 	}
 }
+
+func TestAPasteAtTheNavigatorSaysWhereItWent(t *testing.T) {
+	// Nowhere, that is. A paste with no shell focused and no filter open
+	// lands on nothing, and the foot says so rather than letting cmd+v
+	// read as broken.
+	m := repoModel()
+	next, _ := m.Update(tea.PasteMsg{Content: "some text"})
+	if f := footer(next.(model)); !strings.Contains(f, "nothing is focused") {
+		t.Errorf("footer = %q, want the paste explained", f)
+	}
+}
