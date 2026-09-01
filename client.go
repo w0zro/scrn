@@ -852,8 +852,8 @@ func (s *session) carryCopy(buffer string) {
 		return
 	}
 	path := f.Name()
-	f.Close()
-	defer os.Remove(path)
+	_ = f.Close()
+	defer func() { _ = os.Remove(path) }()
 
 	if _, err := s.run("save-buffer", "-b", buffer, path); err != nil {
 		return

@@ -1,0 +1,3 @@
+# The default linters, pinned so a new machine and the CI agree on what
+# clean means. golangci-lint run ./... is the whole invocation.
+version: "2"

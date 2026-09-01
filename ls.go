@@ -54,7 +54,9 @@ func runLS(w io.Writer) error {
 		return a.PID < b.PID
 	})
 	for _, s := range ss {
-		fmt.Fprintf(w, "%d\t%s\t%s\n", s.PID, s.Dir, s.Name)
+		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\n", s.PID, s.Dir, s.Name); err != nil {
+			return err
+		}
 	}
 	return nil
 }

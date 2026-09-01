@@ -262,7 +262,7 @@ func TestTheRunsPortsAreTheRowsPorts(t *testing.T) {
 	if err := c.Start(); err != nil {
 		t.Skip(err)
 	}
-	defer c.Process.Kill()
+	defer func() { _ = c.Process.Kill() }()
 	time.Sleep(1500 * time.Millisecond)
 
 	// The row is named for something above the listener, as a folded run is.

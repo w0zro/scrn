@@ -1478,12 +1478,12 @@ func TestTheMarkersStopWhenNothingIsWorking(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{700: {PID: 700, Status: busyStatus}})
 	m.spinning = true
 
-	next, cmd := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
 		700: {PID: 700, Status: "idle"},
 	})})
 	m = next.(model)
 
-	next, cmd = m.Update(spinMsg{})
+	next, cmd := m.Update(spinMsg{})
 	if cmd != nil {
 		t.Error("the frame chain should stop once nothing is working")
 	}

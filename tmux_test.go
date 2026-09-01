@@ -108,7 +108,7 @@ func tmuxOnSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("SCRN_SOCKET", filepath.Join(dir, "t.sock"))
 	t.Cleanup(func() { _, _ = tmuxCommand("kill-server") })
 }

@@ -103,7 +103,7 @@ func TestCapitalsReachTheShell(t *testing.T) {
 		m = next.(model)
 	}
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = pump(t, next.(model), paneHas("BIG"), 10*time.Second)
+	pump(t, next.(model), paneHas("BIG"), 10*time.Second)
 }
 
 func TestCtrlOIsSentOnToTheShell(t *testing.T) {
