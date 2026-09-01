@@ -186,3 +186,32 @@ func TestTheServerLearnsTheTerminalsColors(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func TestAProgramsCopyReachesTheSystemClipboard(t *testing.T) {
+	// OSC 52 from inside a pane: the server catches it into a buffer, the
+	// session carries the bytes to the clipboard, and the buffer goes.
+	copied := make(chan string, 1)
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied <- text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := openShellIn(t, repoModel(), "/tmp")
+	// aGVsbG8tY29waWVk = "hello-copied"
+	m = send(m, `printf '\033]52;c;aGVsbG8tY29waWVk\a'`)
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case got := <-copied:
+			if got != "hello-copied" {
+				t.Fatalf("clipboard got %q, want the program's copy", got)
+			}
+			return
+		case ev := <-m.daemon.events:
+			next, _ := m.Update(ev)
+			m = next.(model)
+		case <-deadline:
+			t.Fatal("the copy never reached the clipboard")
+		}
+	}
+}

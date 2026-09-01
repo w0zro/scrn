@@ -183,7 +183,13 @@ it, and a click on a preview steps into its shell, the way clicking an
 unfocused window focuses it.
 Because scrn takes the mouse, the terminal's own selection wants shift
 held while dragging; copying with the keyboard needs no shift at all —
-see the reader below.
+see the reader below. A program that copies for itself \(em vim's
+clipboard yank, anything speaking OSC 52 \(em reaches the system
+clipboard the way it would with no scrn in the middle.
+.PP
+The mouse works in the navigator too: a click puts the cursor on a
+row, the pane previews it, a click on the preview steps in, and the
+wheel walks the list.
 .PP
 Scroll up to read what has scrolled away, or
 .B ctrl\-space v

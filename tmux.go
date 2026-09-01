@@ -77,9 +77,10 @@ var errNoServer = errors.New("no server is running")
 // ctlNote is one thing the control-mode stream said, reduced to what the bridge
 // acts on.
 type ctlNote struct {
-	kind noteKind
-	pane string // "%1", for output
-	err  string // what an %error block said
+	kind   noteKind
+	pane   string // "%1", for output
+	buffer string // for a paste buffer changing: which one
+	err    string // what an %error block said
 }
 
 type noteKind int
@@ -90,6 +91,7 @@ const (
 	noteWindows                 // the set of windows changed
 	noteError                   // a command was refused
 	noteExit                    // the server hung up this client
+	notePaste                   // a paste buffer changed: a program copied
 )
 
 // parseNote reads one control-mode line. The data of an %output is not kept:
@@ -107,6 +109,11 @@ func parseNote(line string) ctlNote {
 		// Either way the set of windows is not what it was. Which windows
 		// remain is asked of tmux rather than tracked by arithmetic.
 		return ctlNote{kind: noteWindows}
+	case strings.HasPrefix(line, "%paste-buffer-changed "):
+		// With set-clipboard on, a program's OSC 52 lands in a buffer and
+		// this says so — the hop through which a copy inside a pane reaches
+		// the system clipboard outside.
+		return ctlNote{kind: notePaste, buffer: strings.TrimPrefix(line, "%paste-buffer-changed ")}
 	case strings.HasPrefix(line, "%error"):
 		return ctlNote{kind: noteError}
 	case line == "%exit" || strings.HasPrefix(line, "%exit "):

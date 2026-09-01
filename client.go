@@ -287,8 +287,11 @@ func (s *session) ensureCtl() {
 		ctl.say("refresh-client -C " + strconv.Itoa(w) + "x" + strconv.Itoa(h))
 	}
 	// The server this window found may be another window's; it answers for
-	// the terminal's colors either way, so it is told what this one sees.
+	// the terminal's colors either way, so it is told what this one sees —
+	// and a program's OSC 52 must land in a buffer wherever the server
+	// came from, so the clipboard option is said again, idempotently.
 	s.applyTheme()
+	go func() { _, _ = s.run("set", "-g", "set-clipboard", "on") }()
 }
 
 // theme records the real terminal's colors and carries them to the server.
@@ -350,6 +353,14 @@ func (s *session) notify(n ctlNote) {
 		}
 	case noteWindows:
 		go s.refreshList()
+	case notePaste:
+		// A program inside a pane copied — OSC 52, caught by the server —
+		// and the copy belongs on the system clipboard, the same place it
+		// would have landed with no scrn in the middle. scrn's own paste
+		// buffer is the one changing that means nothing of the sort.
+		if n.buffer != "scrn-paste" {
+			go s.carryCopy(n.buffer)
+		}
 	case noteError:
 		s.events <- daemonErrorMsg{err: errors.New(n.err)}
 	case noteExit:
@@ -615,7 +626,8 @@ func (s *session) open(dir, run, name string, w, h int) {
 			// colors before the first program asks what color it is.
 			args = []string{"start-server", ";",
 				"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
-				"set", "-g", "window-size", "smallest", ";"}
+				"set", "-g", "window-size", "smallest", ";",
+				"set", "-g", "set-clipboard", "on", ";"}
 			if style := s.themeStyle(); style != "" {
 				args = append(args, "set", "-g", "window-style", style, ";")
 			}
@@ -829,6 +841,30 @@ func (s *session) replace() {
 		return
 	}
 	go func() { _, _ = s.run("kill-server") }()
+}
+
+// carryCopy moves one buffer's bytes to the system clipboard and lets the
+// buffer go. Through a file rather than a command's stdout, so the copy
+// crosses byte-exact — a trailing newline included.
+func (s *session) carryCopy(buffer string) {
+	f, err := os.CreateTemp("", "scrn-clip-")
+	if err != nil {
+		return
+	}
+	path := f.Name()
+	f.Close()
+	defer os.Remove(path)
+
+	if _, err := s.run("save-buffer", "-b", buffer, path); err != nil {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return
+	}
+	if writeClipboard(string(b)) == nil {
+		_, _ = s.run("delete-buffer", "-b", buffer)
+	}
 }
 
 func (s *session) pane(pid int) *pane {
