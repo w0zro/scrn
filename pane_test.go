@@ -593,57 +593,22 @@ func watchingTail(t *testing.T) model {
 	return m
 }
 
-// readingBack is watchingTail with the wheel turned and the transcript
-// arrived: h-1 oldest through h-40 newest, three lines up.
+// readingBack is watchingTail with the reader opened through its one door —
+// the chord — and the transcript arrived: h-1 oldest through h-40 newest,
+// the cursor at the live tail.
 func readingBack(t *testing.T) model {
 	t.Helper()
-	m := watchingTail(t)
-	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
-	m = next.(model)
+	m := chord(watchingTail(t), "v")
 	if m.scroll == nil {
-		t.Fatal("a wheel up at the prompt should start reading back")
+		t.Fatal("the chord should have opened the reader")
 	}
 
 	hist := make([]string, 40)
 	for i := range hist {
 		hist[i] = "h-" + strconv.Itoa(i+1)
 	}
-	next, _ = m.Update(historyMsg{pid: 700, history: strings.Join(hist, "\n")})
+	next, _ := m.Update(historyMsg{pid: 700, history: strings.Join(hist, "\n")})
 	return next.(model)
-}
-
-func TestAWheelOnTheAlternateScreenBecomesArrows(t *testing.T) {
-	// How less and man scroll: the program never asked for the mouse, the
-	// alternate screen has no transcript, so a notch is three arrow presses.
-	m := watchingTail(t)
-	m.terms[700].alt = true
-	m, asked := pipeDaemon(t, m)
-
-	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
-	if next.(model).scroll != nil {
-		t.Fatal("the alternate screen has no transcript above it to read")
-	}
-	for i := 0; i < wheelArrowCount; i++ {
-		got := askedFor(t, asked)
-		if got.Kind != kindInput || !strings.Contains(got.Run, "Up") {
-			t.Fatalf("ask %d = %+v, want an Up arrow", i, got)
-		}
-	}
-}
-
-func TestAWheelStaysAWheelWhenTheProgramAskedForIt(t *testing.T) {
-	// A program listening for the mouse gets the wheel as the SGR bytes it
-	// asked to be told about, not as arrows.
-	m := watchingTail(t)
-	m.terms[700].mouse = true
-	m, asked := pipeDaemon(t, m)
-
-	m.Update(wheelMsg(tea.MouseWheelUp))
-	got := askedFor(t, asked)
-	// ESC [ < is 1b 5b 3c: the SGR mouse prelude, sent as hex.
-	if got.Kind != kindInput || !strings.Contains(got.Run, "-H 1b 5b 3c") {
-		t.Fatalf("ask = %+v, want the wheel as SGR bytes", got)
-	}
 }
 
 func TestCtrlROnAProjectThatNeedsNothingSaysSo(t *testing.T) {
@@ -697,21 +662,6 @@ func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
 	}
 }
 
-func TestAWheelUpAtThePromptReadsTheTranscript(t *testing.T) {
-	m := readingBack(t)
-
-	if m.scroll == nil || m.scroll.above != wheelLines {
-		t.Fatalf("scroll = %+v, want the reader a notch up", m.scroll)
-	}
-	pane := paneText(m)
-	if !strings.Contains(pane, "h-40") {
-		t.Errorf("pane should show the transcript above the screen:\n%s", pane)
-	}
-	if strings.Contains(pane, "live-tail-marker") {
-		t.Errorf("the live tail should be below the viewport:\n%s", pane)
-	}
-}
-
 func TestTheMotionsMoveTheReading(t *testing.T) {
 	m := readingBack(t)
 	was := m.scroll.cur
@@ -732,20 +682,6 @@ func TestTheMotionsMoveTheReading(t *testing.T) {
 	m = press(m, "G")
 	if m.scroll == nil || m.scroll.cur != len(m.scroll.doc)-1 {
 		t.Error("G should reach the last line with the reading kept; leaving is q's and esc's word")
-	}
-}
-
-func TestRollingPastTheBottomReturnsToLive(t *testing.T) {
-	m := readingBack(t)
-
-	next, _ := m.Update(wheelMsg(tea.MouseWheelDown))
-	m = next.(model)
-
-	if m.scroll != nil {
-		t.Fatal("rolling past the tail should return to the live pane")
-	}
-	if !strings.Contains(paneText(m), "live-tail-marker") {
-		t.Errorf("the pane should be live again:\n%s", paneText(m))
 	}
 }
 
@@ -924,49 +860,6 @@ func previewedShell(t *testing.T) model {
 	return m
 }
 
-func TestAPreviewsWheelReadsItsTranscript(t *testing.T) {
-	// Scrolling is looking, and a preview is exactly the pane being looked
-	// at: the wheel reads back without stepping in.
-	m := previewedShell(t)
-	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
-	m = next.(model)
-	if m.scroll == nil || m.scroll.pid != 700 {
-		t.Fatalf("scroll = %+v, want the preview's transcript being read", m.scroll)
-	}
-	if m.focus != 0 {
-		t.Error("the wheel should not have stepped into the shell")
-	}
-}
-
-func TestAPreviewsWheelReachesAProgramThatAskedForIt(t *testing.T) {
-	m := previewedShell(t)
-	m.terms[700].mouse = true
-	m, asked := pipeDaemon(t, m)
-
-	m.Update(wheelMsg(tea.MouseWheelUp))
-	got := askedFor(t, asked)
-	if got.Kind != kindInput || !strings.Contains(got.Run, "-H 1b 5b 3c") {
-		t.Fatalf("ask = %+v, want the wheel as SGR bytes to the previewed pane", got)
-	}
-}
-
-func TestClickingAPreviewStepsIn(t *testing.T) {
-	// A press is more than looking: like clicking an unfocused window, it
-	// focuses what was clicked.
-	m := previewedShell(t)
-	m, _ = pipeDaemon(t, m)
-
-	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 5, Y: 3, Button: tea.MouseLeft})
-	m = next.(model)
-	if m.focus != 0 {
-		t.Fatal("a press alone decides nothing; the click lands on release")
-	}
-	next, _ = m.Update(tea.MouseReleaseMsg{X: navWidth + 5, Y: 3, Button: tea.MouseLeft})
-	if got := next.(model).focus; got != 700 {
-		t.Errorf("focus = %d, want the click to step into the shell", got)
-	}
-}
-
 func TestPrefixVOpensTheReaderEvenOnTheAlternateScreen(t *testing.T) {
 	// The wheel cannot start reading over a pager, but the chord can: the
 	// pager's screen is the document, which is exactly what a selection
@@ -1119,156 +1012,40 @@ func TestAClickPastTheListSelectsNothing(t *testing.T) {
 	}
 }
 
-// sweep drags the left button from one pane cell to another and releases.
-func sweep(m model, sx, sy, ex, ey int) (model, tea.Cmd) {
-	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 1 + sx, Y: sy, Button: tea.MouseLeft})
-	next, _ = next.(model).Update(tea.MouseMotionMsg{X: navWidth + 1 + ex, Y: ey, Button: tea.MouseLeft})
-	next, cmd := next.(model).Update(tea.MouseReleaseMsg{X: navWidth + 1 + ex, Y: ey, Button: tea.MouseLeft})
-	return next.(model), cmd
-}
-
-func TestASweepAcrossThePaneCopiesWhatItCovered(t *testing.T) {
-	copied := ""
-	old := writeClipboard
-	writeClipboard = func(text string) error { copied = text; return nil }
-	t.Cleanup(func() { writeClipboard = old })
-
-	m := previewedShell(t)
-	rows := strings.Split(m.terms[700].screen, "\n")
-	rows[2], rows[3] = "alpha beta gamma", "delta epsilon"
-	m.terms[700].screen = strings.Join(rows, "\n")
-	m, _ = pipeDaemon(t, m)
-	m.setFocus(700) // focused, like reading a git log that just printed
-
-	m, cmd := sweep(m, 0, 2, 4, 3)
-	if cmd == nil {
-		t.Fatal("release should have carried the sweep to the clipboard")
-	}
-	next, _ := m.Update(cmd())
-	m = next.(model)
-
-	if !strings.Contains(copied, "alpha beta gamma") || !strings.Contains(copied, "delta") {
-		t.Fatalf("copied = %q, want the swept lines", copied)
-	}
-	if strings.Contains(copied, "epsilon") {
-		t.Errorf("copied = %q, want the last line cut at the sweep's end", copied)
-	}
-	if !strings.Contains(footer(m), "copied 2 lines") {
-		t.Errorf("footer = %q, want the copy reported", footer(m))
-	}
-	if m.focus != 700 {
-		t.Error("a sweep is a copy, not a step anywhere")
-	}
-}
-
 func TestAListeningProgramGetsTheMouseRaw(t *testing.T) {
-	// The terminal's own convention: a program that asked for the mouse
-	// gets every event as it happens — press, drag, release — with nothing
-	// deferred and nothing interpreted. scrn's gestures step aside.
+	// The one reason scrn holds the mouse at all: the focused program
+	// asked for it. Every event crosses as it happens — press, drag,
+	// release — with nothing deferred and nothing interpreted.
 	m := previewedShell(t)
 	m, asked := pipeDaemon(t, m)
 	m.setFocus(700)
 	m.terms[700].mouse = true
 
-	m, cmd := sweep(m, 2, 2, 8, 3) // a drag: vim's visual, not scrn's copy
-	if cmd != nil {
-		t.Fatal("a drag over a listening program must not become a copy")
+	if m.mouseMode() != tea.MouseModeCellMotion {
+		t.Fatal("a listening program should have scrn holding the mouse")
 	}
+	x, y := navWidth+1+2, 2
+	next, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseMotionMsg{X: x + 4, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: x + 4, Y: y, Button: tea.MouseLeft})
+	_ = next
 	for i := 0; i < 3; i++ {
 		if got := askedFor(t, asked); got.Kind != kindInput {
 			t.Fatalf("ask %d = %+v, want the event forwarded raw", i, got)
 		}
 	}
-	if m.drag != nil {
-		t.Error("no sweep should arm while the program owns the mouse")
-	}
 }
 
-func TestASweepUpstreamCopiesInReadingOrder(t *testing.T) {
-	copied := ""
-	old := writeClipboard
-	writeClipboard = func(text string) error { copied = text; return nil }
-	t.Cleanup(func() { writeClipboard = old })
-
+func TestTheMouseIsTheTerminalsWhenNobodyListens(t *testing.T) {
+	// Tracking is all-or-nothing for the window, and holding it costs the
+	// terminal's own selection. With nothing asking for the mouse, scrn
+	// lets go, and drag, double-click and copy are native again.
 	m := previewedShell(t)
-	rows := strings.Split(m.terms[700].screen, "\n")
-	rows[2], rows[3] = "first line", "second line"
-	m.terms[700].screen = strings.Join(rows, "\n")
-	m, _ = pipeDaemon(t, m)
-	m.setFocus(700)
-
-	// Dragged bottom-up: the copy still reads top-down.
-	m, cmd := sweep(m, 5, 3, 0, 2)
-	next, _ := m.Update(cmd())
-	_ = next
-	if !strings.HasPrefix(copied, "first line") {
-		t.Fatalf("copied = %q, want reading order whatever the drag's direction", copied)
+	if m.mouseMode() != tea.MouseModeNone {
+		t.Error("unfocused, the mouse belongs to the terminal")
 	}
-}
-
-func TestADoubleClickCopiesTheWordUnderIt(t *testing.T) {
-	copied := ""
-	old := writeClipboard
-	writeClipboard = func(text string) error { copied = text; return nil }
-	t.Cleanup(func() { writeClipboard = old })
-
-	m := previewedShell(t)
-	rows := strings.Split(m.terms[700].screen, "\n")
-	rows[2] = "commit deadbeef1234 (HEAD)"
-	m.terms[700].screen = strings.Join(rows, "\n")
-	m, _ = pipeDaemon(t, m)
-	m.setFocus(700)
-
-	// Two presses on the same cell, inside the double-click window.
-	click := tea.MouseClickMsg{X: navWidth + 1 + 10, Y: 2, Button: tea.MouseLeft}
-	next, _ := m.Update(click)
-	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: click.X, Y: click.Y, Button: tea.MouseLeft})
-	next, cmd := next.(model).Update(click)
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("the second press should have copied the word")
-	}
-	next, _ = m.Update(cmd())
-	m = next.(model)
-
-	if copied != "deadbeef1234" {
-		t.Fatalf("copied = %q, want the word under the pointer", copied)
-	}
-	if !strings.Contains(footer(m), "copied deadbeef1234") {
-		t.Errorf("footer = %q, want the word reported", footer(m))
-	}
-}
-
-func TestTwoClicksOnDifferentCellsAreJustClicks(t *testing.T) {
-	m := previewedShell(t)
-	m, _ = pipeDaemon(t, m)
-	m.setFocus(700)
-
-	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 3, Y: 2, Button: tea.MouseLeft})
-	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: navWidth + 3, Y: 2, Button: tea.MouseLeft})
-	next, cmd := next.(model).Update(tea.MouseClickMsg{X: navWidth + 9, Y: 3, Button: tea.MouseLeft})
-	if cmd != nil {
-		t.Fatal("a click somewhere else is not a double")
-	}
-	if next.(model).drag == nil {
-		t.Error("the second press should have armed an ordinary sweep")
-	}
-}
-
-func TestWordAtReadsTheGlass(t *testing.T) {
-	lines := []string{"", "", "  go run ./cmd/api --port=8080"}
-	cases := []struct {
-		x    int
-		want string
-	}{
-		{3, "go"},
-		{9, "./cmd/api"},
-		{22, "--port"},
-		{1, ""}, // a blank cell holds no word
-	}
-	for _, c := range cases {
-		if got := wordAt(lines, c.x, 2); got != c.want {
-			t.Errorf("wordAt(%d) = %q, want %q", c.x, got, c.want)
-		}
+	m.setFocus(700) // a shell at a prompt asks for nothing
+	if m.mouseMode() != tea.MouseModeNone {
+		t.Error("a quiet shell focused, the mouse still belongs to the terminal")
 	}
 }

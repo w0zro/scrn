@@ -44,10 +44,24 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = m.mouseMode()
 	v.WindowTitle = m.windowTitle
 	v.ProgressBar = m.progressBar()
 	return v
+}
+
+// mouseMode is whether scrn asks the terminal for the mouse at all — and
+// mostly it does not. Tracking is all-or-nothing for the whole window, and
+// holding it costs the terminal's own selection: the drag, the double-click,
+// the copy-on-select, the links. So scrn holds the mouse only while the
+// focused program asked for it — vim, htop — and forwards every event raw;
+// the rest of the time the mouse is the terminal's, native everywhere, and
+// the wheel still moves things as the terminal's alternate scroll arrows.
+func (m model) mouseMode() tea.MouseMode {
+	if t := m.focused(); t != nil && t.mouse {
+		return tea.MouseModeCellMotion
+	}
+	return tea.MouseModeNone
 }
 
 // progressBar is the attached process's progress, restated for the window.
@@ -99,7 +113,6 @@ func (m model) layout() string {
 		right := m.paneLines(m.detailWidth(), rows)
 		divider := ruleStyle.Render(glyphDivider)
 
-		right = m.dragOverlay(right, m.detailWidth())
 		lines = make([]string, 0, rows)
 		for i := 0; i < rows; i++ {
 			// The pane's rows are somebody else's styling, captured as it
@@ -806,104 +819,6 @@ func scrollWindow(s *scrollView, width, rows int) []string {
 		out = append(out, line)
 	}
 	return out
-}
-
-// normDrag orders a sweep's two ends into reading order.
-func normDrag(sx, sy, ex, ey int) (int, int, int, int) {
-	if sy > ey || (sy == ey && sx > ex) {
-		return ex, ey, sx, sy
-	}
-	return sx, sy, ex, ey
-}
-
-// dragSpan is the columns a sweep covers on one row: from its start on the
-// first row, to its end on the last, the whole width between.
-func dragSpan(y, sx, sy, ex, ey, width int) (int, int) {
-	a, b := 0, width
-	if y == sy {
-		a = sx
-	}
-	if y == ey {
-		b = min(ex+1, width)
-	}
-	return a, b
-}
-
-// dragOverlay wears the sweep on the pane: the covered cells reversed,
-// styling put aside — they are on their way to the clipboard, and the
-// clipboard gets text.
-func (m model) dragOverlay(lines []string, width int) []string {
-	d := m.drag
-	if d == nil || !d.moved {
-		return lines
-	}
-	sx, sy, ex, ey := normDrag(d.sx, d.sy, d.x, d.y)
-	for y := sy; y <= ey && y < len(lines); y++ {
-		if y < 0 {
-			continue
-		}
-		a, b := dragSpan(y, sx, sy, ex, ey, width)
-		row := pad(lines[y], width)
-		lines[y] = ansi.Cut(row, 0, a) +
-			cursorStyle.Render(ansi.Strip(ansi.Cut(row, a, b))) +
-			ansi.Cut(row, b, width)
-	}
-	return lines
-}
-
-// dragText is the pane text a sweep covered, as the glass showed it: plain
-// text, each row's tail of padding trimmed, rows joined by newlines.
-func dragText(lines []string, width, sx, sy, ex, ey int) (string, int) {
-	sx, sy, ex, ey = normDrag(sx, sy, ex, ey)
-	var out []string
-	for y := max(sy, 0); y <= ey && y < len(lines); y++ {
-		a, b := dragSpan(y, sx, sy, ex, ey, width)
-		row := pad(lines[y], width)
-		out = append(out, strings.TrimRight(ansi.Strip(ansi.Cut(row, a, b)), " "))
-	}
-	return strings.Join(out, "\n"), len(out)
-}
-
-// wordChars are what a double-click's word is made of, beyond letters and
-// digits: the joiners that hold identifiers, paths, flags and versions
-// together — the things a terminal gets double-clicked for.
-func wordChar(r rune) bool {
-	if r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r > 127 {
-		return true
-	}
-	return strings.ContainsRune("_-./~+@", r)
-}
-
-// wordAt is the word under a pane cell, read off the glass. Columns are
-// walked by their drawn width, so a wide character earlier in the row does
-// not shift the word under the pointer.
-func wordAt(lines []string, x, y int) string {
-	if y < 0 || y >= len(lines) {
-		return ""
-	}
-	runes := []rune(ansi.Strip(lines[y]))
-
-	// The rune the clicked column lands in.
-	at, col := -1, 0
-	for i, r := range runes {
-		w := lipgloss.Width(string(r))
-		if x >= col && x < col+w {
-			at = i
-			break
-		}
-		col += w
-	}
-	if at < 0 || !wordChar(runes[at]) {
-		return ""
-	}
-	lo, hi := at, at
-	for lo > 0 && wordChar(runes[lo-1]) {
-		lo--
-	}
-	for hi < len(runes)-1 && wordChar(runes[hi+1]) {
-		hi++
-	}
-	return string(runes[lo : hi+1])
 }
 
 // withCursor marks the cell the shell's cursor is on. The line already carries

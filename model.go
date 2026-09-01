@@ -208,16 +208,6 @@ type model struct {
 	// nil while the pane is live.
 	scroll *scrollView
 
-	// drag is a selection being swept across the pane with the mouse held,
-	// and nil otherwise. It selects what the glass shows — whatever the
-	// pane is drawing — and release carries it to the clipboard.
-	drag *paneDrag
-
-	// lastClick is where and when the pane was last pressed, for telling a
-	// double-click — which copies the word under it — from two clicks that
-	// merely happened.
-	lastClick paneClick
-
 	// resume is the picker over a place's suspended conversations, and nil
 	// while it is closed. Open, it has the pane and the keys.
 	resume *resumeView
@@ -414,10 +404,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
 		// A transcript being read was cut to a pane that no longer exists.
-		// Nothing rewraps; the reading ends and can be begun again. A sweep
-		// mid-flight loses its geometry the same way.
+		// Nothing rewraps; the reading ends and can be begun again.
 		m.scroll = nil
-		m.drag = nil
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
 		for pid := range m.terms {
@@ -557,32 +545,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The screen is frozen into it on purpose: output only appends, so a
 		// snapshot is a true prefix of the live transcript — never wrong,
 		// merely not growing — and it holds still under the reader.
-		hadDoc := s.doc != nil
 		s.doc = strings.Split(t.screen, "\n")
 		if msg.history != "" {
+			// The document grew a prefix; the cursor and the mark keep
+			// their lines by shifting with it.
 			grown := strings.Split(msg.history, "\n")
 			s.doc = append(grown, s.doc...)
-			if hadDoc {
-				// The document grew a prefix; the cursor and the mark keep
-				// their lines by shifting with it.
-				s.cur += len(grown)
-				if s.anchor >= 0 {
-					s.anchor += len(grown)
-				}
+			s.cur += len(grown)
+			if s.anchor >= 0 {
+				s.anchor += len(grown)
 			}
-		}
-		if !hadDoc {
-			// The wheel's way in: the cursor lands with the transcript, on
-			// the bottom visible line.
-			s.cur = max(len(s.doc)-1-s.above, 0)
 		}
 		if max := m.scrollMax(); s.above > max {
 			s.above = max
 		}
 		m.clampCur()
-		if s.above <= 0 && s.anchor < 0 {
-			m.scroll = nil // nothing above after all
-		}
 		return m, nextEvent(m.daemon)
 
 	case termGoneMsg:
@@ -628,12 +605,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.details[msg.key] = msg.fields
 
 	case copiedMsg:
-		switch {
-		case msg.err != nil:
+		if msg.err != nil {
 			m.status, m.statusErr = "could not copy: "+msg.err.Error(), true
-		case msg.what != "":
-			m.status, m.statusErr = "copied "+truncateRunes(msg.what, 40), false
-		default:
+		} else {
 			m.status, m.statusErr = "copied "+plural(msg.n, "line", "lines"), false
 		}
 
@@ -748,9 +722,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// The mouse belongs to whatever the pane is showing — the focused
-		// shell, a preview, the reader, the details. Every process gets its
-		// wheel, not just the one being typed into.
+		// The pane's mouse arrives only while scrn is holding the mouse at
+		// all, which it does for one reason: the focused program asked for
+		// it. Every event crosses raw — press, drag, release, wheel — the
+		// terminal's own convention. The one thing kept back is the wheel
+		// while the reader is open, because the reader is scrn's.
 		if !m.showDetail() {
 			return m, nil
 		}
@@ -758,102 +734,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ev == nil {
 			return m, nil
 		}
-		t := m.paneTerm()
-
-		// The wheels first: a wheel never sweeps.
-		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
-			// While the transcript is being read the wheel moves it, and
-			// nothing reaches the shell.
-			if m.scroll != nil {
-				m.scrollBy(wheelDelta(msg))
-				return m, nil
+		if m.scroll != nil {
+			if delta := wheelDelta(msg); delta != 0 {
+				m.scrollBy(delta)
 			}
-			if t == nil {
-				return m, nil
-			}
-			// A wheel turned up over a pane whose program is not listening
-			// for the mouse starts reading the transcript — on the primary
-			// screen, which is the one a transcript is above.
-			if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
-				m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg), anchor: -1}
-				m.daemon.history(t.pid)
-				return m, nil
-			}
-			// Over the alternate screen the wheel becomes the arrow keys it
-			// would have meant — how less and man scroll under any terminal
-			// that implements alternate scroll, and here scrn is the
-			// terminal.
-			if key, ok := wheelAsArrow(msg); ok && !t.mouse && t.alt {
-				for range wheelArrowCount {
-					m.daemon.key(t.pid, &keyPress{Code: key})
-				}
-				return m, nil
-			}
-			m.daemon.mouse(t.pid, ev)
 			return m, nil
 		}
-
-		// A focused program that asked for the mouse gets every event raw
-		// and immediate — press, drag, release — the terminal's own
-		// convention, with nothing deferred and nothing interpreted. scrn's
-		// gestures live only where nobody is listening, which is where they
-		// cost nothing.
-		if m.scroll == nil && t != nil && m.focused() == t && t.mouse {
+		if t := m.focused(); t != nil && t.mouse {
 			m.daemon.mouse(t.pid, ev)
-			return m, nil
-		}
-
-		// Nobody is listening, so the left button is scrn's: press arms,
-		// motion extends, and what the glass shows under the sweep is on
-		// the clipboard at release — the way dragging copies in a terminal
-		// with nothing in the middle. A press that never moved is still a
-		// click: on a preview it steps in, the way clicking an unfocused
-		// window focuses it.
-		if ev.Button == int(tea.MouseLeft) || (ev.Button == int(tea.MouseNone) && m.drag != nil) {
-			switch ev.Action {
-			case actPress:
-				// The same cell pressed twice in a beat is a double-click:
-				// the word under it goes to the clipboard.
-				if ev.X == m.lastClick.x && ev.Y == m.lastClick.y &&
-					time.Since(m.lastClick.at) < doubleClickWithin {
-					m.lastClick = paneClick{}
-					word := wordAt(m.paneLines(m.detailWidth(), m.paneHeight()), ev.X, ev.Y)
-					if word == "" {
-						return m, nil
-					}
-					return m, func() tea.Msg {
-						return copiedMsg{what: word, err: writeClipboard(word)}
-					}
-				}
-				m.lastClick = paneClick{x: ev.X, y: ev.Y, at: time.Now()}
-				m.drag = &paneDrag{sx: ev.X, sy: ev.Y, x: ev.X, y: ev.Y}
-				return m, nil
-			case actMotion:
-				if m.drag != nil {
-					m.drag.x, m.drag.y = ev.X, ev.Y
-					// Only motion that went somewhere makes a sweep: a
-					// wobble inside the pressed cell is still a click.
-					if ev.X != m.drag.sx || ev.Y != m.drag.sy {
-						m.drag.moved = true
-					}
-				}
-				return m, nil
-			case actRelease:
-				d := m.drag
-				if d == nil {
-					return m, nil
-				}
-				m.drag = nil
-				if d.moved {
-					text, n := dragText(m.paneLines(m.detailWidth(), m.paneHeight()),
-						m.detailWidth(), d.sx, d.sy, ev.X, ev.Y)
-					return m, func() tea.Msg { return copiedMsg{n: n, err: writeClipboard(text)} }
-				}
-				if m.scroll == nil && t != nil && m.focused() != t {
-					m.attachTo(t)
-				}
-				return m, nil
-			}
 		}
 		return m, nil
 
@@ -2036,24 +1924,6 @@ func (m model) paneHeight() int {
 		return m.height
 	}
 	return 1
-}
-
-// paneClick is one press, remembered long enough to recognize its double.
-type paneClick struct {
-	x, y int
-	at   time.Time
-}
-
-// doubleClickWithin is how close together two presses on one cell have to
-// land to be a double-click.
-const doubleClickWithin = 400 * time.Millisecond
-
-// paneDrag is the sweep: where the button went down, where it is now, and
-// whether it has moved at all — a motionless press is still a click.
-type paneDrag struct {
-	sx, sy int
-	x, y   int
-	moved  bool
 }
 
 // scrollView is a pane's transcript being read rather than followed: the

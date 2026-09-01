@@ -73,9 +73,8 @@ func pasteFromClipboard() tea.Cmd {
 // copiedMsg reports a yank: how many lines went to the clipboard, or why
 // they did not.
 type copiedMsg struct {
-	n    int
-	what string // a word, when the copy was one; the count speaks otherwise
-	err  error
+	n   int
+	err error
 }
 
 // writeClipboard puts text on the system clipboard, by the tool the platform
@@ -91,27 +90,6 @@ var writeClipboard = func(text string) error {
 		return cmd.Run()
 	}
 	return errors.New("no clipboard tool: pbcopy, wl-copy or xclip")
-}
-
-// wheelArrowCount is how many arrow presses one wheel notch stands for, which
-// is the count xterm's alternate scroll settled on.
-const wheelArrowCount = 3
-
-// wheelAsArrow is the arrow key a vertical wheel turn stands for, when it is
-// to be translated rather than reported: over the alternate screen, with the
-// program not listening for the mouse, a wheel is how less and man scroll.
-func wheelAsArrow(msg tea.MouseMsg) (rune, bool) {
-	wheel, ok := msg.(tea.MouseWheelMsg)
-	if !ok {
-		return 0, false
-	}
-	switch wheel.Button {
-	case tea.MouseWheelUp:
-		return tea.KeyUp, true
-	case tea.MouseWheelDown:
-		return tea.KeyDown, true
-	}
-	return 0, false
 }
 
 // mouseEvent turns a mouse event into one in the pane's own coordinates, or
