@@ -13,10 +13,9 @@ checksums, and puts it in `~/.local/bin`, with the manpage beside it —
 `man scrn` is the reference. `SCRN_INSTALL_DIR` says where else to
 put it and `SCRN_VERSION` names a release other than the latest.
 
-Builds are published for macOS and Linux, on both arm64 and amd64. The Linux
-ones are cross-compiled and untested. scrn needs two neighbors installed:
-`tmux`, whose server holds the shells, and `lsof`, which is how the process
-list is read.
+Builds are published for macOS and Linux, on both arm64 and amd64, and the
+test suite runs on both. scrn needs two neighbors installed: `tmux`, whose
+server holds the shells, and `lsof`, which is how the process list is read.
 
 ## Build it yourself
 
