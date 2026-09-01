@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os/exec"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -28,6 +30,42 @@ func keyEvent(msg tea.KeyPressMsg) *keyPress {
 // terminal sends it as NUL, which ultraviolet reads back as the key it was.
 func isPrefix(msg tea.KeyPressMsg) bool {
 	return msg.Code == tea.KeySpace && msg.Mod == tea.ModCtrl
+}
+
+// isPasteChord reports whether a keystroke is cmd+v handed through to scrn
+// rather than translated by the terminal. Most terminals paste on cmd+v
+// themselves and scrn never sees it; one that forwards the chord — kitty
+// protocol, super modifier — deserves the paste it meant, not a typed v.
+func isPasteChord(msg tea.KeyPressMsg) bool {
+	return msg.Code == 'v' && msg.Mod == tea.ModSuper
+}
+
+// readClipboard is what cmd+v pastes when the chord reaches scrn: the system
+// clipboard, by the tool the platform provides. A seam for the tests.
+var readClipboard = func() string {
+	tools := [][]string{{"pbpaste"}, {"wl-paste", "--no-newline"}, {"xclip", "-o", "-selection", "clipboard"}}
+	for _, tool := range tools {
+		if _, err := exec.LookPath(tool[0]); err != nil {
+			continue
+		}
+		out, err := listing(scanTimeout, tool[0], tool[1:]...)
+		if err == nil {
+			return string(out)
+		}
+	}
+	return ""
+}
+
+// pasteFromClipboard reads the clipboard off the render path and restates it
+// as the paste it was meant to be, which lands wherever typing goes.
+func pasteFromClipboard() tea.Cmd {
+	return func() tea.Msg {
+		text := readClipboard()
+		if text == "" {
+			return nil
+		}
+		return tea.PasteMsg{Content: text}
+	}
 }
 
 // wheelArrowCount is how many arrow presses one wheel notch stands for, which

@@ -839,6 +839,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// cmd+v handed through by the terminal is the paste it meant. It is
+		// restated as one — the clipboard read off the render path — and the
+		// paste lands wherever typing goes, exactly as a translated cmd+v
+		// would have.
+		if isPasteChord(msg) {
+			return m, pasteFromClipboard()
+		}
+
 		// The resume picker takes every key while it is open: it is a look
 		// through what could be continued, and its keys are the filter's.
 		if m.resume != nil {

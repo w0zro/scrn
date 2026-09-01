@@ -61,3 +61,26 @@ func TestThePrefixIsCtrlSpace(t *testing.T) {
 		t.Error("a bare space is not the prefix")
 	}
 }
+
+func TestASuperChordDoesNotTypeItsLetter(t *testing.T) {
+	// cmd+v handed through by the terminal once fell to the bare letter and
+	// typed a v. A super chord is a command, whatever its letter.
+	if lines := tmuxKeyLines("%1", &keyPress{Code: 'v', Mod: int(tea.ModSuper)}); lines != nil {
+		t.Errorf("lines = %q, want a super chord to type nothing", lines)
+	}
+	if lines := tmuxKeyLines("%1", &keyPress{Code: 'w', Mod: int(tea.ModHyper)}); lines != nil {
+		t.Errorf("lines = %q, want a hyper chord to type nothing", lines)
+	}
+}
+
+func TestCmdVIsThePasteItMeant(t *testing.T) {
+	if !isPasteChord(tea.KeyPressMsg{Code: 'v', Mod: tea.ModSuper}) {
+		t.Error("super+v should read as a paste")
+	}
+	if isPasteChord(tea.KeyPressMsg{Code: 'v', Text: "v"}) {
+		t.Error("a plain v is typing, not pasting")
+	}
+	if isPasteChord(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}) {
+		t.Error("ctrl+v belongs to the program in the pane")
+	}
+}

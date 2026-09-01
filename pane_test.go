@@ -874,3 +874,29 @@ func TestAPasteAtTheNavigatorSaysWhereItWent(t *testing.T) {
 		t.Errorf("footer = %q, want the paste explained", f)
 	}
 }
+
+func TestCmdVReachesTheShellAsAPaste(t *testing.T) {
+	// The terminal handed the chord through instead of pasting; scrn reads
+	// the clipboard and the content crosses as the paste it was meant to
+	// be — bracketed for the programs that asked, exactly as a translated
+	// cmd+v would have arrived.
+	old := readClipboard
+	readClipboard = func() string { return "from the clipboard" }
+	t.Cleanup(func() { readClipboard = old })
+
+	m := watchingTail(t)
+	m, asked := pipeDaemon(t, m)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModSuper})
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("no clipboard read was scheduled")
+	}
+	next, _ = m.Update(cmd())
+	_ = next
+
+	got := askedFor(t, asked)
+	if got.Kind != kindInput || !strings.Contains(got.Run, "set-buffer") {
+		t.Fatalf("ask = %+v, want the clipboard crossing as a buffer", got)
+	}
+}

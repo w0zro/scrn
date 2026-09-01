@@ -219,6 +219,13 @@ func tmuxKeyLines(pane string, k *keyPress) []string {
 		return []string{"send-keys -t " + pane + " -H" + hex}
 	}
 
+	// A super or hyper chord is the terminal's kind of command — cmd+w,
+	// cmd+t — and one that leaks through to scrn types nothing. Falling
+	// to the bare letter here is what once made cmd+v type a v.
+	if mod&(tea.ModSuper|tea.ModHyper) != 0 {
+		return nil
+	}
+
 	name, ok := tmuxKeyName(k.Code)
 	if !ok {
 		// A plain printable pressed under ctrl or meta.
