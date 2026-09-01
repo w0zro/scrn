@@ -793,19 +793,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// The left button sweeps: press arms, motion extends, and what the
-		// glass shows under the sweep is on the clipboard at release — the
-		// way dragging copies in a terminal with nothing in the middle. A
-		// press that never moved is still a click, delivered whole on
-		// release: forwarded to a focused program, or stepping into a
-		// preview the way clicking an unfocused window focuses it.
+		// A focused program that asked for the mouse gets every event raw
+		// and immediate — press, drag, release — the terminal's own
+		// convention, with nothing deferred and nothing interpreted. scrn's
+		// gestures live only where nobody is listening, which is where they
+		// cost nothing.
+		if m.scroll == nil && t != nil && m.focused() == t && t.mouse {
+			m.daemon.mouse(t.pid, ev)
+			return m, nil
+		}
+
+		// Nobody is listening, so the left button is scrn's: press arms,
+		// motion extends, and what the glass shows under the sweep is on
+		// the clipboard at release — the way dragging copies in a terminal
+		// with nothing in the middle. A press that never moved is still a
+		// click: on a preview it steps in, the way clicking an unfocused
+		// window focuses it.
 		if ev.Button == int(tea.MouseLeft) || (ev.Button == int(tea.MouseNone) && m.drag != nil) {
 			switch ev.Action {
 			case actPress:
 				// The same cell pressed twice in a beat is a double-click:
-				// the word under it goes to the clipboard, and this press
-				// goes no further — the first click already said what a
-				// click says.
+				// the word under it goes to the clipboard.
 				if ev.X == m.lastClick.x && ev.Y == m.lastClick.y &&
 					time.Since(m.lastClick.at) < doubleClickWithin {
 					m.lastClick = paneClick{}
@@ -818,7 +826,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.lastClick = paneClick{x: ev.X, y: ev.Y, at: time.Now()}
-				m.drag = &paneDrag{sx: ev.X, sy: ev.Y, x: ev.X, y: ev.Y, press: ev}
+				m.drag = &paneDrag{sx: ev.X, sy: ev.Y, x: ev.X, y: ev.Y}
 				return m, nil
 			case actMotion:
 				if m.drag != nil {
@@ -841,22 +849,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.detailWidth(), d.sx, d.sy, ev.X, ev.Y)
 					return m, func() tea.Msg { return copiedMsg{n: n, err: writeClipboard(text)} }
 				}
-				if m.scroll != nil || t == nil {
-					return m, nil // the reader has no click to give anything
-				}
-				if m.focused() != t {
+				if m.scroll == nil && t != nil && m.focused() != t {
 					m.attachTo(t)
-					return m, nil
 				}
-				m.daemon.mouse(t.pid, d.press)
-				m.daemon.mouse(t.pid, ev)
 				return m, nil
 			}
-		}
-
-		// The other buttons are the program's, as they always were.
-		if t != nil && m.focused() == t {
-			m.daemon.mouse(t.pid, ev)
 		}
 		return m, nil
 
@@ -2052,13 +2049,11 @@ type paneClick struct {
 const doubleClickWithin = 400 * time.Millisecond
 
 // paneDrag is the sweep: where the button went down, where it is now, and
-// whether it has moved at all — a motionless press is still a click. The
-// press is kept so a click can be delivered whole on release.
+// whether it has moved at all — a motionless press is still a click.
 type paneDrag struct {
 	sx, sy int
 	x, y   int
 	moved  bool
-	press  *mousePress
 }
 
 // scrollView is a pane's transcript being read rather than followed: the

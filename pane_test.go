@@ -1161,16 +1161,26 @@ func TestASweepAcrossThePaneCopiesWhatItCovered(t *testing.T) {
 	}
 }
 
-func TestAMotionlessClickStillReachesTheProgram(t *testing.T) {
+func TestAListeningProgramGetsTheMouseRaw(t *testing.T) {
+	// The terminal's own convention: a program that asked for the mouse
+	// gets every event as it happens — press, drag, release — with nothing
+	// deferred and nothing interpreted. scrn's gestures step aside.
 	m := previewedShell(t)
 	m, asked := pipeDaemon(t, m)
 	m.setFocus(700)
 	m.terms[700].mouse = true
 
-	m, _ = sweep(m, 4, 2, 4, 2) // press and release on the same cell
-	first, second := askedFor(t, asked), askedFor(t, asked)
-	if first.Kind != kindInput || second.Kind != kindInput {
-		t.Fatalf("asks = %+v, %+v; want the click delivered whole", first, second)
+	m, cmd := sweep(m, 2, 2, 8, 3) // a drag: vim's visual, not scrn's copy
+	if cmd != nil {
+		t.Fatal("a drag over a listening program must not become a copy")
+	}
+	for i := 0; i < 3; i++ {
+		if got := askedFor(t, asked); got.Kind != kindInput {
+			t.Fatalf("ask %d = %+v, want the event forwarded raw", i, got)
+		}
+	}
+	if m.drag != nil {
+		t.Error("no sweep should arm while the program owns the mouse")
 	}
 }
 
