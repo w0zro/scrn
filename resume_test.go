@@ -335,3 +335,24 @@ func TestPickerFootWearsTheQuery(t *testing.T) {
 		t.Errorf("footer = %q, want the query being typed", f)
 	}
 }
+
+func TestThePickerShowsTheSelectedConversationWhole(t *testing.T) {
+	// A row can only truncate the prompt; the block beneath the list says
+	// it whole, with the branch and the place it was had.
+	m := pickerOn(
+		conversation{ID: "aaaa-1111", Dir: "/p/scrn/docs", Branch: "site",
+			Prompt: "make the long prompt that a narrow row could never hold visible in full"},
+	)
+	pane := stripANSI(strings.Join(m.resumeLines(60, 24), "\n"))
+	for _, want := range []string{"hold visible in full", "site", "/p/scrn/docs"} {
+		if !strings.Contains(pane, want) {
+			t.Errorf("pane missing %q:\n%s", want, pane)
+		}
+	}
+
+	// A short pane keeps the list whole instead.
+	short := stripANSI(strings.Join(m.resumeLines(60, 8), "\n"))
+	if strings.Contains(short, "asked") {
+		t.Errorf("a short pane should not spend rows on the detail:\n%s", short)
+	}
+}

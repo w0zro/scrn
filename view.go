@@ -732,7 +732,8 @@ func (m model) resumeLines(width, rows int) []string {
 	// The window slides the least amount that keeps the cursor on screen,
 	// derived from the cursor alone so drawing moves nothing.
 	sel := min(v.cursor, len(list)-1)
-	body := max(rows-len(lines), 1)
+	detail := resumeDetail(list[sel], width, rows)
+	body := max(rows-len(lines)-len(detail), 1)
 	off := max(sel-body+1, 0)
 
 	lead := 3 + agew + 2
@@ -764,7 +765,35 @@ func (m model) resumeLines(width, rows int) []string {
 		}
 		lines = append(lines, row+seg)
 	}
-	return lines
+	for len(lines) < rows-len(detail) {
+		lines = append(lines, "")
+	}
+	return append(lines, detail...)
+}
+
+// resumeDetail is the selected conversation whole, under the list: the full
+// prompt a row could only truncate, what the session said it was doing, and
+// where and on what branch it was had. A short pane keeps the list instead —
+// the names are the scanning surface, and the depth can wait for room.
+func resumeDetail(c conversation, width, rows int) []string {
+	if rows < 14 {
+		return nil
+	}
+	var fs []field
+	add := func(label, value string, t tone) {
+		if value != "" {
+			fs = append(fs, field{label: label, value: value, tone: t})
+		}
+	}
+	add("asked", c.Prompt, tonePlain)
+	add("said", c.Summary, toneQuiet)
+	add("branch", c.Branch, toneAccent)
+	add("where", c.Dir, toneQuiet)
+	if len(fs) == 0 {
+		return nil
+	}
+	out := []string{ruleStyle.Render(strings.Repeat("─", width))}
+	return append(out, renderBlock(fs, width)...)
 }
 
 // runBanner is the detail summary drawn across the top of the pane when the
