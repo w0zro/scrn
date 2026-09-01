@@ -208,6 +208,11 @@ type model struct {
 	// nil while the pane is live.
 	scroll *scrollView
 
+	// drag is a selection being swept across the pane with the mouse held,
+	// and nil otherwise. It selects what the glass shows — whatever the
+	// pane is drawing — and release carries it to the clipboard.
+	drag *paneDrag
+
 	// resume is the picker over a place's suspended conversations, and nil
 	// while it is closed. Open, it has the pane and the keys.
 	resume *resumeView
@@ -404,8 +409,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
 		// A transcript being read was cut to a pane that no longer exists.
-		// Nothing rewraps; the reading ends and can be begun again.
+		// Nothing rewraps; the reading ends and can be begun again. A sweep
+		// mid-flight loses its geometry the same way.
 		m.scroll = nil
+		m.drag = nil
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
 		for pid := range m.terms {
@@ -545,13 +552,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The screen is frozen into it on purpose: output only appends, so a
 		// snapshot is a true prefix of the live transcript — never wrong,
 		// merely not growing — and it holds still under the reader.
+		hadDoc := s.doc != nil
 		s.doc = strings.Split(t.screen, "\n")
 		if msg.history != "" {
-			s.doc = append(strings.Split(msg.history, "\n"), s.doc...)
+			grown := strings.Split(msg.history, "\n")
+			s.doc = append(grown, s.doc...)
+			if hadDoc {
+				// The document grew a prefix; the cursor and the mark keep
+				// their lines by shifting with it.
+				s.cur += len(grown)
+				if s.anchor >= 0 {
+					s.anchor += len(grown)
+				}
+			}
+		}
+		if !hadDoc {
+			// The wheel's way in: the cursor lands with the transcript, on
+			// the bottom visible line.
+			s.cur = max(len(s.doc)-1-s.above, 0)
 		}
 		if max := m.scrollMax(); s.above > max {
 			s.above = max
 		}
+		m.clampCur()
 		if s.above <= 0 && s.anchor < 0 {
 			m.scroll = nil // nothing above after all
 		}
@@ -706,57 +729,99 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// The mouse belongs to whatever the pane is showing — the focused
-		// shell, or the one the cursor has on preview. Every process gets
-		// its wheel, not just the one being typed into.
-		t := m.paneTerm()
-		if t == nil || !m.showDetail() {
+		// shell, a preview, the reader, the details. Every process gets its
+		// wheel, not just the one being typed into.
+		if !m.showDetail() {
 			return m, nil
 		}
 		ev := mouseEvent(msg, m.paneLeft(), 0)
 		if ev == nil {
 			return m, nil
 		}
+		t := m.paneTerm()
 
-		// While the transcript is being read the wheel moves it, and nothing
-		// reaches the shell.
-		if m.scroll != nil {
-			m.scrollBy(wheelDelta(msg))
-			return m, nil
-		}
-		// A wheel turned up over a pane whose program is not listening for
-		// the mouse starts reading the transcript — on the primary screen,
-		// which is the one a transcript is above.
-		if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
-			m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg), anchor: -1}
-			m.daemon.history(t.pid)
-			return m, nil
-		}
-		// Over the alternate screen the wheel becomes the arrow keys it
-		// would have meant — how less and man scroll under any terminal
-		// that implements alternate scroll, and here scrn is the terminal.
-		if key, ok := wheelAsArrow(msg); ok && !t.mouse && t.alt {
-			for range wheelArrowCount {
-				m.daemon.key(t.pid, &keyPress{Code: key})
+		// The wheels first: a wheel never sweeps.
+		if _, wheel := msg.(tea.MouseWheelMsg); wheel {
+			// While the transcript is being read the wheel moves it, and
+			// nothing reaches the shell.
+			if m.scroll != nil {
+				m.scrollBy(wheelDelta(msg))
+				return m, nil
 			}
+			if t == nil {
+				return m, nil
+			}
+			// A wheel turned up over a pane whose program is not listening
+			// for the mouse starts reading the transcript — on the primary
+			// screen, which is the one a transcript is above.
+			if wheelDelta(msg) > 0 && !t.mouse && !t.alt && t.sb > 0 {
+				m.scroll = &scrollView{pid: t.pid, above: wheelDelta(msg), anchor: -1}
+				m.daemon.history(t.pid)
+				return m, nil
+			}
+			// Over the alternate screen the wheel becomes the arrow keys it
+			// would have meant — how less and man scroll under any terminal
+			// that implements alternate scroll, and here scrn is the
+			// terminal.
+			if key, ok := wheelAsArrow(msg); ok && !t.mouse && t.alt {
+				for range wheelArrowCount {
+					m.daemon.key(t.pid, &keyPress{Code: key})
+				}
+				return m, nil
+			}
+			m.daemon.mouse(t.pid, ev)
 			return m, nil
 		}
-		if m.focused() != t {
-			// The wheel crosses to a preview whole — scrolling is looking.
-			// A press is more than looking: it steps into the shell, the
-			// way clicking an unfocused window focuses it. It is not
-			// forwarded as a click too: a preview draws under a banner, so
-			// its coordinates are not the pane's own, and the programs most
-			// worth clicking in are reached exactly by stepping in first.
-			if _, wheel := msg.(tea.MouseWheelMsg); wheel {
+
+		// The left button sweeps: press arms, motion extends, and what the
+		// glass shows under the sweep is on the clipboard at release — the
+		// way dragging copies in a terminal with nothing in the middle. A
+		// press that never moved is still a click, delivered whole on
+		// release: forwarded to a focused program, or stepping into a
+		// preview the way clicking an unfocused window focuses it.
+		if ev.Button == int(tea.MouseLeft) || (ev.Button == int(tea.MouseNone) && m.drag != nil) {
+			switch ev.Action {
+			case actPress:
+				m.drag = &paneDrag{sx: ev.X, sy: ev.Y, x: ev.X, y: ev.Y, press: ev}
+				return m, nil
+			case actMotion:
+				if m.drag != nil {
+					m.drag.x, m.drag.y = ev.X, ev.Y
+					// Only motion that went somewhere makes a sweep: a
+					// wobble inside the pressed cell is still a click.
+					if ev.X != m.drag.sx || ev.Y != m.drag.sy {
+						m.drag.moved = true
+					}
+				}
+				return m, nil
+			case actRelease:
+				d := m.drag
+				if d == nil {
+					return m, nil
+				}
+				m.drag = nil
+				if d.moved {
+					text, n := dragText(m.paneLines(m.detailWidth(), m.paneHeight()),
+						m.detailWidth(), d.sx, d.sy, ev.X, ev.Y)
+					return m, func() tea.Msg { return copiedMsg{n: n, err: writeClipboard(text)} }
+				}
+				if m.scroll != nil || t == nil {
+					return m, nil // the reader has no click to give anything
+				}
+				if m.focused() != t {
+					m.attachTo(t)
+					return m, nil
+				}
+				m.daemon.mouse(t.pid, d.press)
 				m.daemon.mouse(t.pid, ev)
 				return m, nil
 			}
-			if ev.Action == actPress {
-				m.attachTo(t)
-			}
-			return m, nil
 		}
-		m.daemon.mouse(t.pid, ev)
+
+		// The other buttons are the program's, as they always were.
+		if t != nil && m.focused() == t {
+			m.daemon.mouse(t.pid, ev)
+		}
 		return m, nil
 
 	case tea.BackgroundColorMsg:
@@ -1940,6 +2005,16 @@ func (m model) paneHeight() int {
 	return 1
 }
 
+// paneDrag is the sweep: where the button went down, where it is now, and
+// whether it has moved at all — a motionless press is still a click. The
+// press is kept so a click can be delivered whole on release.
+type paneDrag struct {
+	sx, sy int
+	x, y   int
+	moved  bool
+	press  *mousePress
+}
+
 // scrollView is a pane's transcript being read rather than followed: the
 // lines that had scrolled away plus the screen as it stood when the reading
 // began, and how far back up the reader has gone.
@@ -1948,9 +2023,13 @@ type scrollView struct {
 	doc   []string // nil until the transcript arrives
 	above int      // lines between the bottom of the viewport and the live tail
 
+	// cur is the reader's own cursor: the line the motions move and the
+	// mark is set at, drawn reversed. The viewport follows it.
+	cur int
+
 	// anchor is the line v marked, and -1 while nothing is selected. The
-	// selection runs from it to the bottom visible line, and y carries the
-	// span to the system clipboard.
+	// selection runs from it to the cursor, and y carries the span to the
+	// system clipboard.
 	anchor int
 }
 
@@ -1988,6 +2067,7 @@ func (m *model) scrollBy(delta int) {
 		// being made, which holds the reader at the live tail instead.
 		if s.anchor >= 0 {
 			s.above = 0
+			m.clampCur()
 			return
 		}
 		m.scroll = nil
@@ -1996,6 +2076,7 @@ func (m *model) scrollBy(delta int) {
 	if max := m.scrollMax(); s.doc != nil && s.above > max {
 		s.above = max
 	}
+	m.clampCur()
 }
 
 // scrollMax is as far up as the transcript goes: the lines that do not fit
@@ -2018,7 +2099,8 @@ func (m *model) openReader() tea.Cmd {
 		return nil
 	}
 	m.typing = false
-	m.scroll = &scrollView{pid: t.pid, doc: strings.Split(t.screen, "\n"), anchor: -1}
+	doc := strings.Split(t.screen, "\n")
+	m.scroll = &scrollView{pid: t.pid, doc: doc, cur: len(doc) - 1, anchor: -1}
 	if !t.alt {
 		// The transcript above joins the document when it arrives; the
 		// alternate screen has none, and is whole already.
@@ -2027,28 +2109,64 @@ func (m *model) openReader() tea.Cmd {
 	return nil
 }
 
-// scrollBottom is the line of the document at the bottom of the viewport,
-// which is where a selection is marked and extended.
-func (m *model) scrollBottom() int {
-	s := m.scroll
-	if s == nil || len(s.doc) == 0 {
-		return 0
-	}
-	return max(len(s.doc)-1-s.above, 0)
-}
-
-// selection is the span between the mark and the bottom visible line,
-// inclusive, in document order.
-func (s *scrollView) selection(bottom int) (int, int) {
-	lo, hi := s.anchor, bottom
+// selection is the span between the mark and the cursor, inclusive, in
+// document order.
+func (s *scrollView) selection(cur int) (int, int) {
+	lo, hi := s.anchor, cur
 	if lo > hi {
 		lo, hi = hi, lo
 	}
 	return lo, hi
 }
 
-// scrollKey is a keystroke while the transcript is being read: vim's motions,
-// the ends, the mark and the yank, and the ways out.
+// curBy moves the reader's cursor, the viewport following. Moving down off
+// the last line is back to live — unless a selection is being made, which
+// pins the reader instead.
+func (m *model) curBy(delta int) {
+	s := m.scroll
+	if s == nil || len(s.doc) == 0 || delta == 0 {
+		return
+	}
+	if delta > 0 && s.cur >= len(s.doc)-1 && s.above <= 0 && s.anchor < 0 {
+		m.scroll = nil
+		return
+	}
+	s.cur = min(max(s.cur+delta, 0), len(s.doc)-1)
+	m.followCur()
+}
+
+// followCur slides the viewport the least amount that keeps the cursor on
+// screen, the discipline the navigator's own scrolling keeps.
+func (m *model) followCur() {
+	s := m.scroll
+	page := m.paneHeight()
+	bottom := len(s.doc) - 1 - s.above
+	if s.cur > bottom {
+		s.above = len(s.doc) - 1 - s.cur
+	}
+	if top := bottom - page + 1; s.cur < top {
+		s.above = min(len(s.doc)-page-s.cur, m.scrollMax())
+	}
+	if s.above < 0 {
+		s.above = 0
+	}
+}
+
+// clampCur pulls the cursor back into the viewport after the viewport moved
+// on its own — the wheel, a page — so the cursor is always a line on screen.
+func (m *model) clampCur() {
+	s := m.scroll
+	if s == nil || len(s.doc) == 0 {
+		return
+	}
+	bottom := max(len(s.doc)-1-s.above, 0)
+	top := max(bottom-m.paneHeight()+1, 0)
+	s.cur = min(max(s.cur, top), bottom)
+}
+
+// scrollKey is a keystroke while the transcript is being read: vim's motions
+// moving the reader's own cursor, the mark and the yank at it, and the ways
+// out.
 func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 	s := m.scroll
 	page := m.paneHeight()
@@ -2061,20 +2179,18 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.scroll = nil
-	case "q", "G":
-		// The bottom of the transcript is the live screen, so going to the
-		// end and leaving are the same place.
+	case "q":
 		m.scroll = nil
 	case "v":
-		// v marks the bottom visible line; moving extends the selection to
-		// wherever the bottom goes. Pressed again, it marks afresh.
-		s.anchor = m.scrollBottom()
+		// v marks the cursor's line; moving extends the selection to
+		// wherever the cursor goes. Pressed again, it marks afresh.
+		s.anchor = s.cur
 	case "y":
 		if s.anchor < 0 {
 			m.status, m.statusErr = "v marks before y copies", false
 			return nil
 		}
-		lo, hi := s.selection(m.scrollBottom())
+		lo, hi := s.selection(s.cur)
 		lines := make([]string, 0, hi-lo+1)
 		for _, row := range s.doc[lo : hi+1] {
 			lines = append(lines, ansi.Strip(row))
@@ -2083,21 +2199,24 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 		text := strings.Join(lines, "\n")
 		return func() tea.Msg { return copiedMsg{n: len(lines), err: writeClipboard(text)} }
 	case "up", "k":
-		m.scrollBy(1)
+		m.curBy(-1)
 	case "down", "j":
-		m.scrollBy(-1)
+		m.curBy(1)
 	case "pgup", "ctrl+b":
-		m.scrollBy(page)
+		m.curBy(-page)
 	case "pgdown", "ctrl+f":
-		m.scrollBy(-page)
+		m.curBy(page)
 	case "ctrl+u":
-		m.scrollBy(page / 2)
+		m.curBy(-page / 2)
 	case "ctrl+d":
-		m.scrollBy(-page / 2)
+		m.curBy(page / 2)
 	case "g":
-		if s.doc != nil {
-			s.above = m.scrollMax()
-		}
+		m.curBy(-len(s.doc))
+	case "G":
+		// To the last line — the live tail — with the reading kept: the
+		// bottom is where a mark on fresh output starts. Leaving stays
+		// q's and esc's word.
+		m.curBy(len(s.doc))
 	}
 	return nil
 }

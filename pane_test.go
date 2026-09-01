@@ -714,23 +714,24 @@ func TestAWheelUpAtThePromptReadsTheTranscript(t *testing.T) {
 
 func TestTheMotionsMoveTheReading(t *testing.T) {
 	m := readingBack(t)
+	was := m.scroll.cur
 
 	m = press(m, "k")
-	if m.scroll.above != wheelLines+1 {
-		t.Errorf("above = %d, want k to have gone a line up", m.scroll.above)
+	if m.scroll.cur != was-1 {
+		t.Errorf("cur = %d, want k to have gone a line up from %d", m.scroll.cur, was)
 	}
 	m = press(m, "j")
-	if m.scroll.above != wheelLines {
-		t.Errorf("above = %d, want j to have come a line back", m.scroll.above)
+	if m.scroll.cur != was {
+		t.Errorf("cur = %d, want j to have come a line back", m.scroll.cur)
 	}
 
 	m = press(m, "g")
-	if !strings.Contains(paneText(m), "h-1") {
+	if m.scroll.cur != 0 || !strings.Contains(paneText(m), "h-1") {
 		t.Errorf("g should reach the oldest line:\n%s", paneText(m))
 	}
 	m = press(m, "G")
-	if m.scroll != nil {
-		t.Error("G should end at the live screen, which is where leaving goes")
+	if m.scroll == nil || m.scroll.cur != len(m.scroll.doc)-1 {
+		t.Error("G should reach the last line with the reading kept; leaving is q's and esc's word")
 	}
 }
 
@@ -956,6 +957,11 @@ func TestClickingAPreviewStepsIn(t *testing.T) {
 	m, _ = pipeDaemon(t, m)
 
 	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 5, Y: 3, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.focus != 0 {
+		t.Fatal("a press alone decides nothing; the click lands on release")
+	}
+	next, _ = m.Update(tea.MouseReleaseMsg{X: navWidth + 5, Y: 3, Button: tea.MouseLeft})
 	if got := next.(model).focus; got != 700 {
 		t.Errorf("focus = %d, want the click to step into the shell", got)
 	}
@@ -1102,5 +1108,82 @@ func TestAClickPastTheListSelectsNothing(t *testing.T) {
 	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 12, Button: tea.MouseLeft})
 	if got := next.(model).cursor; got != was {
 		t.Errorf("cursor = %d, want a click on empty rows to move nothing", got)
+	}
+}
+
+// sweep drags the left button from one pane cell to another and releases.
+func sweep(m model, sx, sy, ex, ey int) (model, tea.Cmd) {
+	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 1 + sx, Y: sy, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseMotionMsg{X: navWidth + 1 + ex, Y: ey, Button: tea.MouseLeft})
+	next, cmd := next.(model).Update(tea.MouseReleaseMsg{X: navWidth + 1 + ex, Y: ey, Button: tea.MouseLeft})
+	return next.(model), cmd
+}
+
+func TestASweepAcrossThePaneCopiesWhatItCovered(t *testing.T) {
+	copied := ""
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied = text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := previewedShell(t)
+	rows := strings.Split(m.terms[700].screen, "\n")
+	rows[2], rows[3] = "alpha beta gamma", "delta epsilon"
+	m.terms[700].screen = strings.Join(rows, "\n")
+	m, _ = pipeDaemon(t, m)
+	m.setFocus(700) // focused, like reading a git log that just printed
+
+	m, cmd := sweep(m, 0, 2, 4, 3)
+	if cmd == nil {
+		t.Fatal("release should have carried the sweep to the clipboard")
+	}
+	next, _ := m.Update(cmd())
+	m = next.(model)
+
+	if !strings.Contains(copied, "alpha beta gamma") || !strings.Contains(copied, "delta") {
+		t.Fatalf("copied = %q, want the swept lines", copied)
+	}
+	if strings.Contains(copied, "epsilon") {
+		t.Errorf("copied = %q, want the last line cut at the sweep's end", copied)
+	}
+	if !strings.Contains(footer(m), "copied 2 lines") {
+		t.Errorf("footer = %q, want the copy reported", footer(m))
+	}
+	if m.focus != 700 {
+		t.Error("a sweep is a copy, not a step anywhere")
+	}
+}
+
+func TestAMotionlessClickStillReachesTheProgram(t *testing.T) {
+	m := previewedShell(t)
+	m, asked := pipeDaemon(t, m)
+	m.setFocus(700)
+	m.terms[700].mouse = true
+
+	m, _ = sweep(m, 4, 2, 4, 2) // press and release on the same cell
+	first, second := askedFor(t, asked), askedFor(t, asked)
+	if first.Kind != kindInput || second.Kind != kindInput {
+		t.Fatalf("asks = %+v, %+v; want the click delivered whole", first, second)
+	}
+}
+
+func TestASweepUpstreamCopiesInReadingOrder(t *testing.T) {
+	copied := ""
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied = text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := previewedShell(t)
+	rows := strings.Split(m.terms[700].screen, "\n")
+	rows[2], rows[3] = "first line", "second line"
+	m.terms[700].screen = strings.Join(rows, "\n")
+	m, _ = pipeDaemon(t, m)
+	m.setFocus(700)
+
+	// Dragged bottom-up: the copy still reads top-down.
+	m, cmd := sweep(m, 5, 3, 0, 2)
+	next, _ := m.Update(cmd())
+	_ = next
+	if !strings.HasPrefix(copied, "first line") {
+		t.Fatalf("copied = %q, want reading order whatever the drag's direction", copied)
 	}
 }

@@ -99,6 +99,7 @@ func (m model) layout() string {
 		right := m.paneLines(m.detailWidth(), rows)
 		divider := ruleStyle.Render(glyphDivider)
 
+		right = m.dragOverlay(right, m.detailWidth())
 		lines = make([]string, 0, rows)
 		for i := 0; i < rows; i++ {
 			// The pane's rows are somebody else's styling, captured as it
@@ -235,7 +236,7 @@ func (m model) footLines(width int) []string {
 	case m.scroll != nil && m.scroll.doc != nil:
 		word := "scrollback · " + strconv.Itoa(m.scroll.above) + " up"
 		if m.scroll.anchor >= 0 {
-			lo, hi := m.scroll.selection(m.scrollBottom())
+			lo, hi := m.scroll.selection(m.scroll.cur)
 			word = plural(hi-lo+1, "line", "lines") + " marked · y copies"
 		}
 		lines := hintBlock(word, width, warnStyle)
@@ -792,19 +793,75 @@ func screenTail(t *remoteTerm, rows int) []string {
 func scrollWindow(s *scrollView, width, rows int) []string {
 	top := max(len(s.doc)-rows-s.above, 0)
 	end := min(top+rows, len(s.doc))
-	lo, hi := -1, -1
+	lo, hi := s.cur, s.cur
 	if s.anchor >= 0 {
-		lo, hi = s.selection(max(len(s.doc)-1-s.above, 0))
+		lo, hi = s.selection(s.cur)
 	}
 	out := make([]string, 0, rows)
 	for i, row := range s.doc[top:end] {
 		line := ansi.Truncate(row, width, "")
-		if at := top + i; lo >= 0 && at >= lo && at <= hi {
+		if at := top + i; at >= lo && at <= hi {
 			line = cursorStyle.Render(ansi.Strip(line))
 		}
 		out = append(out, line)
 	}
 	return out
+}
+
+// normDrag orders a sweep's two ends into reading order.
+func normDrag(sx, sy, ex, ey int) (int, int, int, int) {
+	if sy > ey || (sy == ey && sx > ex) {
+		return ex, ey, sx, sy
+	}
+	return sx, sy, ex, ey
+}
+
+// dragSpan is the columns a sweep covers on one row: from its start on the
+// first row, to its end on the last, the whole width between.
+func dragSpan(y, sx, sy, ex, ey, width int) (int, int) {
+	a, b := 0, width
+	if y == sy {
+		a = sx
+	}
+	if y == ey {
+		b = min(ex+1, width)
+	}
+	return a, b
+}
+
+// dragOverlay wears the sweep on the pane: the covered cells reversed,
+// styling put aside — they are on their way to the clipboard, and the
+// clipboard gets text.
+func (m model) dragOverlay(lines []string, width int) []string {
+	d := m.drag
+	if d == nil || !d.moved {
+		return lines
+	}
+	sx, sy, ex, ey := normDrag(d.sx, d.sy, d.x, d.y)
+	for y := sy; y <= ey && y < len(lines); y++ {
+		if y < 0 {
+			continue
+		}
+		a, b := dragSpan(y, sx, sy, ex, ey, width)
+		row := pad(lines[y], width)
+		lines[y] = ansi.Cut(row, 0, a) +
+			cursorStyle.Render(ansi.Strip(ansi.Cut(row, a, b))) +
+			ansi.Cut(row, b, width)
+	}
+	return lines
+}
+
+// dragText is the pane text a sweep covered, as the glass showed it: plain
+// text, each row's tail of padding trimmed, rows joined by newlines.
+func dragText(lines []string, width, sx, sy, ex, ey int) (string, int) {
+	sx, sy, ex, ey = normDrag(sx, sy, ex, ey)
+	var out []string
+	for y := max(sy, 0); y <= ey && y < len(lines); y++ {
+		a, b := dragSpan(y, sx, sy, ex, ey, width)
+		row := pad(lines[y], width)
+		out = append(out, strings.TrimRight(ansi.Strip(ansi.Cut(row, a, b)), " "))
+	}
+	return strings.Join(out, "\n"), len(out)
 }
 
 // withCursor marks the cell the shell's cursor is on. The line already carries
