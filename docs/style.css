@@ -299,6 +299,9 @@ a:hover { color: var(--accent); }
 }
 .scr .cell { display: inline-block; overflow: hidden; vertical-align: bottom; }
 .scr .scr-div { width: 1px; justify-self: center; background: #30363D; }
+.scr .scr-status { grid-column: 1 / -1; margin-top: 4px; white-space: pre; overflow: hidden; }
+.scr.whole { grid-template-columns: minmax(0, 1fr) 0 0; }
+.scr.whole .scr-div, .scr.whole .scr-pane { display: none; }
 .scr .b { font-weight: 600; }
 
 .c-brand  { color: #B9A7FF; font-weight: 600; }

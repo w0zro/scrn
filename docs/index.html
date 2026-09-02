@@ -46,6 +46,7 @@
         <pre class="scr-nav"></pre>
         <div class="scr-div"></div>
         <pre class="scr-pane"></pre>
+        <pre class="scr-status"></pre>
       </div>
       <div class="demo-foot">
         <p class="demo-cap"></p>
@@ -74,7 +75,7 @@
  scrn
  <span class="t-dim">└─</span> go test ./...
 
- <span class="chip chip-navigate"> navigate </span>               <span class="t-num">④</span></pre>
+ <span class="c-brand b">scrn</span>  web: npm run dev  <span class="c-urgent">scrn: claude ◆</span> <span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
@@ -82,7 +83,7 @@
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
     <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .scrn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
-    <div class="note"><span class="marker">④</span><p>The foot says where the keys are going: navigate at the list, proc inside a shell.</p></div>
+    <div class="note"><span class="marker">④</span><p>The status line is tmux's: a tab per shell, named for its place and what runs there, marked like its row. It is there in every window.</p></div>
   </div>
 </section>
 
@@ -91,9 +92,9 @@
     <div class="keyhead">MOVE</div>
     <div class="keyrow"><span>↑ ↓ j k</span><span>move</span></div>
     <div class="keyrow"><span>/</span><span>find a project · a process</span></div>
-    <div class="keyrow"><span>enter</span><span>open the row</span></div>
-    <div class="keyrow"><span>^spc enter</span><span>waiting agent</span></div>
-    <div class="keyrow"><span>? / q</span><span>all the keys / quit</span></div>
+    <div class="keyrow"><span>enter</span><span>go to the row's window</span></div>
+    <div class="keyrow"><span>tab · ^spc enter</span><span>waiting agent</span></div>
+    <div class="keyrow"><span>? / q</span><span>all the keys / leave</span></div>
   </div>
   <div>
     <div class="keyhead">ACT</div>
@@ -106,8 +107,9 @@
     <div class="keyrow"><span>space</span><span>fold</span></div>
     <div class="keyrow"><span>.</span><span>all ↔ running</span></div>
     <div class="keyrow"><span>^spc n</span><span>back to the list</span></div>
-    <div class="keyrow"><span>^spc v</span><span>read · mark · copy</span></div>
-    <div class="keyrow"><span>^spc ^spc</span><span>last process</span></div>
+    <div class="keyrow"><span>^spc j k</span><span>next · previous window</span></div>
+    <div class="keyrow"><span>^spc v</span><span>read back (copy mode)</span></div>
+    <div class="keyrow"><span>^spc ^spc</span><span>last window</span></div>
   </div>
 </section>
 
@@ -134,6 +136,7 @@
   const nav = scr.querySelector('.scr-nav');
   const div = scr.querySelector('.scr-div');
   const pane = scr.querySelector('.scr-pane');
+  const status = scr.querySelector('.scr-status');
   const cap = document.querySelector('.demo-cap');
   const toggle = document.querySelector('.demo-toggle');
 
@@ -170,14 +173,30 @@
       span(cls, r.label) + mark;
   }
 
-  function navLines(cursor, mode) {
+  function navLines(cursor) {
     const lines = [' ' + span('c-brand', 'scrn'), ''];
     for (let i = 0; i < TREE.length; i++) lines.push(navRow(i, cursor));
-    while (lines.length < ROWS - 1) lines.push('');
-    const chip = ' ' + mode + ' ';
-    lines.push(span('chip chip-' + mode, chip) +
-      span('wash-' + mode, ' '.repeat(Math.max(0, NAV_W - chip.length))));
+    while (lines.length < ROWS) lines.push('');
     return lines;
+  }
+
+  // The status line is tmux's: scrn's name, a tab per shell named for its
+  // place and what runs there and marked like its row, and the prefix
+  // while a chord hangs. The current window's tab is lit.
+  const TABS = [
+    { label: 'scrn', home: true },
+    { label: 'web: npm run dev' },
+    { label: 'web: claude ⋯' },
+    { label: 'scrn: claude ◆', urgent: true },
+  ];
+  function statusLine(current, mode) {
+    let line = span('c-brand b', ' scrn ') + ' ';
+    TABS.forEach((tab, i) => {
+      const cls = i === current ? 'c-sel b' : (tab.urgent ? 'c-urgent' : 'c-label');
+      line += span(cls, ' ' + tab.label + ' ');
+    });
+    if (mode === 'prefix') line += '  ' + span('c-attn b', ' prefix ');
+    return line;
   }
 
   // The pane. A label and its value line up under the widest label in their
@@ -239,25 +258,37 @@
   // The beats: what the cursor is on, what mode the keys are in, what the
   // pane shows, and the sentence under the window that says why.
   const BEATS = [
-    { cursor: 1, mode: 'navigate', pane: PANE_REPO, hold: 2400,
+    { cursor: 1, mode: 'navigate', tab: 0, pane: PANE_REPO, hold: 2400,
       cap: 'The list: every repository under your project roots, and everything running in each.' },
-    { cursor: 2, mode: 'navigate', pane: screen(DEV, false), hold: 1700,
+    { cursor: 2, mode: 'navigate', tab: 0, pane: screen(DEV, false), hold: 1700,
       cap: '<kbd>j</kbd> <kbd>k</kbd> move. The pane previews the shell under the cursor.' },
-    { cursor: 2, mode: 'proc', pane: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 2600,
-      cap: '<kbd>enter</kbd> attaches — from here the keystrokes are the shell&rsquo;s.' },
-    { cursor: 2, mode: 'prefix', pane: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 950,
-      cap: '<kbd>ctrl-space</kbd> is the one key scrn keeps: it reaches scrn from inside any shell.' },
-    { cursor: 7, mode: 'proc', pane: screen(CLAUDE, true), hold: 2900,
-      cap: '<kbd>enter</kbd> goes to the agent that is waiting on you — the ◆ across the list.' },
-    { cursor: 7, mode: 'navigate', pane: screen(CLAUDE, false), hold: 2400,
-      cap: '<kbd>n</kbd> steps back out to the list. Nothing stopped along the way.' },
+    { cursor: 2, mode: 'proc', tab: 1, full: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 2600,
+      cap: '<kbd>enter</kbd> goes to the shell&rsquo;s window — tmux draws it, and the keystrokes are the shell&rsquo;s.' },
+    { cursor: 2, mode: 'prefix', tab: 1, full: screen(DEV_MORE, true).concat([cursorLine('')]), hold: 950,
+      cap: '<kbd>ctrl-space</kbd> is the one key scrn keeps: it reaches scrn from any window.' },
+    { cursor: 7, mode: 'proc', tab: 3, full: screen(CLAUDE, true), hold: 2900,
+      cap: '<kbd>enter</kbd> goes to the agent that is waiting on you — the ◆ on the status line.' },
+    { cursor: 7, mode: 'navigate', tab: 0, pane: screen(CLAUDE, false), hold: 2400,
+      cap: '<kbd>n</kbd> is back to the navigator. Nothing stopped along the way.' },
   ];
 
+  // A beat is either the navigator's window — the list beside its pane —
+  // or a shell's window, which tmux draws whole across the width.
   function draw(b) {
-    nav.innerHTML = navLines(b.cursor, b.mode).join('\n');
-    const lines = b.pane.slice(0, ROWS);
-    while (lines.length < ROWS) lines.push('');
-    pane.innerHTML = lines.join('\n');
+    const whole = !!b.full;
+    scr.classList.toggle('whole', whole);
+    if (whole) {
+      const lines = b.full.slice(0, ROWS);
+      while (lines.length < ROWS) lines.push('');
+      nav.innerHTML = lines.join('\n');
+      pane.innerHTML = '';
+    } else {
+      nav.innerHTML = navLines(b.cursor).join('\n');
+      const lines = b.pane.slice(0, ROWS);
+      while (lines.length < ROWS) lines.push('');
+      pane.innerHTML = lines.join('\n');
+    }
+    status.innerHTML = statusLine(b.tab, b.mode);
     cap.innerHTML = b.cap;
   }
 
