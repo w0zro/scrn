@@ -198,8 +198,12 @@ func resumeCommand(c conversation) string {
 }
 
 // agentPoll is how often the agents' own state is re-read. It is file reads,
-// not process scans, which is what lets it run this much faster than lsof.
-const agentPoll = 150 * time.Millisecond
+// not process scans, which is what lets it run this much faster than lsof —
+// and every poll reads the sessions directory and each file in it, so it is
+// not free either. Half a second is under what a glance notices and a third
+// of the reads the old rate spent, most of them on a laptop finding nothing
+// had changed.
+const agentPoll = 500 * time.Millisecond
 
 // agentTickMsg says it is time to re-read what the agents advertise.
 type agentTickMsg struct{}
