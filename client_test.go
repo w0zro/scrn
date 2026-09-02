@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 )
@@ -143,5 +145,47 @@ func TestNoServerIsEveryShellGone(t *testing.T) {
 	}
 	if msg, ok := (<-s.events).(sessionsMsg); !ok || len(msg.sessions) != 0 {
 		t.Errorf("msg = %+v, want an empty list", msg)
+	}
+}
+
+func TestAClientThatHangsUpAtOnceIsProbedForAgain(t *testing.T) {
+	// The probe finds a session, attaches, and the server is gone by the
+	// time the client speaks — %exit at once. The hangup asks for a probe
+	// while the probe that attached is still finishing; the two must not
+	// leave the session with nobody watching.
+	tmuxOnSocket(t) // a socket nothing listens on: every attach hangs up
+	s := newSession()
+	s.probe = 10 * time.Millisecond
+	t.Cleanup(s.close)
+	var mu sync.Mutex
+	probes := 0
+	s.run = func(args ...string) (string, error) {
+		if args[0] == "has-session" {
+			mu.Lock()
+			probes++
+			mu.Unlock()
+			return "", nil // a session was there when asked
+		}
+		return "", nil
+	}
+	go func() {
+		for range s.events {
+		}
+	}()
+
+	s.watchForServer()
+	deadline := time.After(3 * time.Second)
+	for {
+		mu.Lock()
+		n := probes
+		mu.Unlock()
+		if n >= 3 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("probed %d times; the hangup should have kept the probe going", n)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }

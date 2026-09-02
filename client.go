@@ -197,6 +197,10 @@ type session struct {
 	fg, bg   string          // the real terminal's colors, as "#rrggbb"
 	probing  bool
 	closed   bool
+
+	// probe is how long the watch waits between looks for a server; the
+	// tests set a pace that suits a test.
+	probe time.Duration
 }
 
 func newSession() *session {
@@ -208,6 +212,7 @@ func newSession() *session {
 		watching: map[int]bool{},
 		dirty:    map[string]bool{},
 		live:     map[string]bool{},
+		probe:    probeEvery,
 	}
 }
 
@@ -248,22 +253,28 @@ func (s *session) watchForServer() {
 
 	go func() {
 		for {
-			time.Sleep(probeEvery)
+			time.Sleep(s.probe)
+			// Whether the probe is over is decided in the same breath as
+			// the probing flag is put down. A control client that hangs up
+			// between the two — attached to a session that went in the
+			// same instant — would ask for a probe while this one still
+			// claimed to be running, and then nobody would be probing.
 			s.mu.Lock()
 			done := s.closed || s.ctl != nil
+			if done {
+				s.probing = false
+			}
 			s.mu.Unlock()
 			if done {
-				break
+				return
 			}
 			if _, err := s.run("has-session", "-t", tmuxSession); err == nil {
 				s.refreshList()
 				s.ensureCtl()
-				break
+				// Not the end of the probe: the next pass is what sees
+				// whether the client stayed attached.
 			}
 		}
-		s.mu.Lock()
-		s.probing = false
-		s.mu.Unlock()
 	}()
 }
 
