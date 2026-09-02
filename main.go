@@ -40,6 +40,8 @@ usage:
 
 the chords run these; they are not for typing:
   scrn nav         the navigator, in the home window's left pane
+  scrn keys [client] the keys, in a popup over client
+  scrn page        the page inside that popup
   scrn home [key]  to the navigator, pressing key there
   scrn shell [dir] a shell in dir, shown beside the navigator
   scrn agent [dir] an agent in dir, shown beside the navigator
@@ -73,7 +75,10 @@ func main() {
 		case "nav":
 			runNav()
 			return
-		case "home", "shell", "agent", "run", "jump", "next", "prev":
+		case "page":
+			runKeys()
+			return
+		case "home", "shell", "agent", "run", "jump", "next", "prev", "keys":
 			arg := ""
 			if len(os.Args) > 2 {
 				arg = os.Args[2]
@@ -116,6 +121,8 @@ func runChord(word, arg string) error {
 		return runStep(1)
 	case "prev":
 		return runStep(-1)
+	case "keys":
+		return showKeys(tmuxCommand, scrnExe(), arg)
 	}
 	return nil
 }

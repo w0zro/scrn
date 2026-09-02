@@ -16,6 +16,7 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		`bind s run-shell "'/opt/my tools/it'\''s/scrn' shell '#{pane_current_path}'"`,
 		`bind j run-shell "'/opt/my tools/it'\''s/scrn' next"`,
 		"bind C-Space last-pane",
+		`bind ? run-shell "'/opt/my tools/it'\''s/scrn' keys '#{client_name}'"`,
 		"bind v copy-mode",
 		"bind q detach-client",
 		"set -g history-limit 4242",

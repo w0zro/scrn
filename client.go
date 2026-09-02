@@ -630,6 +630,19 @@ func showPane(run runner, nav, target string) error {
 	return err
 }
 
+// help shows the keys in a popup over the window; the popup takes the
+// next key and goes.
+func (s *session) help() {
+	if s == nil {
+		return
+	}
+	go func() {
+		if err := showKeys(s.run, scrnExe(), ""); err != nil {
+			s.events <- serverErrorMsg{err: err}
+		}
+	}()
+}
+
 // leave detaches the client this navigator is drawn in. The shells keep
 // running; `scrn` attaches again.
 func (s *session) leave() {

@@ -769,12 +769,10 @@ func TestCollapsedRowStaysInItsColumn(t *testing.T) {
 
 // --- killing --------------------------------------------------------------
 
-// keysOf opens the list of keys and returns it, since it is only a line until
-// somebody asks.
-// keysOf opens the keys modal and flattens the window to one string, so a
-// test can ask whether a key is listed.
-func keysOf(m model) string {
-	return strings.Join(strings.Fields(stripANSI(press(m, "?").View().Content)), " ")
+// keysOf is the keys page flattened to one string, so a test can ask
+// whether a key is listed.
+func keysOf(model) string {
+	return strings.Join(strings.Fields(stripANSI(strings.Join(keysPage(), "\n"))), " ")
 }
 
 // footer is scrn's own block at the foot of its column, flattened to one
@@ -1652,6 +1650,7 @@ const (
 	kindLeave = "leave"
 	kindDress = "dress" // a pane named for the title
 	kindStrip = "strip" // the status line's tab strip said whole
+	kindHelp  = "help"  // the keys popup asked for
 )
 
 // pipeServer gives a model a session whose asks land on the returned
@@ -1790,6 +1789,13 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			return "", nil
 		case "detach-client":
 			asked <- message{Kind: kindLeave}
+			return "", nil
+		case "list-clients":
+			return "1\tc0", nil
+		case "display-message":
+			return "120 30", nil
+		case "display-popup":
+			asked <- message{Kind: kindHelp}
 			return "", nil
 		case "kill-pane":
 			asked <- message{Kind: kindClose, PID: target(args)}
@@ -2520,86 +2526,78 @@ func TestTheFootIsEmptyWhenQuiet(t *testing.T) {
 	}
 }
 
-func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
-	m := press(manyProjects(160, 24), "?")
-	view := stripANSI(m.View().Content)
-	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the next waiting agent", "leave"} {
-		if !strings.Contains(view, key) {
-			t.Errorf("view does not show %q with the modal open", key)
-		}
+func TestQuestionMarkAsksForTheKeysPopup(t *testing.T) {
+	// The navigator's pane is a column; the keys are a page, and the page
+	// is tmux's popup over the whole window, from ? here as from the chord.
+	m, asked := pipeServer(t, manyProjects(90, 14))
+	m = press(m, "?")
+	if got := askedForKind(t, asked, kindHelp); got.Kind != kindHelp {
+		t.Fatal("? did not ask for the popup")
 	}
 	if got := footer(m); got != "" {
-		t.Errorf("footer = %q, want the foot untouched by the modal", got)
+		t.Errorf("footer = %q, want the foot untouched", got)
 	}
 }
 
-func TestTheKeysModalNeverWidensTheWindow(t *testing.T) {
-	// The compositor draws to the union of its layers, so a box wider than a
-	// narrow window would widen every row and the terminal would wrap the
-	// whole frame.
-	m := press(manyProjects(30, 14), "?")
-	for i, ln := range strings.Split(m.View().Content, "\n") {
-		if w := lipgloss.Width(ln); w > 30 {
-			t.Errorf("row %d is %d columns in a 30-column window", i, w)
+func TestTheKeysPageFitsItsPopup(t *testing.T) {
+	// The popup is sized to the page; a row wider than the popup would wrap
+	// inside it and push the rest off the bottom.
+	var popup []string
+	run := func(args ...string) (string, error) {
+		switch args[0] {
+		case "display-message":
+			return "200 60", nil
+		case "display-popup":
+			popup = args
+		}
+		return "", nil
+	}
+	if err := showKeys(run, "/opt/scrn", "c0"); err != nil {
+		t.Fatal(err)
+	}
+	if len(popup) < 10 || popup[6] != "-w" || popup[8] != "-h" {
+		t.Fatalf("popup = %q, want it sized", popup)
+	}
+	w, _ := strconv.Atoi(popup[7])
+	for i, ln := range keysPage() {
+		if got := lipgloss.Width(ln); got+2 > w {
+			t.Errorf("page row %d is %d columns, wider than the popup's %d: %q", i, got, w, stripANSI(ln))
+		}
+	}
+	for _, key := range []string{"shell", "kill the tree", "the next waiting agent", "leave"} {
+		if !strings.Contains(keysOf(model{}), key) {
+			t.Errorf("the page does not list %q", key)
 		}
 	}
 }
 
-func TestTheKeysModalIsARectangle(t *testing.T) {
-	// The overlay reserves the first row's width for every row, so a row
-	// wider than the top border would spill past the box's right edge.
-	m := manyProjects(120, 30)
-	box := m.keysModal(30)
-	if len(box) == 0 {
-		t.Fatal("no modal to measure")
-	}
-	w := lipgloss.Width(box[0])
-	for i, ln := range box {
-		if got := lipgloss.Width(ln); got != w {
-			t.Errorf("modal row %d is %d columns, want %d: %q", i, got, w, stripANSI(ln))
+func TestThePopupIsCutToAShortClient(t *testing.T) {
+	// tmux refuses a popup taller than the client rather than cutting it,
+	// so the ask is cut first: a short client gets what fits.
+	var popup []string
+	run := func(args ...string) (string, error) {
+		switch args[0] {
+		case "list-clients":
+			return "10\tc0\n20\tc1", nil
+		case "display-message":
+			return "80 20", nil
+		case "display-popup":
+			popup = args
 		}
+		return "", nil
+	}
+	if err := showKeys(run, "/opt/scrn", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(popup) < 10 || popup[3] != "c1" || popup[9] != "20" {
+		t.Errorf("popup = %q, want it on the client that spoke last, 20 rows tall", popup)
 	}
 }
 
-func TestAnyKeyPutsTheKeysAway(t *testing.T) {
-	// The modal was asked for with a keystroke and leaves on one — and the
-	// leaving key is swallowed, not acted on.
-	m := press(press(manyProjects(90, 14), "?"), "j")
-	if m.showHelp {
-		t.Error("a key with the modal open should close it")
-	}
-	if m.cursor != 0 {
-		t.Error("the closing key should be swallowed, not acted on")
-	}
-}
-
-func TestEscapeClosesTheKeysFirst(t *testing.T) {
-	// Whatever is open is what esc is most likely about.
-	m := press(manyProjects(90, 14), "?")
-	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	m = next.(model)
-
-	if cmd != nil {
-		t.Error("esc with the keys open should close them, not quit")
-	}
-	if m.showHelp {
-		t.Error("esc should close the keys")
-	}
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
-		t.Error("a second esc, with nothing left open, should do nothing")
-	}
-}
-
-func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
+func TestEscapeWithNothingOpenDoesNothing(t *testing.T) {
 	m := manyProjects(90, 14)
-	closed := m.bodyHeight()
-	open := press(m, "?").bodyHeight()
-
-	if open != closed {
-		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
-	}
-	if closed != m.height-2 {
-		t.Errorf("the list has %d rows, want all but the masthead and its blank", closed)
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
+		t.Error("esc with nothing open should do nothing")
 	}
 }
 

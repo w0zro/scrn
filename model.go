@@ -157,11 +157,6 @@ type model struct {
 	groups  []Project
 	grouped map[string][]Project
 
-	// showHelp puts the keys modal over the window. The keys are worth a foot
-	// line to say they exist and a modal to spell out; the next keystroke,
-	// whatever it is, puts the modal away.
-	showHelp bool
-
 	// unfolded draws every process on a line of its own, including the ones a
 	// run would otherwise fold away. The folded view is the reading view; this
 	// is for when the shell in the middle is the thing you came to find.
@@ -629,12 +624,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.PasteMsg:
-		// A paste while the keys modal is up dismisses it, the way any
-		// keystroke does, and goes no further.
-		if m.showHelp {
-			m.showHelp = false
-			return m, nil
-		}
 		// Into the picker it is more of the query, the way it is for the
 		// filter: pasting a phrase from a transcript is a fine way to look.
 		if m.resume != nil {
@@ -653,14 +642,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// The keys modal takes the next key, whatever it is: it was asked for
-		// with a keystroke and leaves on one, and nothing under it should act
-		// while it covers the window.
-		if m.showHelp {
-			m.showHelp = false
-			return m, nil
-		}
-
 		// A pending kill takes the next key, whatever it is — before even
 		// the prefix, or the warning lies: routed later, a prefix excursion
 		// could carry the armed kill along for minutes and hand it to an
@@ -721,7 +702,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		switch msg.String() {
 		case "?":
-			m.showHelp = true
+			// The keys, in a popup over the whole window: tmux draws it,
+			// and the next keystroke puts it away.
+			m.server.help()
 			return m, nil
 		case "R":
 			return m, m.askReplace()

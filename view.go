@@ -65,9 +65,6 @@ func (m model) layout() string {
 			lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i)+ansi.ResetStyle)
 		}
 	}
-	if m.showHelp {
-		lines = m.overlayKeys(lines)
-	}
 	return strings.Join(lines, "\n")
 }
 
@@ -193,106 +190,6 @@ func (m model) footLines(width int) []string {
 		return hintBlock("filter "+m.filter, width, selStyle)
 	}
 	return nil
-}
-
-// keysModal is every key, spelled out in a box for the middle of the window,
-// cut down to what the window can hold. The list is ordered so that what a
-// short window drops is what is least missed.
-func (m model) keysModal(rows int) []string {
-	keys := [][2]string{
-		{"↑↓ j k", "move"},
-		{"J K", "next · previous shell"},
-		{"enter", "open"},
-		{"s", "shell"},
-		{"a", "agent"},
-		{"A", "continue a conversation"},
-		{"r", "run"},
-		{"x · X", "kill · kill the tree"},
-		{"/", "find a project · a process"},
-		{"space · -", "fold · unfold all"},
-		{".", "all · running"},
-		{"gg · G", "top · bottom"},
-		{"R", "end the server, shells and all"},
-		{"q", "leave; the shells keep running"},
-		{"^spc n", "here, from any shell"},
-		{"^spc j k", "next · previous shell"},
-		{"^spc ^spc", "between the list and the shell"},
-		{"^spc enter", "the next waiting agent"},
-		{"^spc s a r A", "shell · agent · run · continue, here"},
-		{"^spc v", "read back; v marks, y copies"},
-		{"^spc /", "find from anywhere"},
-		{"^spc q", "leave from anywhere"},
-	}
-	// Four rows around the list: the borders, and a blank inside each — the
-	// blanks going first when the window cannot spare them.
-	air := rows-4 >= len(keys)
-	max := rows - 2
-	if air {
-		max = rows - 4
-	}
-	if max < len(keys) {
-		if max < 1 {
-			return nil
-		}
-		keys = keys[:max]
-	}
-
-	var keyw, descw int
-	for _, k := range keys {
-		if w := lipgloss.Width(k[0]); w > keyw {
-			keyw = w
-		}
-		if w := lipgloss.Width(k[1]); w > descw {
-			descw = w
-		}
-	}
-	inner := 1 + keyw + 2 + descw + 1
-
-	// "─ keys " is seven columns, so the dashes make the row up to the same
-	// inner width the content rows have.
-	top := ruleStyle.Render("╭─ ") + headingStyle.Render("keys") +
-		ruleStyle.Render(" "+strings.Repeat("─", inner-7)+"╮")
-	edge := ruleStyle.Render("│")
-	blank := edge + strings.Repeat(" ", inner) + edge
-	lines := make([]string, 0, len(keys)+4)
-	lines = append(lines, top)
-	if air {
-		lines = append(lines, blank)
-	}
-	for _, k := range keys {
-		lines = append(lines, edge+" "+pad(itemStyle.Render(k[0]), keyw)+
-			"  "+pad(hintStyle.Render(k[1]), descw)+" "+edge)
-	}
-	if air {
-		lines = append(lines, blank)
-	}
-	return append(lines, ruleStyle.Render("╰"+strings.Repeat("─", inner)+"╯"))
-}
-
-// overlayKeys lays the keys modal over the composed frame, through the
-// compositor: the frame is one layer and the box a layer above it, centered,
-// so the window shows around the box rather than being replaced by it.
-func (m model) overlayKeys(lines []string) []string {
-	box := m.keysModal(len(lines))
-	if len(box) == 0 || m.width <= 0 {
-		return lines
-	}
-	x := max((m.width-lipgloss.Width(box[0]))/2, 0)
-	y := (len(lines) - len(box)) / 2
-
-	comp := lipgloss.NewCompositor(
-		lipgloss.NewLayer(strings.Join(lines, "\n")).Z(0),
-		lipgloss.NewLayer(strings.Join(box, "\n")).X(x).Y(y).Z(1),
-	)
-	// The compositor draws to the union of its layers, so a box wider than
-	// a narrow window would widen every row and wrap the whole frame. The
-	// window's width is the law; the box loses its right edge before the
-	// layout loses its shape.
-	out := strings.Split(comp.Render(), "\n")
-	for i, ln := range out {
-		out[i] = ansi.Truncate(ln, m.width, "")
-	}
-	return out
 }
 
 // hintBlock wraps a line of scrn's own words to the column it has.

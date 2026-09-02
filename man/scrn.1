@@ -59,7 +59,9 @@ tab\-separated, the name empty for a shell opened by hand. No server
 listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
-shows this list inside scrn. The status line at the foot of the terminal
+shows this list inside scrn, in a popup over the whole window \(em from
+the navigator, or with the prefix from any shell; the next key puts it
+away. The status line at the foot of the terminal
 is tmux's: scrn's name, a tab per shell with its mark, the shown one lit,
 and
 .B prefix
@@ -223,7 +225,7 @@ leave, from anywhere
 end the server and every shell it holds, after asking
 .TP
 .B ?
-the navigator, with the keys
+the keys, over everything
 .PP
 Each shell keeps 10,000 lines of transcript unless the config says
 otherwise.
@@ -365,7 +367,8 @@ itself with a word \(em
 .BR run ,
 .BR jump ,
 .BR next ,
-.B prev
+.BR prev ,
+.B keys
 \(em each a short command against the server. They are not for typing.
 .PP
 The server lives exactly as long as it holds something: the home window
