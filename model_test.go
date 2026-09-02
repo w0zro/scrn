@@ -1824,7 +1824,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		id := "%" + strconv.Itoa(pid)
 		s.panes[pid] = &pane{id: id, pid: pid, dir: rt.dir, name: rt.name, sgr: true}
 		s.byPane[id] = pid
-		listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t%s\t%s", id, pid, rt.dir, rt.name, rt.dir))
+		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s", id, pid, pid, rt.dir, rt.name, rt.dir))
 	}
 
 	target := func(args []string) int {
@@ -1858,8 +1858,8 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			nextPID++
 			opening = &message{Kind: kindOpen, PID: nextPID, Dir: dir, Run: run}
 			id := "%" + strconv.Itoa(nextPID)
-			listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t\t%s", id, nextPID, dir, dir))
-			return fmt.Sprintf("%s %d", id, nextPID), nil
+			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s", id, nextPID, nextPID, dir, dir))
+			return fmt.Sprintf("%s @%d %d", id, nextPID, nextPID), nil
 		case "set":
 			// The terminal's colors land as the server's window-style; a
 			// pane's name lands right after its open, making the ask whole.

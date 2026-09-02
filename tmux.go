@@ -86,12 +86,13 @@ type ctlNote struct {
 type noteKind int
 
 const (
-	noteNothing noteKind = iota // a line the bridge has no use for
-	noteOutput                  // a pane drew something
-	noteWindows                 // the set of windows changed
-	noteError                   // a command was refused
-	noteExit                    // the server hung up this client
-	notePaste                   // a paste buffer changed: a program copied
+	noteNothing    noteKind = iota // a line the bridge has no use for
+	noteOutput                     // a pane drew something
+	noteWindows                    // the set of windows changed
+	noteError                      // a command was refused
+	noteExit                       // the server hung up this client
+	notePaste                      // a paste buffer changed: a program copied
+	noteClientGone                 // another client let go of the server
 )
 
 // parseNote reads one control-mode line. The data of an %output is not kept:
@@ -109,6 +110,14 @@ func parseNote(line string) ctlNote {
 		// Either way the set of windows is not what it was. Which windows
 		// remain is asked of tmux rather than tracked by arithmetic.
 		return ctlNote{kind: noteWindows}
+	case strings.HasPrefix(line, "%client-detached "):
+		// Another window let go. Whatever it had every window shrunk to is
+		// not owed to anyone now, and the sizes this window asks for are
+		// worth saying again. This, rather than %layout-change: a size is
+		// restated by saying refresh-client, which announces a layout
+		// change whether or not anything moved — a window listening to
+		// that would answer its own echo forever.
+		return ctlNote{kind: noteClientGone}
 	case strings.HasPrefix(line, "%paste-buffer-changed "):
 		// With set-clipboard on, a program's OSC 52 lands in a buffer and
 		// this says so — the hop through which a copy inside a pane reaches

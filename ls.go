@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strconv"
-	"strings"
 )
 
 // scrn ls is the faucet on the server's state: the shells it holds, one per
@@ -27,20 +25,8 @@ func runLS(w io.Writer) error {
 	}
 
 	var ss []sessionInfo
-	for line := range strings.SplitSeq(out, "\n") {
-		f := strings.Split(line, "\t")
-		if len(f) < 5 {
-			continue
-		}
-		pid, err := strconv.Atoi(f[1])
-		if err != nil {
-			continue
-		}
-		dir := f[2]
-		if dir == "" {
-			dir = f[4]
-		}
-		ss = append(ss, sessionInfo{PID: pid, Dir: dir, Name: f[3]})
+	for _, p := range parseListing(out) {
+		ss = append(ss, p.info())
 	}
 
 	sort.Slice(ss, func(i, j int) bool {

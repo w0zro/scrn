@@ -220,3 +220,75 @@ func TestAProgramsCopyReachesTheSystemClipboard(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryShellKeepsItsSizeWhenAnotherWindowLetsGo is the regression for a
+// shell left drawing into a rectangle. tmux hands a client's size to the
+// window that client has current; scrn has no current window, so a second,
+// narrower scrn window takes every window down to its size and, on going,
+// gets only the current one handed back. The others stayed narrow, and the
+// shell being watched kept drawing at the narrow width for the rest of its
+// life.
+func TestEveryShellKeepsItsSizeWhenAnotherWindowLetsGo(t *testing.T) {
+	m := openShellIn(t, repoModel(), "/tmp")
+	// A second shell, so the server holds a window no client has current —
+	// the one that used to be stranded.
+	m.daemon.open("/tmp", "", "", 60, 12)
+	m = pump(t, m, func(m model) bool { return len(m.terms) > 1 }, 10*time.Second)
+
+	// The model is done being asked anything; its events are drained so
+	// nothing blocks behind a full channel.
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		for {
+			select {
+			case <-m.daemon.events:
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	sizes := func() []string {
+		out, err := m.daemon.run("list-windows", "-a", "-F", "#{window_width}x#{window_height}")
+		if err != nil {
+			t.Helper()
+			t.Fatal(err)
+		}
+		return strings.Split(out, "\n")
+	}
+	all := func(want string) bool {
+		for _, s := range sizes() {
+			if s != want {
+				return false
+			}
+		}
+		return true
+	}
+	until := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for !ok() {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: windows are %v", what, sizes())
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	until("the shells never reached the size scrn asked for", func() bool { return all("60x12") })
+
+	// A second scrn window, in a terminal half the size, takes every window
+	// down with it — which is right, so both can draw what the shell drew.
+	other, err := startCtl(func(ctlNote) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.say("refresh-client -C 30x6")
+	until("the narrower window never took the shells down", func() bool { return all("30x6") })
+
+	// And on its going, every shell is the size this window asks for again —
+	// not just the one tmux happens to call current.
+	other.close()
+	until("a shell was left in the narrower window's rectangle", func() bool { return all("60x12") })
+}

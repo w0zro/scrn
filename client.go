@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,6 +170,7 @@ const probeEvery = 2 * time.Second
 // and what the last capture said about its modes.
 type pane struct {
 	id   string // "%3"
+	win  string // "@3", the window holding it — one pane to a window
 	pid  int
 	dir  string
 	name string
@@ -299,17 +301,12 @@ func (s *session) ensureCtl() {
 	if !closed {
 		s.ctl = ctl
 	}
-	w, h := s.width, s.height
 	s.mu.Unlock()
 	if closed {
-		// Closed while the client was starting: it is not this session's to
-		// keep, and a control client nobody holds is one still attached.
 		ctl.close()
 		return
 	}
-	if w > 0 && h > 0 {
-		ctl.say("refresh-client -C " + strconv.Itoa(w) + "x" + strconv.Itoa(h))
-	}
+	s.declareSizes()
 	// The server this window found may be another window's; it answers for
 	// the terminal's colors either way, so it is told what this one sees —
 	// and a program's OSC 52 must land in a buffer wherever the server
@@ -377,6 +374,8 @@ func (s *session) notify(n ctlNote) {
 		}
 	case noteWindows:
 		go s.refreshList()
+	case noteClientGone:
+		go s.declareSizes()
 	case notePaste:
 		// A program inside a pane copied — OSC 52, caught by the server —
 		// and the copy belongs on the system clipboard, the same place it
@@ -553,7 +552,38 @@ func padScreen(rows []string, width, height int) string {
 // through. The directory a shell was opened in is a pane option scrn set;
 // a pane scrn never dressed — opened through a bare tmux attach — falls
 // back to where it is working now.
-const listFormat = "#{pane_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}"
+const listFormat = "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}"
+
+// parseListing reads what list-panes said in listFormat, one record per
+// shell. Both readers of the server's state come through here, so the format
+// is written once and read once — the drift that costs is a field added to
+// the format and counted in only one of the two places that count fields.
+func parseListing(out string) []*pane {
+	var held []*pane
+	for line := range strings.SplitSeq(out, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) < 6 {
+			continue
+		}
+		pid, err := strconv.Atoi(f[2])
+		if err != nil {
+			continue
+		}
+		// A pane scrn never dressed reports no directory of its own, and
+		// falls back to where it is working now.
+		dir := f[3]
+		if dir == "" {
+			dir = f[5]
+		}
+		held = append(held, &pane{id: f[0], win: f[1], pid: pid, dir: dir, name: f[4]})
+	}
+	return held
+}
+
+// info is the pane as the model hears about it.
+func (p *pane) info() sessionInfo {
+	return sessionInfo{PID: p.pid, Dir: p.dir, Name: p.name}
+}
 
 // refreshList reads what the server holds and tells the model, reporting
 // whether a session was there to read. Shells that left are named going:
@@ -575,22 +605,10 @@ func (s *session) refreshList() bool {
 	held := map[int]*pane{}
 	byPane := map[string]int{}
 	var infos []sessionInfo
-	for line := range strings.SplitSeq(out, "\n") {
-		f := strings.Split(line, "\t")
-		if len(f) < 5 {
-			continue
-		}
-		pid, err := strconv.Atoi(f[1])
-		if err != nil {
-			continue
-		}
-		dir := f[2]
-		if dir == "" {
-			dir = f[4]
-		}
-		held[pid] = &pane{id: f[0], pid: pid, dir: dir, name: f[3]}
-		byPane[f[0]] = pid
-		infos = append(infos, sessionInfo{PID: pid, Dir: dir, Name: f[3]})
+	for _, p := range parseListing(out) {
+		held[p.pid] = p
+		byPane[p.id] = p.pid
+		infos = append(infos, p.info())
 	}
 
 	// Which shells left is worked out under the lock and carried out as a
@@ -607,6 +625,10 @@ func (s *session) refreshList() bool {
 	}
 	s.panes, s.byPane = held, byPane
 	s.mu.Unlock()
+
+	// A shell this window had not seen — its own, just opened, or one
+	// another window opened — has to be told what size to be.
+	s.declareSizes()
 
 	for _, pid := range gone {
 		s.events <- termGoneMsg{pid: pid}
@@ -625,6 +647,11 @@ func nextEvent(s *session) tea.Cmd {
 		return <-s.events
 	}
 }
+
+// paneBirth is what an open asks for back: the pane, the window holding it,
+// and the shell's pid. The window comes back with the rest because a shell
+// has to be told its size before it draws, and the size is said per window.
+const paneBirth = "#{pane_id} #{window_id} #{pane_pid}"
 
 // open starts a shell — or handed a command, that command with a shell
 // waiting behind it — in dir, held by the server. The first shell is what
@@ -645,7 +672,7 @@ func (s *session) open(dir, run, name string, w, h int) {
 		}
 
 		args := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
-			"-F", "#{pane_id} #{pane_pid}", "-c", dir}
+			"-F", paneBirth, "-c", dir}
 		if _, err := s.run("has-session", "-t", tmuxSession); err != nil {
 			// The first shell brings the server up around it. The options
 			// ride in the same invocation: the transcript cap has to stand
@@ -660,7 +687,7 @@ func (s *session) open(dir, run, name string, w, h int) {
 			}
 			args = append(args, "new-session", "-d", "-s", tmuxSession,
 				"-x", strconv.Itoa(max(w, 1)), "-y", strconv.Itoa(max(h, 1)),
-				"-P", "-F", "#{pane_id} #{pane_pid}", "-c", dir)
+				"-P", "-F", paneBirth, "-c", dir)
 		}
 		if cmd != "" {
 			args = append(args, cmd)
@@ -671,9 +698,14 @@ func (s *session) open(dir, run, name string, w, h int) {
 			s.events <- daemonErrorMsg{err: err}
 			return
 		}
-		id, pidStr, ok := strings.Cut(out, " ")
-		pid, aerr := strconv.Atoi(pidStr)
-		if !ok || aerr != nil {
+		f := strings.Fields(out)
+		if len(f) != 3 {
+			s.events <- daemonErrorMsg{err: errors.New("tmux said " + out)}
+			return
+		}
+		id, win := f[0], f[1]
+		pid, aerr := strconv.Atoi(f[2])
+		if aerr != nil {
 			s.events <- daemonErrorMsg{err: errors.New("tmux said " + out)}
 			return
 		}
@@ -684,7 +716,7 @@ func (s *session) open(dir, run, name string, w, h int) {
 			"set", "-p", "-t", id, "@scrn_name", name)
 
 		s.mu.Lock()
-		s.panes[pid] = &pane{id: id, pid: pid, dir: dir, name: name}
+		s.panes[pid] = &pane{id: id, win: win, pid: pid, dir: dir, name: name}
 		s.byPane[id] = pid
 		s.watching[pid] = true
 		s.mu.Unlock()
@@ -732,9 +764,7 @@ func (s *session) detach(pid int) {
 	s.mu.Unlock()
 }
 
-// setSize records the pane this window gives its shells and tells the
-// server, which sizes each window to the smallest client watching — the
-// same arbitration the old daemon ran, kept by tmux now.
+// setSize records the pane this window gives its shells, and says so.
 func (s *session) setSize(w, h int) {
 	if w <= 0 || h <= 0 {
 		return
@@ -742,10 +772,48 @@ func (s *session) setSize(w, h int) {
 	s.mu.Lock()
 	changed := w != s.width || h != s.height
 	s.width, s.height = w, h
-	ctl := s.ctl
 	s.mu.Unlock()
-	if changed && ctl != nil {
-		ctl.say("refresh-client -C " + strconv.Itoa(w) + "x" + strconv.Itoa(h))
+	if changed {
+		s.declareSizes()
+	}
+}
+
+// declareSizes tells the server the size of this client and of every window
+// it draws. Both, because they are different questions.
+//
+// A tmux client has one current window, and its size is the one the server
+// hands out. scrn has no current window: it draws whichever shell is
+// selected, out of a set that all have to be the size of the pane they are
+// drawn into, because any of them can be selected next. A window no client
+// has current is left at whatever size it was last given — a second scrn
+// window, in a narrower terminal, takes every window down to its size, and
+// when it goes only the current one is handed back. The rest stay narrow,
+// and the shell that was drawing at 120 columns keeps drawing at 60.
+//
+// Said per window, tmux keeps the arbitration it always had: a shell two
+// scrn windows are watching is the size of the smaller of them, and a larger
+// size restated while the smaller window is still there moves nothing.
+// Restating is how a stranded window is handed back, which is why nothing
+// here is elided for being unchanged.
+func (s *session) declareSizes() {
+	s.mu.Lock()
+	ctl, w, h := s.ctl, s.width, s.height
+	wins := make([]string, 0, len(s.panes))
+	for _, p := range s.panes {
+		if p.win != "" {
+			wins = append(wins, p.win)
+		}
+	}
+	s.mu.Unlock()
+	if ctl == nil || w <= 0 || h <= 0 {
+		return
+	}
+
+	size := strconv.Itoa(w) + "x" + strconv.Itoa(h)
+	ctl.say("refresh-client -C " + size)
+	slices.Sort(wins)
+	for _, win := range slices.Compact(wins) {
+		ctl.say("refresh-client -C " + win + ":" + size)
 	}
 }
 

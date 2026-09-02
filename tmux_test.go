@@ -24,6 +24,7 @@ func TestNotesAreReadFromTheStream(t *testing.T) {
 		{"%exit detached", ctlNote{kind: noteExit}},
 		{"%begin 123 4 1", ctlNote{}},
 		{"%layout-change @1 whatever", ctlNote{}},
+		{"%client-detached client-7", ctlNote{kind: noteClientGone}},
 		{"just some pane text", ctlNote{}},
 	}
 	for _, c := range cases {

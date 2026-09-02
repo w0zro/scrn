@@ -54,7 +54,7 @@ func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
 	s := newSession()
 	s.closed = true
 	s.run = func(args ...string) (string, error) {
-		return "%1\t700\t\t\t/somewhere/else", nil
+		return "%1\t@1\t700\t\t\t/somewhere/else", nil
 	}
 
 	s.refreshList()
