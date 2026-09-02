@@ -37,16 +37,15 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 // header and a footer is a terminal drawing something other than what it was
 // told it had room for.
 //
-// What the attached process asked of the terminal window — its title, its
-// progress — rides out on the view too. A program in the pane addresses those
-// to the terminal it believes it is in, which is scrn; scrn is inside a real
-// one, and the view is how it hands them on.
+// The title the attached process asked of the terminal window rides out on
+// the view too. A program in the pane addresses it to the terminal it
+// believes it is in, which is scrn; scrn is inside a real one, and the view
+// is how it hands the title on.
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
 	v.MouseMode = m.mouseMode()
 	v.WindowTitle = m.windowTitle
-	v.ProgressBar = m.progressBar()
 	return v
 }
 
@@ -62,43 +61,6 @@ func (m model) mouseMode() tea.MouseMode {
 		return tea.MouseModeCellMotion
 	}
 	return tea.MouseModeNone
-}
-
-// progressBar is the attached process's progress, restated for the window.
-// Only a focused shell speaks for it: a build finishing in a pane being
-// merely looked at should not set a bar on a tab showing something else.
-func (m model) progressBar() *tea.ProgressBar {
-	t := m.focused()
-	if t == nil || t.progress == "" {
-		// Nothing attached, or nothing running: a nil bar is the renderer's
-		// cue to clear whatever the last shell had put up.
-		return nil
-	}
-	// The payload the emulator hands over is the OSC 9;4 it heard —
-	// "9;4;<state>;<value>" — and the states are numbered the same on both
-	// sides of this restatement.
-	parts := strings.Split(t.progress, ";")
-	if len(parts) < 3 || parts[0] != "9" || parts[1] != "4" {
-		return nil
-	}
-	state, err := strconv.Atoi(parts[2])
-	if err != nil || state < int(tea.ProgressBarNone) || state > int(tea.ProgressBarWarning) {
-		return nil
-	}
-	value := 0
-	if len(parts) > 3 {
-		value, _ = strconv.Atoi(parts[3])
-	}
-	return tea.NewProgressBar(tea.ProgressBarState(state), value)
-}
-
-// oscTitleText is the title out of an OSC 0, 1 or 2 payload, which is the part
-// after the leading command number the emulator hands over.
-func oscTitleText(data string) string {
-	if _, rest, ok := strings.Cut(data, ";"); ok {
-		return rest
-	}
-	return data
 }
 
 func (m model) layout() string {

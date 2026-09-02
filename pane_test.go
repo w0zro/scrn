@@ -292,37 +292,6 @@ func TestTheReportSaysWhatWasActuallyDone(t *testing.T) {
 	}
 }
 
-func TestOnlyTheAttachedProcessSpeaksForTheWindow(t *testing.T) {
-	// A build finishing in a shell you are not looking at should not put its
-	// progress on the tab of the one you are.
-	m := repoModel()
-	m.terms = map[int]*remoteTerm{
-		700: {pid: 700, progress: "9;4;3;50"},
-		800: {pid: 800, progress: "9;4;1;10"},
-	}
-
-	m.focus = 700
-	if got := m.progressBar(); got == nil || got.State != tea.ProgressBarIndeterminate {
-		t.Errorf("bar = %+v, want the attached shell's progress", got)
-	}
-	m.focus = 800
-	if got := m.progressBar(); got == nil || got.State != tea.ProgressBarDefault || got.Value != 10 {
-		t.Errorf("bar = %+v, want the newly attached shell's progress", got)
-	}
-}
-
-func TestProgressIsClearedWhenNothingIsAttached(t *testing.T) {
-	// Leaving a shell that was reporting progress must take the indicator with
-	// it, or the terminal keeps showing work that is no longer being watched.
-	m := repoModel()
-	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;3;50"}}
-
-	m.focus = 0
-	if got := m.progressBar(); got != nil {
-		t.Errorf("bar = %+v, want none: a nil bar is how the renderer clears it", got)
-	}
-}
-
 func TestOnlyTheAttachedProcessRetitlesTheWindow(t *testing.T) {
 	// The title rides out on the view, and only the shell being looked at
 	// speaks for it: another one finishing a build should not retitle a tab
@@ -331,48 +300,16 @@ func TestOnlyTheAttachedProcessRetitlesTheWindow(t *testing.T) {
 	m.terms = map[int]*remoteTerm{700: {pid: 700}, 800: {pid: 800}}
 	m.focus = 700
 
-	next, _ := m.Update(screenMsg{pid: 800, title: "0;not yours"})
+	next, _ := m.Update(screenMsg{pid: 800, title: "not yours"})
 	m = next.(model)
 	if got := m.View().WindowTitle; got != "" {
 		t.Errorf("title = %q, want an unfocused shell kept off the window", got)
 	}
 
-	next, _ = m.Update(screenMsg{pid: 700, title: "0;vim README.md"})
+	next, _ = m.Update(screenMsg{pid: 700, title: "vim README.md"})
 	m = next.(model)
 	if got := m.View().WindowTitle; got != "vim README.md" {
-		t.Errorf("title = %q, want the focused shell's, without its command number", got)
-	}
-}
-
-func TestTheTitlePayloadDropsItsCommandNumber(t *testing.T) {
-	cases := map[string]string{
-		"0;✳ Claude Code": "✳ Claude Code",
-		"2;vim README.md": "vim README.md",
-		"no semicolon":    "no semicolon",
-	}
-	for in, want := range cases {
-		if got := oscTitleText(in); got != want {
-			t.Errorf("oscTitleText(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestTheProgressPayloadIsReadAsStateAndValue(t *testing.T) {
-	// The payload the emulator hands over is the OSC 9;4 it heard, and its
-	// states are numbered the way the renderer's are.
-	m := repoModel()
-	m.terms = map[int]*remoteTerm{700: {pid: 700, progress: "9;4;2;77"}}
-	m.focus = 700
-
-	got := m.progressBar()
-	if got == nil || got.State != tea.ProgressBarError || got.Value != 77 {
-		t.Errorf("bar = %+v, want the error state at 77", got)
-	}
-
-	// A payload that is not a progress report sets nothing.
-	m.terms[700].progress = "0;some title"
-	if got := m.progressBar(); got != nil {
-		t.Errorf("bar = %+v, want none for a payload that is not 9;4", got)
+		t.Errorf("title = %q, want the focused shell's", got)
 	}
 }
 

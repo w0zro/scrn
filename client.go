@@ -89,10 +89,9 @@ type remoteTerm struct {
 	mouse bool
 	alt   bool
 
-	// What the program in it has asked of the terminal window. scrn is the
-	// one with a window, so it is scrn that has to ask for it.
-	title    string
-	progress string
+	// The title the program in it has asked of the terminal window. scrn is
+	// the one with a window, so it is scrn that has to ask for it.
+	title string
 }
 
 // Messages the client raises for the model.
@@ -117,15 +116,14 @@ type (
 
 	// screenMsg is one shell's pane as it now stands.
 	screenMsg struct {
-		pid      int
-		screen   string
-		curX     int
-		curY     int
-		title    string
-		progress string
-		sb       int
-		mouse    bool
-		alt      bool
+		pid    int
+		screen string
+		curX   int
+		curY   int
+		title  string
+		sb     int
+		mouse  bool
+		alt    bool
 	}
 
 	// historyMsg is a shell's transcript, asked for when someone starts

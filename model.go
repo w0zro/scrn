@@ -524,13 +524,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.terms[msg.pid] = t
 		}
 		t.screen, t.curX, t.curY = msg.screen, msg.curX, msg.curY
-		t.title, t.progress = msg.title, msg.progress
+		t.title = msg.title
 		t.sb, t.mouse, t.alt = msg.sb, msg.mouse, msg.alt
 
 		// Only the shell being looked at speaks for the window. Another one
 		// finishing a build should not retitle a tab showing something else.
 		if m.focus == msg.pid && t.title != "" {
-			m.windowTitle = oscTitleText(t.title)
+			m.windowTitle = t.title
 		}
 		return m, nextEvent(m.daemon)
 
