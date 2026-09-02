@@ -77,7 +77,10 @@ version=${tag#v}
 asset="scrn_${version}_${target}.tar.gz"
 base="https://github.com/$repo/releases/download/$tag"
 
-tmp=$(mktemp -d)
+# Staged beside where the binary will live, not in /tmp: the move into place
+# below is a rename only within one filesystem, and /tmp is often another.
+mkdir -p "$dir" || die "could not make $dir"
+tmp=$(mktemp -d "$dir/.scrn-install.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 printf 'downloading scrn %s for %s\n' "$version" "$target"
@@ -95,11 +98,11 @@ got=$(sha256 "$tmp/$asset")
 tar -xzf "$tmp/$asset" -C "$tmp"
 [ -f "$tmp/scrn" ] || die "$asset does not hold a scrn binary"
 
-mkdir -p "$dir"
 chmod 755 "$tmp/scrn"
 
-# Moved into place rather than written over, so that a scrn already running
-# from this path keeps the binary it started with.
+# Renamed into place rather than written over, so that a scrn already running
+# from this path keeps the binary it started with. A rename only, because the
+# staging directory is on the same filesystem as the destination.
 mv -f "$tmp/scrn" "$dir/scrn" ||
 	die "could not put scrn in $dir"
 
