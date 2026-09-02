@@ -251,23 +251,23 @@ type model struct {
 	// was started has not finished anything and is not owed an answer.
 	worked map[int]bool
 
-	// terms are the shells the daemon is holding, keyed by the pid running
+	// terms are the shells the server is holding, keyed by the pid running
 	// each one. A repository can hold as many as you open; they tell themselves
 	// apart in the navigator because each is its own process in that
 	// repository's tree.
 	//
-	// The client owns none of them. It learns about them from the daemon, which
+	// The client owns none of them. It learns about them from the server, which
 	// is what lets them still be here when a window that opened one has gone.
 	terms map[int]*remoteTerm
 
-	// daemon is the connection to the process holding the shells, and err says
-	// so when there is not one.
-	daemon    *session
-	daemonErr string
+	// server is the connection to the tmux server holding the shells, and
+	// err says so when there is not one.
+	server    *session
+	serverErr string
 
-	// backoff is the wait before the next attempt to reach a daemon that went
+	// backoff is the wait before the next attempt to reach a server that went
 	// away or could not be reached, doubled per consecutive failure and reset
-	// once a daemon is talking.
+	// once a server is talking.
 	backoff time.Duration
 
 	// pendingReplace is R waiting on its confirmation: ending the server
@@ -327,7 +327,7 @@ func newModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(scanProjects, scanProcs, scanAgents, connectDaemon(),
+	return tea.Batch(scanProjects, scanProcs, scanAgents, connectServer(),
 		tick(procPoll), agentTick(),
 		// The styles depend on the terminal's background, which lipgloss no
 		// longer guesses at: scrn asks, and rebuilds them on the answer. The
@@ -409,7 +409,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The shells are drawing into the pane, so they are the ones that have
 		// been resized, whatever the window did.
 		for pid := range m.terms {
-			m.daemon.resize(pid, m.detailWidth(), m.paneHeight())
+			m.server.resize(pid, m.detailWidth(), m.paneHeight())
 		}
 
 	case projectsMsg:
@@ -437,35 +437,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.detailCmd(), owed)
 
 	case reconnectMsg:
-		return m, connectDaemon()
+		return m, connectServer()
 
-	case daemonReadyMsg:
+	case serverReadyMsg:
 		if msg.err != nil {
-			// Not reaching the daemon is not the end of it: nothing but a retry
+			// Not reaching the server is not the end of it: nothing but a retry
 			// will ever turn this window back into a useful one.
-			m.daemonErr = msg.err.Error()
+			m.serverErr = msg.err.Error()
 			return m, m.retryConnect()
 		}
-		m.daemon, m.daemonErr = msg.session, ""
+		m.server, m.serverErr = msg.session, ""
 		// The colors can have answered before the session was up; a session
 		// that arrives second is told what the first answer said.
-		m.daemon.theme(m.termFG, m.termBG)
+		m.server.theme(m.termFG, m.termBG)
 		// A fresh connection holds no watches, whatever this window was
 		// previewing over the last one; the preview is asked for again once
-		// the daemon says what it holds.
+		// the server says what it holds.
 		m.previewing = 0
 		// Ask what is already running: shells from a window that has since
 		// been closed are still there, and this is where they come back.
-		m.daemon.list()
-		return m, nextEvent(m.daemon)
+		m.server.list()
+		return m, nextEvent(m.server)
 
-	case daemonErrorMsg:
-		// One ask failed; the daemon and its shells are fine. Say what it said
+	case serverErrorMsg:
+		// One ask failed; the server and its shells are fine. Say what it said
 		// and carry on listening.
 		m.status, m.statusErr = msg.err.Error(), true
-		return m, nextEvent(m.daemon)
+		return m, nextEvent(m.server)
 
-	case daemonLostMsg:
+	case serverLostMsg:
 		// The server hung this window up — the last shell closed and the
 		// session went with it, or something ended the server outright. The
 		// bridge keeps watching for a new one on its own; here the window
@@ -476,7 +476,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status, m.statusErr = msg.err.Error(), true
 		}
 		m.rebuild()
-		return m, nextEvent(m.daemon)
+		return m, nextEvent(m.server)
 
 	case termOpenedMsg:
 		if _, ok := m.terms[msg.pid]; !ok {
@@ -489,7 +489,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setFocus(msg.pid)
 			m.wantCursor = msg.pid
 		}
-		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
+		return m, tea.Batch(nextEvent(m.server), m.scanNow())
 
 	case sessionsMsg:
 		// The server is talking, so whatever chase was on is over.
@@ -509,11 +509,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 0
 		}
 		m.rebuild()
-		// The daemon may have just said what it holds while the cursor was
+		// The server may have just said what it holds while the cursor was
 		// already standing on one of those shells; the pane should not wait
 		// for the cursor to move before showing it.
 		m.syncPreview()
-		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
+		return m, tea.Batch(nextEvent(m.server), m.scanNow())
 
 	case screenMsg:
 		t, ok := m.terms[msg.pid]
@@ -532,14 +532,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focus == msg.pid && t.title != "" {
 			m.windowTitle = t.title
 		}
-		return m, nextEvent(m.daemon)
+		return m, nextEvent(m.server)
 
 	case historyMsg:
 		s := m.scroll
 		t, ok := m.terms[msg.pid]
 		if s == nil || s.pid != msg.pid || !ok {
 			// Asked for and no longer wanted; the reading has already ended.
-			return m, nextEvent(m.daemon)
+			return m, nextEvent(m.server)
 		}
 		// The transcript plus the screen as it stands is the whole document.
 		// The screen is frozen into it on purpose: output only appends, so a
@@ -560,7 +560,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.above = max
 		}
 		m.clampCur()
-		return m, nextEvent(m.daemon)
+		return m, nextEvent(m.server)
 
 	case termGoneMsg:
 		delete(m.terms, msg.pid)
@@ -571,10 +571,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = nil
 		}
 		m.rebuild()
-		// Asking again is what notices a daemon that has just become
+		// Asking again is what notices a server that has just become
 		// replaceable: the shell keeping an out-of-date one alive was this.
-		m.daemon.list()
-		return m, tea.Batch(nextEvent(m.daemon), m.scanNow())
+		m.server.list()
+		return m, tea.Batch(nextEvent(m.server), m.scanNow())
 
 	case agentTickMsg:
 		return m, tea.Batch(scanAgents, agentTick())
@@ -712,7 +712,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if t := m.focused(); t != nil && t.mouse {
-			m.daemon.mouse(t.pid, ev)
+			m.server.mouse(t.pid, ev)
 		}
 		return m, nil
 
@@ -722,14 +722,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		applyBackground(msg.IsDark())
 		if msg.Color != nil {
 			m.termBG = msg.String()
-			m.daemon.theme(m.termFG, m.termBG)
+			m.server.theme(m.termFG, m.termBG)
 		}
 		return m, nil
 
 	case tea.ForegroundColorMsg:
 		if msg.Color != nil {
 			m.termFG = msg.String()
-			m.daemon.theme(m.termFG, m.termBG)
+			m.server.theme(m.termFG, m.termBG)
 		}
 		return m, nil
 
@@ -755,7 +755,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// keystrokes it would have taken to type, so a program that asked for
 		// bracketed paste is told where it starts and stops.
 		if t := m.focused(); t != nil {
-			m.daemon.paste(t.pid, msg.Content)
+			m.server.paste(t.pid, msg.Content)
 			return m, nil
 		}
 		// Into the filter it is just more of the query.
@@ -800,7 +800,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// keep their letters' meanings: another ctrl+space toggles between
 		// this shell and the one viewed before it, enter goes to the next
 		// agent waiting on its user, / finds, j and k step through the
-		// shells scrn holds, s a r act where the keys are, o steps out to
+		// shells scrn holds, s a r act where the keys are, n steps out to
 		// the navigator, q quits, ? shows the keys. Anything unbound cancels
 		// it and is swallowed, the way a half-finished gg swallows.
 		if m.pendingPrefix {
@@ -877,7 +877,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// belongs to whatever is running in the shell, not to scrn. The one
 		// way out is the prefix, which was taken above.
 		if t := m.focused(); t != nil {
-			m.daemon.key(t.pid, keyEvent(msg))
+			m.server.key(t.pid, keyEvent(msg))
 			return m, nil
 		}
 
@@ -887,7 +887,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.filterKey(msg)
 		}
 
-		// Replacing the daemon ends the work it is holding, so it takes a
+		// Ending the server ends the work it is holding, so it takes a
 		// second key like any other kill.
 		if m.pendingReplace {
 			m.pendingReplace = false
@@ -895,7 +895,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "R", "y", "enter":
 				// The bridge notices the server going and says so; clearing
 				// here as well just spares the window a beat of stale rows.
-				m.daemon.replace()
+				m.server.replace()
 				m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
 				m.status, m.statusErr = "ending the server and its shells", false
 				m.rebuild()
@@ -1280,7 +1280,7 @@ func (m *model) attachTo(t *remoteTerm) {
 			break
 		}
 	}
-	m.daemon.attach(t.pid, m.detailWidth(), m.paneHeight())
+	m.server.attach(t.pid, m.detailWidth(), m.paneHeight())
 }
 
 // openFilter starts typing a filter. The list becomes every project straight
@@ -1343,11 +1343,11 @@ func (m *model) startHere(command string) tea.Cmd {
 	if t == nil {
 		return m.start(command)
 	}
-	if m.daemon == nil {
-		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
+	if m.server == nil {
+		m.status, m.statusErr = "no server to hold it: "+m.serverErr, true
 		return nil
 	}
-	m.daemon.open(t.dir, command, "", m.detailWidth(), m.paneHeight())
+	m.server.open(t.dir, command, "", m.detailWidth(), m.paneHeight())
 	return nil
 }
 
@@ -1476,11 +1476,11 @@ func (m *model) start(command string) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.daemon == nil {
-		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
+	if m.server == nil {
+		m.status, m.statusErr = "no server to hold it: "+m.serverErr, true
 		return nil
 	}
-	m.daemon.open(m.shellDir(r), command, "", m.detailWidth(), m.paneHeight())
+	m.server.open(m.shellDir(r), command, "", m.detailWidth(), m.paneHeight())
 	return nil
 }
 
@@ -1516,9 +1516,9 @@ func (m *model) openShell() tea.Cmd {
 		// is finished. Nothing has to be waited for: the project already holds
 		// the shell being entered, so it stays listed without the filter.
 		m.setFilter("")
-		// The screen comes from the daemon, which is what makes a shell from
+		// The screen comes from the server, which is what makes a shell from
 		// an earlier window come back with what it had drawn still on it.
-		m.daemon.attach(t.pid, m.detailWidth(), m.paneHeight())
+		m.server.attach(t.pid, m.detailWidth(), m.paneHeight())
 		return nil
 	}
 	return m.start("")
@@ -1526,7 +1526,7 @@ func (m *model) openShell() tea.Cmd {
 
 // runKill carries out a confirmed kill, splitting it by who owns the target.
 //
-// A shell scrn holds is hung up through the daemon rather than signalled: an
+// A shell scrn holds is hung up through the server rather than signalled: an
 // interactive shell ignores SIGTERM, so signalling one leaves it sitting there
 // and scrn reporting that it would not go. Everything else is somebody else's
 // process, and a signal is all scrn has.
@@ -1536,7 +1536,7 @@ func (m *model) runKill(req *killRequest) tea.Cmd {
 
 	for _, n := range req.nodes {
 		if _, mine := m.terms[n.PID]; mine {
-			m.daemon.closeTerm(n.PID)
+			m.server.closeTerm(n.PID)
 			hungUp = append(hungUp, killResult{command: n.Command, pid: n.PID, hungUp: true})
 			continue
 		}
@@ -1555,10 +1555,10 @@ func (m model) shellAround(n *ProcNode) *ProcNode {
 	return m.nodes[t.pid]
 }
 
-// retryConnect schedules another attempt to reach the daemon, waiting twice
-// as long as the last one up to a cap. The wait is reset by a daemon that
+// retryConnect schedules another attempt to reach the server, waiting twice
+// as long as the last one up to a cap. The wait is reset by a server that
 // talks, so a normal loss is recovered in well under a second and only a
-// daemon that keeps failing is given room.
+// server that keeps failing is given room.
 func (m *model) retryConnect() tea.Cmd {
 	switch {
 	case m.backoff <= 0:
@@ -1577,7 +1577,7 @@ func (m *model) retryConnect() tea.Cmd {
 // goes stale under a new build — so it is the blunt instrument, kept for
 // the day something wedges, and it always asks first.
 func (m *model) askReplace() tea.Cmd {
-	if len(m.terms) == 0 && m.daemonErr == "" {
+	if len(m.terms) == 0 && m.serverErr == "" {
 		m.status, m.statusErr = "nothing is held; there is nothing to replace", false
 		return nil
 	}
@@ -1598,8 +1598,8 @@ func (m *model) run() tea.Cmd {
 
 // runPlace starts what one place's plan says it needs and is not running.
 func (m *model) runPlace(p Project) tea.Cmd {
-	if m.daemon == nil {
-		m.status, m.statusErr = "no server to hold them: "+m.daemonErr, true
+	if m.server == nil {
+		m.status, m.statusErr = "no server to hold them: "+m.serverErr, true
 		return nil
 	}
 
@@ -1616,7 +1616,7 @@ func (m *model) runPlace(p Project) tea.Cmd {
 	}
 
 	for _, e := range missing {
-		m.daemon.open(p.Path, e.Run, e.Name, m.detailWidth(), m.paneHeight())
+		m.server.open(p.Path, e.Run, e.Name, m.detailWidth(), m.paneHeight())
 	}
 	// Several things are starting and none of them is the one you meant, so
 	// the cursor stays on the project rather than following any of them.
@@ -1986,7 +1986,7 @@ func (m *model) openReader() tea.Cmd {
 	if !t.alt {
 		// The transcript above joins the document when it arrives; the
 		// alternate screen has none, and is whole already.
-		m.daemon.history(t.pid)
+		m.server.history(t.pid)
 	}
 	return nil
 }
@@ -2152,9 +2152,9 @@ func (m *model) rebuild() {
 	if m.wantCursor != 0 && m.running(m.wantCursor) {
 		m.filter = ""
 	}
-	// The daemon holding them is enough to know they exist; waiting for the
+	// The server holding them is enough to know they exist; waiting for the
 	// process scan as well would hold the search open for a poll longer, and
-	// the daemon is the thing that was actually asked.
+	// the server is the thing that was actually asked.
 	if m.wantProject != "" && len(m.planned(m.wantProject)) > 0 {
 		m.filter = ""
 	}
@@ -2317,7 +2317,7 @@ func (m model) repoTrees(repo string) []*ProcNode {
 }
 
 // placeHasWork reports whether a sub-project holds a process tree or a shell
-// the daemon is holding there — the shell counting before the scan has seen
+// the server is holding there — the shell counting before the scan has seen
 // it, for the same reason a repository's does.
 func (m model) placeHasWork(path string) bool {
 	if len(m.byPlace[path]) > 0 {
@@ -2444,7 +2444,7 @@ func (m model) topPlaces() []navRow {
 // the repositories a claude is working in and not only the ones named for it.
 // A repository whose sub-project answers is listed for the answer's sake, the
 // way a directory holds the file you were looking for. Otherwise the ones
-// with work in them, or all behind the dot. A shell the daemon is holding
+// with work in them, or all behind the dot. A shell the server is holding
 // counts as work before the scan has seen it: it is running, and asking for
 // it and then watching the project vanish for a poll would be a lie about
 // what just happened.
@@ -2761,7 +2761,7 @@ func (m model) awaiting(r navRow) agent {
 	return a
 }
 
-// syncPreview keeps the daemon sending the screen the pane is showing. A
+// syncPreview keeps the server sending the screen the pane is showing. A
 // window is attached to what it entered; the glance — the held shell under
 // the cursor — has to be asked for too, or a shell this window never stepped
 // into previews blank. What the pane stops showing is detached again.
@@ -2776,11 +2776,11 @@ func (m *model) syncPreview() {
 		return
 	}
 	if m.previewing != 0 && m.previewing != m.focus {
-		m.daemon.detach(m.previewing)
+		m.server.detach(m.previewing)
 	}
 	m.previewing = want
 	if want != 0 {
-		m.daemon.attach(want, m.detailWidth(), m.paneHeight())
+		m.server.attach(want, m.detailWidth(), m.paneHeight())
 	}
 }
 

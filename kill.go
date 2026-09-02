@@ -77,7 +77,7 @@ func spin() tea.Cmd {
 // the children it started will start them again — that is what a watcher is
 // for — so the process that would do the restarting is stopped first.
 // done carries the outcomes already settled before the command runs — the
-// shells the daemon was asked to hang up, which needed no signal.
+// shells the server was asked to hang up, which needed no signal.
 //
 // Before anything is signalled, ps is asked when each pid's process began.
 // The tree is a scan old, and on a busy machine a pid in it can have been

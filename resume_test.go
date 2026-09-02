@@ -181,7 +181,7 @@ func TestPickerTypingNarrowsAndEnterContinues(t *testing.T) {
 		conversation{ID: "aaaa-1111", Dir: "/p/scrn", Prompt: "fix the resize race"},
 		conversation{ID: "bbbb-2222", Dir: "/p/scrn/docs", Prompt: "polish the site"},
 	)
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	for _, k := range []string{"s", "i", "t", "e"} {
 		m = press(m, k)

@@ -29,7 +29,7 @@ func versionString() string {
 }
 
 // usage is the whole of scrn's command line. The detail — keys, config,
-// the daemon's life — belongs to the manual, not here.
+// the server's life — belongs to the manual, not here.
 const usage = `scrn is a terminal UI for working on projects at the command line.
 
 usage:

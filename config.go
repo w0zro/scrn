@@ -20,8 +20,8 @@ type Config struct {
 
 	// Scrollback is how many lines of transcript each shell keeps once they
 	// scroll off the pane. Zero means the default of 10000, which a work
-	// build log can overrun. The daemon reads it when it starts, so raising
-	// it takes a daemon restart (R) to reach the shells.
+	// build log can overrun. The server takes it as it starts, so raising
+	// it takes a fresh server (R) to reach the shells.
 	Scrollback int `json:"scrollback,omitempty"`
 
 	// SkipDirs are directory names the project walk never enters, on top of

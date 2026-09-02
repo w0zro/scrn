@@ -182,7 +182,7 @@ func (m model) footLines(width int) []string {
 	case m.resume != nil:
 		// The picker's look wears the filter's face: it is the same kind of
 		// typing, aimed at conversations instead of places. What was just
-		// reported — a missing daemon — takes the line above it.
+		// reported — a missing server — takes the line above it.
 		lines := hintBlock("/"+m.resume.query+"█", width, itemStyle)
 		if m.status != "" {
 			style := itemStyle

@@ -14,16 +14,15 @@ import (
 // out: an up arrow is "\x1b[A" until the program in the pane asks for
 // application cursor keys, at which point it is "\x1bOA", and vim, readline
 // and less all ask. The same key is different bytes depending on a mode that
-// only the emulator is tracking.
+// only the pane's own terminal is tracking, and that terminal is tmux's.
 //
-// So nothing here writes bytes. A keystroke crosses to the daemon as the
-// event it was, and the emulator, which knows what it has been asked for,
-// writes the bytes at the other end. Bubble Tea and the emulator share
-// ultraviolet's vocabulary — the same codes, the same modifier bits — so
-// where this file once translated between two namings of every key, it now
-// only restates one of them as the wire's struct.
+// So nothing here writes bytes. A keystroke crosses to tmux as the event it
+// was — a key name, or the text it typed — and tmux, which knows what the
+// pane has asked for, writes the bytes at the other end. Bubble Tea speaks
+// ultraviolet's vocabulary — codes and modifier bits — so this file only
+// restates a keystroke as the struct the bridge encodes from.
 
-// keyEvent turns a keystroke into the event the emulator will encode.
+// keyEvent turns a keystroke into the event the bridge will encode.
 func keyEvent(msg tea.KeyPressMsg) *keyPress {
 	return &keyPress{Code: msg.Code, Text: msg.Text, Mod: int(msg.Mod)}
 }
@@ -98,7 +97,7 @@ var writeClipboard = func(text string) error {
 // The buttons cross by number, from the X11 codes every terminal has reported
 // since: none, left, middle, right, then the four a wheel has. A wheel turn
 // arrives as its own message type but is a press of a wheel button, which is
-// how the emulator will report it onward.
+// how it is encoded onward.
 func mouseEvent(msg tea.MouseMsg, left, top int) *mousePress {
 	mo := msg.Mouse()
 	x, y := mo.X-left, mo.Y-top

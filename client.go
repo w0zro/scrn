@@ -96,8 +96,8 @@ type remoteTerm struct {
 
 // Messages the client raises for the model.
 type (
-	// daemonReadyMsg says the session is up, or explains why it is not.
-	daemonReadyMsg struct {
+	// serverReadyMsg says the session is up, or explains why it is not.
+	serverReadyMsg struct {
 		session *session
 		err     error
 	}
@@ -136,14 +136,14 @@ type (
 	// termGoneMsg says a shell has finished.
 	termGoneMsg struct{ pid int }
 
-	// daemonLostMsg says the server hung this window up. With no error it is
+	// serverLostMsg says the server hung this window up. With no error it is
 	// the ordinary end of holding nothing — the last shell closed, the
 	// session went, and the session object keeps watching for a new one.
-	daemonLostMsg struct{ err error }
+	serverLostMsg struct{ err error }
 
-	// daemonErrorMsg says the server could not do something it was asked to.
+	// serverErrorMsg says the server could not do something it was asked to.
 	// This is a report about one ask, not about the server.
-	daemonErrorMsg struct{ err error }
+	serverErrorMsg struct{ err error }
 )
 
 // reconnectMsg asks for another go at connecting, for the one failure the
@@ -214,17 +214,17 @@ func newSession() *session {
 	}
 }
 
-// connectDaemon builds the session and has it find whatever is already held.
+// connectServer builds the session and has it find whatever is already held.
 // The one unrecoverable failure is tmux not being installed: everything else
 // the session chases on its own.
-func connectDaemon() tea.Cmd {
+func connectServer() tea.Cmd {
 	return func() tea.Msg {
 		if _, err := exec.LookPath("tmux"); err != nil {
-			return daemonReadyMsg{err: errors.New("tmux is not installed")}
+			return serverReadyMsg{err: errors.New("tmux is not installed")}
 		}
 		s := newSession()
 		go s.connect()
-		return daemonReadyMsg{session: s}
+		return serverReadyMsg{session: s}
 	}
 }
 
@@ -394,7 +394,7 @@ func (s *session) notify(n ctlNote) {
 			go s.carryCopy(n.buffer)
 		}
 	case noteError:
-		s.events <- daemonErrorMsg{err: errors.New(n.err)}
+		s.events <- serverErrorMsg{err: errors.New(n.err)}
 	case noteExit:
 		s.mu.Lock()
 		if s.ctl != nil {
@@ -402,7 +402,7 @@ func (s *session) notify(n ctlNote) {
 			s.ctl = nil
 		}
 		s.mu.Unlock()
-		s.events <- daemonLostMsg{}
+		s.events <- serverLostMsg{}
 		s.watchForServer()
 	}
 }
@@ -728,18 +728,18 @@ func (s *session) open(dir, run, name string, w, h int) {
 
 		out, err := s.run(args...)
 		if err != nil {
-			s.events <- daemonErrorMsg{err: err}
+			s.events <- serverErrorMsg{err: err}
 			return
 		}
 		f := strings.Fields(out)
 		if len(f) != 3 {
-			s.events <- daemonErrorMsg{err: errors.New("tmux said " + out)}
+			s.events <- serverErrorMsg{err: errors.New("tmux said " + out)}
 			return
 		}
 		id, win := f[0], f[1]
 		pid, aerr := strconv.Atoi(f[2])
 		if aerr != nil {
-			s.events <- daemonErrorMsg{err: errors.New("tmux said " + out)}
+			s.events <- serverErrorMsg{err: errors.New("tmux said " + out)}
 			return
 		}
 

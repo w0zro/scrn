@@ -1798,14 +1798,14 @@ func (c sayCollector) Write(p []byte) (int, error) {
 
 func (c sayCollector) Close() error { return nil }
 
-// pipeDaemon gives a model a session whose asks land on the returned
+// pipeServer gives a model a session whose asks land on the returned
 // channel. The session runs over a fake tmux: panes are seeded from the
 // terms the test built, commands are answered plausibly, and the control
 // side never starts, so no real server is touched.
-func pipeDaemon(t *testing.T, m model) (model, chan message) {
+func pipeServer(t *testing.T, m model) (model, chan message) {
 	t.Helper()
 	s, asked := recordingSession(m.terms)
-	m.daemon = s
+	m.server = s
 	return m, asked
 }
 
@@ -1891,14 +1891,14 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 	return s, asked
 }
 
-// askedFor waits for the daemon to be asked something, or fails the test.
+// askedFor waits for the server to be asked something, or fails the test.
 func askedFor(t *testing.T, asked chan message) message {
 	t.Helper()
 	select {
 	case got := <-asked:
 		return got
 	case <-time.After(time.Second):
-		t.Fatal("the daemon was asked for nothing")
+		t.Fatal("the server was asked for nothing")
 		return message{}
 	}
 }
@@ -1906,7 +1906,7 @@ func askedFor(t *testing.T, asked chan message) message {
 func TestPrefixSOpensAShellBesideTheFocusedOne(t *testing.T) {
 	m := twoShells(700)
 	m.terms[700].dir = "/p/a"
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	chord(m, "s")
 	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != "" {
@@ -1917,7 +1917,7 @@ func TestPrefixSOpensAShellBesideTheFocusedOne(t *testing.T) {
 func TestPrefixAStartsAnAgentBesideTheFocusedShell(t *testing.T) {
 	m := twoShells(700)
 	m.terms[700].dir = "/p/a"
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	chord(m, "a")
 	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != startAgent() {
@@ -1936,7 +1936,7 @@ func TestPrefixRRunsThePlanOfTheFocusedShellsPlace(t *testing.T) {
 	m := withProcList(96, 14, []Project{{Name: "app", Path: dir}}, nil)
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: filepath.Join(dir, "src")}}
 	m.focus = 700
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	chord(m, "r")
 	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != dir || got.Name != "web" {
@@ -2047,7 +2047,7 @@ func TestAReusedPIDIsNotDressedUpAsClaude(t *testing.T) {
 }
 
 func TestAClaudeWithNoSessionFileIsJustAProcess(t *testing.T) {
-	// The daemon is called claude too, and advertises no session.
+	// Claude's own helper is called claude too, and advertises no session.
 	m := withClaude("claude", nil)
 
 	row := navColumn(m)[1]
@@ -2355,7 +2355,7 @@ func TestEnterOnAFoundProcessStepsIn(t *testing.T) {
 	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
 		[]Proc{{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/brand"}})
 	m.terms[100] = &remoteTerm{pid: 100}
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	// The cursor lands on the matching shell by itself; enter needs no move.
 	m = typeFilter(press(narrowed(m), "/"), "zsh")
@@ -2528,7 +2528,7 @@ func TestEscWhileTypingStepsBackIntoTheShell(t *testing.T) {
 	// A filter opened from inside a shell was a look out of it; abandoning
 	// the look means the keys go back where they came from.
 	m := twoShells(700)
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 	m = chord(m, "/")
 	if !m.typing || m.focus != 0 {
 		t.Fatalf("setup: typing=%v focus=%d, want the filter to have the keys", m.typing, m.focus)
@@ -2619,7 +2619,7 @@ func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
 		[]Project{{Name: "brand", Path: "/p/hsg/brand"}, {Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/hsg/brand"}})
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/hsg/brand"}}
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 	m.showAll = false
 	m.filter = "brand"
 	m.rebuild()
@@ -2873,7 +2873,7 @@ func TestPrefixQuestionMarkShowsTheKeysFromAShell(t *testing.T) {
 	if !m.showHelp {
 		t.Fatal("^spc ? should show the keys over a focused shell")
 	}
-	m = press(m, "x") // would reach the shell, or panic on the nil daemon
+	m = press(m, "x") // would reach the shell, or panic on the nil server
 	if m.showHelp {
 		t.Error("the next key should close the modal")
 	}
@@ -3195,7 +3195,7 @@ func TestALostServerClearsTheShells(t *testing.T) {
 	m := sized(90, 14)
 	m.terms = map[int]*remoteTerm{700: {pid: 700}}
 	m.focus = 700
-	next, _ := m.Update(daemonLostMsg{})
+	next, _ := m.Update(serverLostMsg{})
 	got := next.(model)
 	if len(got.terms) != 0 || got.focus != 0 {
 		t.Errorf("terms = %d, focus = %d; want the held shells cleared", len(got.terms), got.focus)
@@ -3206,8 +3206,8 @@ func TestALostServerClearsTheShells(t *testing.T) {
 }
 
 func TestAFailedConnectIsRetried(t *testing.T) {
-	// Not reaching the daemon leaves nothing to wait on but the retry itself.
-	_, cmd := sized(90, 14).Update(daemonReadyMsg{err: errors.New("no daemon")})
+	// Not reaching the server leaves nothing to wait on but the retry itself.
+	_, cmd := sized(90, 14).Update(serverReadyMsg{err: errors.New("no server")})
 	if cmd == nil {
 		t.Fatal("no command, want another attempt scheduled")
 	}
@@ -3218,7 +3218,7 @@ func TestTheChaseBacksOffToACap(t *testing.T) {
 	// retries slow down rather than hammering.
 	m := sized(90, 14)
 	for range 12 {
-		next, _ := m.Update(daemonReadyMsg{err: errors.New("tmux is not installed")})
+		next, _ := m.Update(serverReadyMsg{err: errors.New("tmux is not installed")})
 		m = next.(model)
 	}
 	if m.backoff != reconnectMax {
@@ -3226,12 +3226,12 @@ func TestTheChaseBacksOffToACap(t *testing.T) {
 	}
 }
 
-func TestADaemonTalkingResetsTheChase(t *testing.T) {
+func TestAServerTalkingResetsTheChase(t *testing.T) {
 	m := sized(90, 14)
 	m.backoff = reconnectMax
 	next, _ := m.Update(sessionsMsg{})
 	if got := next.(model).backoff; got != 0 {
-		t.Errorf("backoff = %v after the daemon spoke, want the chase forgotten", got)
+		t.Errorf("backoff = %v after the server spoke, want the chase forgotten", got)
 	}
 }
 
@@ -3547,7 +3547,7 @@ func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
 	m.terms = map[int]*remoteTerm{700: {pid: 700}}
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // onto the shell's row
 	m = next.(model)
@@ -3560,9 +3560,9 @@ func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
 	if m.previewing != 0 {
 		t.Errorf("previewing = %d, want nothing", m.previewing)
 	}
-	m.daemon.mu.Lock()
-	watching := m.daemon.watching[700]
-	m.daemon.mu.Unlock()
+	m.server.mu.Lock()
+	watching := m.server.watching[700]
+	m.server.mu.Unlock()
 	if watching {
 		t.Error("leaving the row let the watch stand")
 	}
@@ -3611,7 +3611,7 @@ func TestTheTerminalsColorsReachTheServer(t *testing.T) {
 	// A pane asking OSC 11 — what color is this terminal — has to get the
 	// truth, so what the real terminal answered is carried to the server.
 	m := sized(90, 14)
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	next, _ := m.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#1a1b26")})
 	m = next.(model)

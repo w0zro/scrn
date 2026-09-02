@@ -175,8 +175,8 @@ func (m *model) resumePick() tea.Cmd {
 	if len(list) == 0 {
 		return nil
 	}
-	if m.daemon == nil {
-		m.status, m.statusErr = "no server to hold it: "+m.daemonErr, true
+	if m.server == nil {
+		m.status, m.statusErr = "no server to hold it: "+m.serverErr, true
 		return nil
 	}
 	c := list[min(m.resume.cursor, len(list)-1)]
@@ -186,7 +186,7 @@ func (m *model) resumePick() tea.Cmd {
 		return nil
 	}
 	m.resume = nil
-	m.daemon.open(c.Dir, run, "", m.detailWidth(), m.paneHeight())
+	m.server.open(c.Dir, run, "", m.detailWidth(), m.paneHeight())
 	return nil
 }
 

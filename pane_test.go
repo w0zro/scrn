@@ -16,7 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// insideShell puts a process under a shell the daemon holds, the way a claude
+// insideShell puts a process under a shell the server holds, the way a claude
 // started with a sits under the shell that ran it.
 func insideShell(t *testing.T, shellPID int) model {
 	t.Helper()
@@ -319,7 +319,7 @@ func replaceableServer(t *testing.T) model {
 	t.Helper()
 	m := repoModel()
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 	m.rebuild()
 	return m
 }
@@ -391,7 +391,7 @@ func projectNeeding(t *testing.T, plan string) (model, string) {
 		}
 	}
 	m := withProcList(90, 20, []Project{{Name: "proj", Path: dir}}, nil)
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 	return m, dir
 }
 
@@ -497,7 +497,7 @@ func lookingUp(t *testing.T, filter string) model {
 		{Name: "alpha", Path: dir},
 		{Name: "beta", Path: t.TempDir()},
 	}, nil)
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 	m.showAll = false
 	m = press(m, "/")
 	for _, r := range filter {
@@ -759,7 +759,7 @@ func TestCmdVReachesTheShellAsAPaste(t *testing.T) {
 	t.Cleanup(func() { readClipboard = old })
 
 	m := watchingTail(t)
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 
 	next, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModSuper})
 	m = next.(model)
@@ -803,7 +803,7 @@ func TestPrefixVOpensTheReaderEvenOnTheAlternateScreen(t *testing.T) {
 	// out of git log wants.
 	m := watchingTail(t)
 	m.terms[700].alt = true
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 
 	m = chord(m, "v")
 	if m.scroll == nil || m.scroll.pid != 700 || m.scroll.doc == nil {
@@ -896,7 +896,7 @@ func TestAListeningProgramGetsTheMouseRaw(t *testing.T) {
 	// asked for it. Every event crosses as it happens — press, drag,
 	// release — with nothing deferred and nothing interpreted.
 	m := previewedShell(t)
-	m, asked := pipeDaemon(t, m)
+	m, asked := pipeServer(t, m)
 	m.setFocus(700)
 	m.terms[700].mouse = true
 
@@ -935,7 +935,7 @@ func TestTheNavigatorIgnoresTheMouseEvenWhenItIsHeld(t *testing.T) {
 	// lands on nothing — the same nothing it lands on when tracking is
 	// off and the terminal owns the click.
 	m := previewedShell(t)
-	m, _ = pipeDaemon(t, m)
+	m, _ = pipeServer(t, m)
 	m.setFocus(700)
 	m.terms[700].mouse = true
 	was := m.cursor

@@ -23,7 +23,7 @@ func connected(t *testing.T, m model) model {
 	// client, which is a size arbitration nobody asked for.
 	s := newSession()
 	t.Cleanup(s.close)
-	next, _ := m.Update(daemonReadyMsg{session: s})
+	next, _ := m.Update(serverReadyMsg{session: s})
 	return next.(model)
 }
 
@@ -33,7 +33,7 @@ func pump(t *testing.T, m model, want func(model) bool, d time.Duration) model {
 	deadline := time.After(d)
 	for !want(m) {
 		select {
-		case ev := <-m.daemon.events:
+		case ev := <-m.server.events:
 			next, _ := m.Update(ev)
 			m = next.(model)
 		case <-deadline:
@@ -57,7 +57,7 @@ func paneHas(text string) func(model) bool {
 func openShellIn(t *testing.T, m model, dir string) model {
 	t.Helper()
 	m = connected(t, m)
-	m.daemon.open(dir, "", "", 60, 12)
+	m.server.open(dir, "", "", 60, 12)
 	return pump(t, m, hasShell, 10*time.Second)
 }
 
@@ -128,7 +128,7 @@ func TestClosingTheShellEmptiesTheList(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	pid := m.focus
 
-	m.daemon.closeTerm(pid)
+	m.server.closeTerm(pid)
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 0 }, 10*time.Second)
 	if m.focus != 0 {
 		t.Errorf("focus = %d, want it released with the shell", m.focus)
@@ -139,7 +139,7 @@ func TestANamedShellCarriesItsName(t *testing.T) {
 	// A plan's entry opens under the name the plan gave it, and the name
 	// survives the trip through the server's state.
 	m := connected(t, repoModel())
-	m.daemon.open("/tmp", "cat", "web", 60, 12)
+	m.server.open("/tmp", "cat", "web", 60, 12)
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 1 }, 10*time.Second)
 
 	for _, rt := range m.terms {
@@ -155,11 +155,11 @@ func TestTheTranscriptComesBack(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	m = pump(t, send(m, "seq 1 40"), paneHas("40"), 10*time.Second)
 
-	m.daemon.history(m.focus)
+	m.server.history(m.focus)
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
-		case ev := <-m.daemon.events:
+		case ev := <-m.server.events:
 			if h, ok := ev.(historyMsg); ok {
 				if !strings.Contains(h.history, "1") {
 					t.Fatalf("history = %q, want the scrolled-off lines", h.history)
@@ -177,13 +177,13 @@ func TestTheServerLearnsTheTerminalsColors(t *testing.T) {
 	// setting it is what lets programs in panes find out what color the
 	// terminal is, the way the old emulator's answers did.
 	m := connected(t, repoModel())
-	m.daemon.open("/tmp", "", "", 60, 12)
+	m.server.open("/tmp", "", "", 60, 12)
 	m = pump(t, m, hasShell, 10*time.Second)
 
-	m.daemon.theme("#e6e6e6", "#1a1b26")
+	m.server.theme("#e6e6e6", "#1a1b26")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		out, err := m.daemon.run("show", "-g", "window-style")
+		out, err := m.server.run("show", "-g", "window-style")
 		if err == nil && strings.Contains(out, "fg=#e6e6e6,bg=#1a1b26") {
 			return
 		}
@@ -214,7 +214,7 @@ func TestAProgramsCopyReachesTheSystemClipboard(t *testing.T) {
 				t.Fatalf("clipboard got %q, want the program's copy", got)
 			}
 			return
-		case ev := <-m.daemon.events:
+		case ev := <-m.server.events:
 			next, _ := m.Update(ev)
 			m = next.(model)
 		case <-deadline:
@@ -234,7 +234,7 @@ func TestEveryShellKeepsItsSizeWhenAnotherWindowLetsGo(t *testing.T) {
 	m := openShellIn(t, repoModel(), "/tmp")
 	// A second shell, so the server holds a window no client has current —
 	// the one that used to be stranded.
-	m.daemon.open("/tmp", "", "", 60, 12)
+	m.server.open("/tmp", "", "", 60, 12)
 	m = pump(t, m, func(m model) bool { return len(m.terms) > 1 }, 10*time.Second)
 
 	// The model is done being asked anything; its events are drained so
@@ -244,7 +244,7 @@ func TestEveryShellKeepsItsSizeWhenAnotherWindowLetsGo(t *testing.T) {
 	go func() {
 		for {
 			select {
-			case <-m.daemon.events:
+			case <-m.server.events:
 			case <-done:
 				return
 			}
@@ -252,7 +252,7 @@ func TestEveryShellKeepsItsSizeWhenAnotherWindowLetsGo(t *testing.T) {
 	}()
 
 	sizes := func() []string {
-		out, err := m.daemon.run("list-windows", "-a", "-F", "#{window_width}x#{window_height}")
+		out, err := m.server.run("list-windows", "-a", "-F", "#{window_width}x#{window_height}")
 		if err != nil {
 			t.Helper()
 			t.Fatal(err)
@@ -305,9 +305,9 @@ func TestTheFirstShellMakesTheSocketsDirectory(t *testing.T) {
 
 	s := newSession()
 	t.Cleanup(s.close)
-	next, _ := repoModel().Update(daemonReadyMsg{session: s})
+	next, _ := repoModel().Update(serverReadyMsg{session: s})
 	m := next.(model)
-	m.daemon.open("/tmp", "", "", 60, 12)
+	m.server.open("/tmp", "", "", 60, 12)
 	m = pump(t, m, hasShell, 10*time.Second)
 
 	if m.focused() == nil {

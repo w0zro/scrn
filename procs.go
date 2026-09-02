@@ -109,7 +109,7 @@ func runningProcs() ([]Proc, error) {
 			// disappear in that repository's tree on every refresh.
 			//
 			// scrn has no children worth showing: the shells it opens belong
-			// to the daemon, which is a different process and keeps its own
+			// to the tmux server, which is a different process and keeps its own
 			// working directory well away from any project.
 			if cur.PID == 0 || cur.PID == self || cur.PPID == self || !strings.HasPrefix(value, "/") {
 				continue
