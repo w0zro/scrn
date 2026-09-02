@@ -920,11 +920,21 @@ func (s *session) mouse(pid int, m *mousePress) {
 	if m == nil {
 		return
 	}
-	p := s.pane(pid)
+	// The SGR flag is the capture's to write, under the lock; it is read
+	// under the same lock rather than off a pointer the capture may be
+	// writing through.
+	s.mu.Lock()
+	p := s.panes[pid]
+	var id string
+	var sgr bool
+	if p != nil {
+		id, sgr = p.id, p.sgr
+	}
+	s.mu.Unlock()
 	if p == nil {
 		return
 	}
-	s.say(tmuxMouseLines(p.id, m, p.sgr))
+	s.say(tmuxMouseLines(id, m, sgr))
 }
 
 // paste sends pasted text as a paste, so a program with bracketed paste on
