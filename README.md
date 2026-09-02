@@ -5,7 +5,7 @@ A terminal UI for working on projects at the command line.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh
+curl -fsSL https://scrn.w0zro.com/install.sh | sh
 ```
 
 That fetches the build for this machine, checks it against the release's
@@ -27,7 +27,7 @@ go install github.com/w0zro/scrn@latest
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests on macOS,
 cross-compiles the four builds, and publishes them with a `checksums.txt` that
-`install.sh` reads.
+`install.sh` reads. The script is served from `docs/`, with the site.
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0

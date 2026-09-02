@@ -1,7 +1,10 @@
 #!/bin/sh
 # Install scrn: fetch the build made for this machine and put it on the path.
 #
-#   curl -fsSL https://raw.githubusercontent.com/w0zro/scrn/main/install.sh | sh
+#   curl -fsSL https://scrn.w0zro.com/install.sh | sh
+#
+# It lives in docs/ because that is what scrn.w0zro.com serves: one script,
+# one address, for macOS and Linux alike.
 #
 # SCRN_VERSION pins a release instead of taking the latest. SCRN_INSTALL_DIR
 # says where the binary goes.
