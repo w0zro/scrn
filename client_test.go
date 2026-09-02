@@ -91,7 +91,7 @@ func TestShowingAShellJoinsSwapsOrParks(t *testing.T) {
 		{"", "%5", "join-pane -h -d -l 91 -s %5 -t %0 ; select-layout -t %0 main-vertical"},
 		// A shell there already: the two trade places, so the one leaving
 		// takes the window the other came from, sized to the slot it left.
-		{"%3", "%5", "swap-pane -s %5 -t %3 ; resize-window -t %3 -x 91 -y 29"},
+		{"%3", "%5", "swap-pane -d -s %5 -t %3 ; resize-window -t %3 -x 91 -y 29"},
 		// No shell wanted: the one there goes back to a window of its own,
 		// at the slot's size.
 		{"%3", "", "break-pane -d -n shell -s %3 ; resize-window -t %3 -x 91 -y 29"},

@@ -682,8 +682,11 @@ func showPane(run runner, nav, target string, column int) error {
 			"select-layout", "-t", nav, "main-vertical")
 		_, err = run(args...)
 	default:
+		// -d: the keys stay where they are. Without it the pane swapped in
+		// becomes the active one whatever was active before, and a glance
+		// from the list would hand the next keystroke to the shell.
 		args := []string{"rename-window", "-t", target, heldName, ";",
-			"swap-pane", "-s", target, "-t", shown}
+			"swap-pane", "-d", "-s", target, "-t", shown}
 		_, err = run(append(args, park(shown)...)...)
 	}
 	return err

@@ -109,8 +109,41 @@ func TestTheShellIsShownBesideTheNavigatorAndParkedAgain(t *testing.T) {
 		t.Errorf("home window panes:\n%s\nwant the navigator 28 wide on the left and the shell active beside it", out)
 	}
 
+	// A second shell, previewed from the list: it trades places with the
+	// first, and the keys stay at the navigator. tmux's swap makes the
+	// pane swapped in the active one unless told not to.
+	// Opened straight through tmux: a shell the navigator opens itself
+	// is one it hands the keys to, and this one must not be.
+	if _, err := createWindow(tmuxCommand, "/tmp", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmuxCommand("select-pane", "-t", f[1]); err != nil {
+		t.Fatal(err)
+	}
+	m.server.list()
+	m = pump(t, m, func(m model) bool { return len(m.terms) == 2 }, 10*time.Second)
+	other := 0
+	for p := range m.terms {
+		if p != pid {
+			other = p
+		}
+	}
+	m.server.preview(other)
+	m = pump(t, m, func(m model) bool { p := m.server.pane(other); return p != nil && p.shown }, 10*time.Second)
+	out, _ = tmuxCommand("display", "-p", "-t", f[0], "#{pane_id}")
+	if out != f[1] {
+		t.Errorf("active pane after a glance's swap = %s, want the navigator %s", out, f[1])
+	}
+
 	m.server.preview(0)
-	m = pump(t, m, func(m model) bool { return !shown(m) }, 10*time.Second)
+	m = pump(t, m, func(m model) bool {
+		for p := range m.terms {
+			if q := m.server.pane(p); q != nil && q.shown {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second)
 	out, _ = tmuxCommand("list-panes", "-t", f[0], "-F", "#{pane_id}")
 	if out != f[1] {
 		t.Errorf("home window panes = %q, want the navigator alone", out)
