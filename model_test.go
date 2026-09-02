@@ -1644,12 +1644,14 @@ type message struct {
 }
 
 const (
-	kindOpen   = "open"
-	kindAttach = "attach"
-	kindClose  = "close"
-	kindShow   = "show"
-	kindLeave  = "leave"
-	kindDress  = "dress"
+	kindOpen  = "open"
+	kindClose = "close"
+	kindShow  = "show"  // a shell moved beside the navigator
+	kindPark  = "park"  // the shown shell moved back to a window of its own
+	kindFocus = "focus" // the keys taken to a pane
+	kindLeave = "leave"
+	kindDress = "dress" // a pane named for the title
+	kindStrip = "strip" // the status line's tab strip said whole
 )
 
 // pipeServer gives a model a session whose asks land on the returned
@@ -1666,35 +1668,68 @@ func pipeServer(t *testing.T, m model) (model, chan message) {
 func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 	s := newSession()
 	s.closed = true // never attach a control client or probe for a server
+	s.nav = "%0"    // the navigator's own pane, which the fake's home holds
 
 	asked := make(chan message, 16)
 	var mu sync.Mutex
 	var opening *message
 	var listing []string
+	shown := 0 // the pid beside the navigator, if any
 	nextPID := 900
 
 	for pid, rt := range terms {
 		id := "%" + strconv.Itoa(pid)
 		s.panes[pid] = &pane{id: id, win: "@" + strconv.Itoa(pid), pid: pid, dir: rt.dir, name: rt.name}
 		s.byPane[id] = pid
-		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s\t", id, pid, pid, rt.dir, rt.name, rt.dir))
+		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s\t\t\tshell", id, pid, pid, rt.dir, rt.name, rt.dir))
 	}
 
 	// The fake's panes and windows are numbered by pid, so a target names
-	// its pid whichever it is.
-	target := func(args []string) int {
+	// its pid whichever it is — after -t, or after -s for the pane a move
+	// moves.
+	after := func(args []string, flag string) int {
 		for i, a := range args {
-			if a == "-t" && i+1 < len(args) && (strings.HasPrefix(args[i+1], "%") || strings.HasPrefix(args[i+1], "@")) {
+			if a == flag && i+1 < len(args) && (strings.HasPrefix(args[i+1], "%") || strings.HasPrefix(args[i+1], "@")) {
 				pid, _ := strconv.Atoi(args[i+1][1:])
 				return pid
 			}
 		}
 		return 0
 	}
+	target := func(args []string) int { return after(args, "-t") }
+	has := func(args []string, word string) bool {
+		for _, a := range args {
+			if a == word {
+				return true
+			}
+		}
+		return false
+	}
 
+	// One call can carry several commands, ; between them, and each is
+	// answered on its own; the last one's answer is the call's.
+	var one func(args []string) (string, error)
 	s.run = func(args ...string) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		out, err := "", error(nil)
+		for len(args) > 0 {
+			end := len(args)
+			for i, a := range args {
+				if a == ";" {
+					end = i
+					break
+				}
+			}
+			out, err = one(args[:end])
+			if end == len(args) {
+				break
+			}
+			args = args[end+1:]
+		}
+		return out, err
+	}
+	one = func(args []string) (string, error) {
 		switch args[0] {
 		case "has-session":
 			return "", nil
@@ -1713,31 +1748,48 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			nextPID++
 			opening = &message{Kind: kindOpen, PID: nextPID, Dir: dir, Run: run}
 			id := "%" + strconv.Itoa(nextPID)
-			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s\t", id, nextPID, nextPID, dir, dir))
+			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s\t\t\tshell", id, nextPID, nextPID, dir, dir))
 			return fmt.Sprintf("%s @%d %d", id, nextPID, nextPID), nil
 		case "set":
-			// A pane's name lands right after its open, making the ask whole.
-			if opening != nil {
+			switch {
+			case has(args, "@scrn_tab"):
+				asked <- message{Kind: kindDress, PID: target(args), Name: args[len(args)-1]}
+			case has(args, "@scrn_tabs"):
+				asked <- message{Kind: kindStrip, Name: args[len(args)-1]}
+			case has(args, "@scrn_name") && opening != nil:
+				// A pane's name lands right after its open, making the ask
+				// whole.
 				opening.Name = args[len(args)-1]
 				asked <- *opening
 				opening = nil
 			}
 			return "", nil
 		case "list-panes":
+			if has(args, "-t") {
+				// The home window: the navigator, and the shell beside it.
+				out := "%0\t1"
+				if shown != 0 {
+					out += fmt.Sprintf("\n%%%d\t", shown)
+				}
+				return out, nil
+			}
 			return strings.Join(listing, "\n"), nil
-		case "capture-pane":
-			// A screen ask means the pane is being previewed.
-			asked <- message{Kind: kindAttach, PID: target(args)}
+		case "join-pane", "swap-pane":
+			// A shell moved beside the navigator.
+			shown = after(args, "-s")
+			asked <- message{Kind: kindShow, PID: shown}
 			return "", nil
-		case "select-window":
-			asked <- message{Kind: kindShow, PID: target(args)}
+		case "break-pane":
+			asked <- message{Kind: kindPark, PID: after(args, "-s")}
+			shown = 0
+			return "", nil
+		case "select-pane":
+			asked <- message{Kind: kindFocus, PID: target(args)}
+			return "", nil
+		case "select-window", "rename-window", "select-layout":
 			return "", nil
 		case "detach-client":
 			asked <- message{Kind: kindLeave}
-			return "", nil
-		case "rename-window":
-			// The name the window is given, and the mark set beside it.
-			asked <- message{Kind: kindDress, PID: target(args), Name: args[3], Run: args[len(args)-1]}
 			return "", nil
 		case "kill-pane":
 			asked <- message{Kind: kindClose, PID: target(args)}
@@ -1749,7 +1801,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 }
 
 // askedForKind waits for the server to be asked something of one kind,
-// letting the asks before it — a preview's capture, most often — go by.
+// letting the asks before it — the tab strip, most often — go by.
 func askedForKind(t *testing.T, asked chan message, kind string) message {
 	t.Helper()
 	deadline := time.After(time.Second)
@@ -1965,54 +2017,6 @@ func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 	m = press(m, "-")
 	if r, _ := m.selected(); r.node.PID != 20 {
 		t.Errorf("selected pid %d, want to still be on nvim 20 after unfolding", r.node.PID)
-	}
-}
-
-// runWithShell is a model standing on a folded run — a shell scrn holds that
-// started a claude — with the shell's screen and the row's details in hand.
-func runWithShell(screen string) model {
-	m := withProcList(80, 24,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
-		})
-	m.terms[10] = &remoteTerm{pid: 10, screen: screen}
-	m.details["proc:20"] = []field{heading("claude"), {label: "run", value: "zsh 10 › claude 20"}}
-	m.cursor = 1
-	return m
-}
-
-func TestAFoldedRunSplitsThePaneIntoBannerAndScreen(t *testing.T) {
-	// The shell's screen shows what the run is doing; the banner says what it
-	// is. Standing on the row shows both, the facts above the live pane.
-	pane := detailColumn(runWithShell("hello-from-the-shell"))
-
-	rule, screen := -1, -1
-	for i, row := range pane {
-		if strings.HasPrefix(strings.TrimSpace(row), "──") {
-			rule = i
-		}
-		if strings.Contains(row, "hello-from-the-shell") {
-			screen = i
-		}
-	}
-	if len(pane) == 0 || !strings.Contains(pane[0], "claude") {
-		t.Fatalf("pane = %q, want the detail heading across the top", pane)
-	}
-	if rule < 0 || screen < 0 || rule > screen {
-		t.Fatalf("pane = %q, want a rule between the banner and the screen", pane)
-	}
-}
-
-func TestTheSplitPaneKeepsTheBottomOfTheScreen(t *testing.T) {
-	// The shell is sized for the whole pane, and the banner leaves less than
-	// that. What goes is blank padding first and the oldest rows second: the
-	// bottom of a screen is the part a glance is after.
-	term := &remoteTerm{screen: "old\nnewer\nnewest\n\n\n"}
-	got := screenTail(term, 2)
-	if len(got) != 2 || got[0] != "newer" || got[1] != "newest" {
-		t.Errorf("screenTail = %q, want the last things said", got)
 	}
 }
 
@@ -3240,10 +3244,10 @@ func TestAShellOnAGroupRowStartsAtTheGroup(t *testing.T) {
 	}
 }
 
-func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
-	// A shell this window never stepped into previews blank unless the pane
-	// asks for its screens: landing on the row attaches, and moving off
-	// detaches, so a glance does not keep a say in the shell's size forever.
+func TestLandingOnAShellShowsItAndLeavingParksIt(t *testing.T) {
+	// The pane beside the navigator is the shell under the cursor: landing
+	// on its row moves it there, without taking the keys from the list, and
+	// moving off to a row with no shell gives it back a window of its own.
 	m := withProcList(90, 14,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
@@ -3252,20 +3256,145 @@ func TestTheGlanceAttachesAndTheLeavingDetaches(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // onto the shell's row
 	m = next.(model)
-	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 700 {
-		t.Fatalf("asked %q for pid %d, want the shell's screen for 700", got.Kind, got.PID)
+	if got := askedForKind(t, asked, kindShow); got.PID != 700 {
+		t.Fatalf("asked %+v, want the shell 700 shown beside the navigator", got)
+	}
+	if m.previewing != 700 {
+		t.Errorf("previewing = %d, want 700", m.previewing)
+	}
+	select {
+	case got := <-asked:
+		if got.Kind == kindFocus {
+			t.Error("a glance took the keys to the shell")
+		}
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // back to the repo row
 	m = next.(model)
+	if got := askedForKind(t, asked, kindPark); got.PID != 700 {
+		t.Fatalf("asked %+v, want the shell 700 parked", got)
+	}
 	if m.previewing != 0 {
 		t.Errorf("previewing = %d, want nothing", m.previewing)
 	}
-	m.server.mu.Lock()
-	watching := m.server.watching[700]
-	m.server.mu.Unlock()
-	if watching {
-		t.Error("leaving the row let the watch stand")
+}
+
+func TestEnterOnAShownShellTakesTheKeysToIt(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m, asked := pipeServer(t, m)
+
+	m = press(press(m, "down"), "enter")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 700 {
+		t.Fatalf("asked %+v, want the keys taken to shell 700", got)
+	}
+}
+
+func TestJAndKStepThroughTheHeldShellsInOrder(t *testing.T) {
+	// The chord ctrl-space j presses J here: the next held shell in the
+	// navigator's order from the one shown, wrapping, with the keys in it.
+	// The order is the places' order, whatever is folded or filtered.
+	m := withProcList(90, 14,
+		[]Project{{Name: "alpha", Path: "/p/alpha"}, {Name: "beta", Path: "/p/beta"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/beta"},
+			{PID: 701, PPID: 1, Command: "zsh", Dir: "/p/alpha"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/beta"}, 701: {pid: 701, dir: "/p/alpha"}}
+	m, asked := pipeServer(t, m)
+
+	if got := m.heldOrder(); len(got) != 2 || got[0] != 701 || got[1] != 700 {
+		t.Fatalf("heldOrder = %v, want alpha's shell before beta's", got)
+	}
+	for i, want := range []int{701, 700, 701} {
+		m = press(m, "J")
+		if got := askedForKind(t, asked, kindFocus); got.PID != want {
+			t.Errorf("J %d took the keys to %d, want %d", i+1, got.PID, want)
+		}
+		if r, ok := m.selected(); !ok || !r.holds(want) {
+			t.Errorf("J %d left the cursor on %+v, want the shell %d", i+1, r, want)
+		}
+	}
+	m = press(m, "K")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 700 {
+		t.Errorf("K took the keys to %d, want back to 700", got.PID)
+	}
+}
+
+func TestJWithNoShellOpenSaysSo(t *testing.T) {
+	m, _ := pipeServer(t, repoModel())
+	m = press(m, "J")
+	if f := footer(m); !strings.Contains(f, "no shell is open") {
+		t.Errorf("footer = %q, want it said that there is nothing to step to", f)
+	}
+}
+
+func TestAShellAChordOpenedIsShownWhenItIsListed(t *testing.T) {
+	// A chord opens a shell in a window named for wanting it shown; the
+	// navigator sees the name in the listing and shows the shell the way
+	// it shows one it opened: keys in it, cursor to follow.
+	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, nil)
+	m, asked := pipeServer(t, m)
+	m.server.panes[700] = &pane{id: "%700", win: "@700", pid: 700, dir: "/tmp"}
+	m.server.byPane["%700"] = 700
+
+	next, _ := m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/tmp", Wanted: true}}})
+	m = next.(model)
+	if got := askedForKind(t, asked, kindFocus); got.PID != 700 {
+		t.Fatalf("asked %+v, want the keys taken to the wanted shell", got)
+	}
+	if m.wantCursor != 700 || m.previewing != 700 {
+		t.Errorf("wantCursor = %d, previewing = %d, want both on 700", m.wantCursor, m.previewing)
+	}
+}
+
+func TestANavigatorStartingBesideAShownShellBeginsOnIt(t *testing.T) {
+	// The last navigator went with a shell shown; the next one finds it in
+	// the listing and takes that as where the cursor is, rather than parking
+	// the shell for whatever row the cursor happened to start on.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m, asked := pipeServer(t, m)
+
+	next, _ := m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/tmp", Shown: true}}})
+	m = next.(model)
+	if m.previewing != 700 {
+		t.Errorf("previewing = %d, want the shell found shown", m.previewing)
+	}
+	if r, ok := m.selected(); !ok || !r.holds(700) {
+		t.Errorf("cursor on %+v, want the shown shell's row", r)
+	}
+	select {
+	case got := <-asked:
+		if got.Kind == kindPark || got.Kind == kindShow {
+			t.Errorf("the shell found shown was moved: %+v", got)
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestThePickerTakesThePaneAndGivesItBack(t *testing.T) {
+	// The picker draws where the shell was shown, so opening it parks the
+	// shell; closing it shows the shell again.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m, asked := pipeServer(t, m)
+	m = press(m, "down")
+	askedForKind(t, asked, kindShow)
+
+	m = press(m, "A")
+	if got := askedForKind(t, asked, kindPark); got.PID != 700 {
+		t.Fatalf("asked %+v, want the shell parked for the picker", got)
+	}
+	m = press(m, "esc")
+	if got := askedForKind(t, asked, kindShow); got.PID != 700 {
+		t.Fatalf("asked %+v, want the shell shown again", got)
 	}
 }
 
@@ -3280,8 +3409,8 @@ func TestAWideNavigatorInANarrowWindowDoesNotPanic(t *testing.T) {
 	m := withProcList(60, 24,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "held"}}
-	m.cursor = 1 // the shell's row, where the banner and its rule would draw
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m.cursor = 1 // the shell's row
 
 	view := stripANSI(m.View().Content)
 	if strings.Contains(view, "│") {
@@ -3362,20 +3491,55 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 	})})
 	m = next.(model)
 
-	got := askedForKind(t, asked, kindDress)
-	if got.PID != 700 || got.Name != "scrn: claude ◆" || got.Run != "◆" {
-		t.Errorf("dressed %+v, want window 700 named for its place and claude, marked ◆", got)
+	// The pane's name and the strip are said in either order.
+	said := map[string]message{}
+	deadline := time.After(time.Second)
+	for len(said) < 2 {
+		select {
+		case got := <-asked:
+			said[got.Kind] = got
+		case <-deadline:
+			t.Fatalf("said %v, want the pane dressed and the strip said", said)
+		}
+	}
+	if got := said[kindDress]; got.PID != 700 || got.Name != "scrn: claude ◆" {
+		t.Errorf("dressed %+v, want pane 700 named for its place and claude, marked ◆", got)
+	}
+	if got := said[kindStrip]; got.Name != " scrn: claude ◆ " {
+		t.Errorf("strip = %q, want the one tab, unlit: nothing is shown", got.Name)
 	}
 
-	// The same state again says nothing: a rename is a redraw.
+	// The same state again says nothing: what tmux has is what it would
+	// be told.
 	next, _ = m.Update(agentsMsg{agents: m.agents})
 	m = next.(model)
 	select {
 	case again := <-asked:
-		if again.Kind == kindDress {
+		if again.Kind == kindDress || again.Kind == kindStrip {
 			t.Errorf("dressed again with nothing changed: %+v", again)
 		}
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTheShownShellsTabIsLit(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
+	m, asked := pipeServer(t, m)
+
+	m = press(m, "down")
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case got := <-asked:
+			if got.Kind == kindStrip && got.Name == "#[fg=#79C0FF,bold] tmp: zsh #[default]" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the strip never lit the shown shell's tab")
+		}
 	}
 }
 
@@ -3393,5 +3557,46 @@ func TestAPlannedShellIsNamedByItsPlanUntilItRunsSomething(t *testing.T) {
 	m.rebuild()
 	if name, _ := m.shellLabel(700, m.terms[700]); name != "web: npm run dev" {
 		t.Errorf("label = %q, want what is running once it says more than the plan", name)
+	}
+}
+
+func TestJReachesAShellOutsideEveryPlace(t *testing.T) {
+	// A shell opened somewhere no project holds has no row, but it is held
+	// and shown like any other: J steps to it, and the keys go to it.
+	m := withProcList(90, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 701, PPID: 1, Command: "zsh", Dir: "/tmp"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/scrn"}, 701: {pid: 701, dir: "/tmp"}}
+	m, asked := pipeServer(t, m)
+	m = press(m, "down")
+	askedForKind(t, asked, kindShow)
+	if m.previewing != 700 {
+		t.Fatalf("previewing = %d, want 700", m.previewing)
+	}
+
+	m = press(m, "J")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 701 {
+		t.Errorf("J took the keys to %d, want the shell outside every place, 701", got.PID)
+	}
+
+	// The cursor is still on 700's row, having nowhere else to be. The
+	// world changing under it — a scan, the server's list — must not read
+	// that as the cursor asking for 700 back.
+	next, _ := m.Update(procsMsg{procs: m.procs})
+	m = next.(model)
+	next, _ = m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/p/scrn"}, {PID: 701, Dir: "/tmp", Shown: true}}})
+	m = next.(model)
+	select {
+	case got := <-asked:
+		if got.Kind == kindShow || got.Kind == kindPark {
+			t.Errorf("a refresh under a cursor that had not moved rearranged the pane: %+v", got)
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+	if m.previewing != 701 {
+		t.Errorf("previewing = %d, want the shell J showed to stay shown", m.previewing)
 	}
 }

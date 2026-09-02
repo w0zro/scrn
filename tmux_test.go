@@ -14,14 +14,14 @@ func TestNotesAreReadFromTheStream(t *testing.T) {
 		line string
 		want ctlNote
 	}{
-		{"%output %3 hi there", ctlNote{kind: noteOutput, pane: "%3"}},
+		{"%output %3 hi there", ctlNote{}},
 		{"%window-close @2", ctlNote{kind: noteWindows}},
 		{"%unlinked-window-close @2", ctlNote{kind: noteWindows}},
 		{"%window-add @4", ctlNote{kind: noteWindows}},
 		{"%exit", ctlNote{kind: noteExit}},
 		{"%exit detached", ctlNote{kind: noteExit}},
 		{"%begin 123 4 1", ctlNote{}},
-		{"%layout-change @1 whatever", ctlNote{}},
+		{"%layout-change @1 whatever", ctlNote{kind: noteWindows}},
 		{"just some pane text", ctlNote{}},
 	}
 	for _, c := range cases {
@@ -71,9 +71,9 @@ func TestTheBridgeSpeaksToARealServer(t *testing.T) {
 	}
 	defer ctl.close()
 
-	// Typed text comes back out of a cat, which is the whole round trip:
-	// keys, pty, pane, %output notification, capture.
-	if _, err := tmuxCommand("send-keys", "-t", pane, "Hi", "Enter"); err != nil {
+	// A window opened is the whole round trip: command, server, control
+	// stream, note — and the pane it holds is there to be listed.
+	if _, err := tmuxCommand("new-window", "-d", "-t", tmuxSession+":", "cat"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,18 +81,18 @@ func TestTheBridgeSpeaksToARealServer(t *testing.T) {
 	for {
 		select {
 		case n := <-notes:
-			if n.kind != noteOutput || n.pane != pane {
+			if n.kind != noteWindows {
 				continue
 			}
-			screen, err := tmuxCommand("capture-pane", "-e", "-p", "-t", pane)
+			out, err := tmuxCommand("list-panes", "-a", "-F", "#{pane_id}")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(screen, "Hi") {
+			if strings.Contains(out, pane) && strings.Count(out, "\n") == 1 {
 				return
 			}
 		case <-deadline:
-			t.Fatal("the typed text never showed on the pane")
+			t.Fatal("the window's opening never crossed the stream")
 		}
 	}
 }
@@ -127,7 +127,6 @@ func TestARefusedCommandIsReportedByItsReason(t *testing.T) {
 
 	want := []ctlNote{
 		{kind: noteError, err: "parse error: unknown command: nosuchcommand"},
-		{kind: noteOutput, pane: "%0"},
 		{kind: noteExit},
 	}
 	if len(notes) != len(want) {

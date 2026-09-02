@@ -25,7 +25,8 @@ func runLS(w io.Writer) error {
 	}
 
 	var ss []sessionInfo
-	for _, p := range parseListing(out) {
+	held, _ := parseListing(out)
+	for _, p := range held {
 		ss = append(ss, p.info())
 	}
 

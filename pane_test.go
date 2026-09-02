@@ -39,24 +39,6 @@ func dimmed(m model, r navRow, selected bool) bool {
 	return m.rowStyle(r, selected).GetForeground() == faintStyle.GetForeground()
 }
 
-func TestAPreviewWearsGrayInPlaceOfTheProgramsColors(t *testing.T) {
-	// The pane is a glance at the shell, not the shell: it wears the quiet
-	// gray, and the shell itself is a keystroke away in its own colors.
-	m := withProcList(90, 14,
-		[]Project{{Name: "tmp", Path: "/tmp"}},
-		[]Proc{{PID: 700, PPID: 1, Command: "claude", Dir: "/tmp"}})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "\x1b[31mred alert\x1b[m"}}
-	m.cursor = 1 // the shell's row, so the pane previews it
-
-	preview := strings.Join(m.paneLines(40, 5), "\n")
-	if strings.Contains(preview, "\x1b[31m") {
-		t.Error("a preview kept the program's own colors")
-	}
-	if !strings.Contains(stripANSI(preview), "red alert") {
-		t.Error("the preview lost the screen's text")
-	}
-}
-
 func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 	m := withProcList(90, 14,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
@@ -68,31 +50,6 @@ func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 
 	if f := footer(m); !strings.Contains(f, "did not start vim 900") {
 		t.Errorf("footer = %q, want it to explain why nothing happened", f)
-	}
-}
-
-func TestEveryScreenRowIsAsWideAsThePane(t *testing.T) {
-	// The client cuts columns out of a row to mark the cursor cell, so the
-	// grid a capture becomes has to be whole: every row as wide as the pane,
-	// exactly as many rows as the pane is tall.
-	got := padScreen([]string{"ab"}, 12, 3)
-	rows := strings.Split(got, "\n")
-	if len(rows) != 3 {
-		t.Fatalf("rows = %d, want the pane's 3", len(rows))
-	}
-	for i, row := range rows {
-		if lipgloss.Width(row) != 12 {
-			t.Errorf("row %d is %d columns wide, want 12", i, lipgloss.Width(row))
-		}
-	}
-}
-
-func TestTheCursorColumnIsACellTheRowActuallyHas(t *testing.T) {
-	// A cursor sitting past the text — at the prompt's end — must land on a
-	// cell the padded row actually carries.
-	row := strings.Split(padScreen([]string{"ab "}, 12, 1), "\n")[0]
-	if got := lipgloss.Width(row); got <= 3 {
-		t.Errorf("the row is %d columns wide with the cursor at 3 — the cell under the cursor is not in it", got)
 	}
 }
 
@@ -527,26 +484,6 @@ func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
 	}
 }
 
-func TestABareHeldShellGetsItsFactsAboveItsScreen(t *testing.T) {
-	// A screen dump with no name over it says what the shell is showing but
-	// not what it is. A shell scrn holds previews like a folded run: facts in
-	// a banner, the live screen beneath.
-	m := withProcList(90, 24,
-		[]Project{{Name: "tmp", Path: "/tmp"}},
-		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: "marker-on-screen"}}
-	m.cursor = 1
-	m.details[detailKey(m.rows[1])] = []field{heading("zsh 700"), note("/tmp")}
-
-	pane := stripANSI(strings.Join(m.paneLines(60, 24), "\n"))
-	if !strings.Contains(pane, "zsh 700") {
-		t.Errorf("pane lacks the banner facts:\n%s", pane)
-	}
-	if !strings.Contains(pane, "marker-on-screen") {
-		t.Errorf("pane lacks the screen below the banner:\n%s", pane)
-	}
-}
-
 func TestStartingAnAgentFromTheFilterEndsTheTyping(t *testing.T) {
 	// ctrl+r and ctrl+x end the looking; ctrl+a used to leave it on. The
 	// shell it opened took the keys — and handed them back to the filter the
@@ -561,26 +498,38 @@ func TestStartingAnAgentFromTheFilterEndsTheTyping(t *testing.T) {
 	}
 }
 
-func TestAPaneRowCannotBleedIntoTheNextLine(t *testing.T) {
-	// A captured row can end with a background still open — a full-width
-	// prompt bar does. Left unreset it would run across the newline and
-	// paint the next line's navigator, so every composed line ends reset.
-	m := previewedShell(t)
-	rows := strings.Split(m.terms[700].screen, "\n")
-	rows[2] = "\x1b[42mpainted to the edge"
-	m.terms[700].screen = strings.Join(rows, "\n")
+func TestAHeldShellsRowDrawsItsFactsNotItsScreen(t *testing.T) {
+	// The shell itself is tmux's pane beside the navigator, drawn live. When
+	// the navigator has the window — before the shell has joined it, or in
+	// a window too narrow to share — its own pane says what the row is,
+	// and never tries to draw what the shell is showing.
+	m := withProcList(90, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m.cursor = 1
+	m.details[detailKey(m.rows[1])] = []field{heading("zsh 700"), note("/tmp")}
 
-	for i, line := range strings.Split(m.layout(), "\n") {
-		if !strings.HasSuffix(line, "\x1b[m") {
-			t.Fatalf("line %d = %q, want it to end with the styles reset", i, line)
-		}
+	pane := stripANSI(strings.Join(m.paneLines(60, 24), "\n"))
+	if !strings.Contains(pane, "zsh 700") {
+		t.Errorf("pane lacks the row's facts:\n%s", pane)
 	}
 }
 
-func TestPaddingIsNotPaintedWithTheRowsLeftovers(t *testing.T) {
-	got := padScreen([]string{"\x1b[42mgreen"}, 10, 1)
-	if !strings.Contains(got, "\x1b[42mgreen\x1b[m ") {
-		t.Errorf("row = %q, want the padding to start reset", got)
+func TestBesideAShownShellTheNavigatorIsOnlyItsColumn(t *testing.T) {
+	// With a shell shown, the navigator's pane is exactly its column wide,
+	// and it draws no pane of its own: the border and everything right of
+	// it are tmux's.
+	m := withProcList(navWidth, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m.cursor = 1
+
+	for i, line := range strings.Split(stripANSI(m.layout()), "\n") {
+		if strings.Contains(line, glyphDivider) || lipgloss.Width(line) > navWidth {
+			t.Fatalf("line %d = %q, want the navigator's column and nothing beside it", i, line)
+		}
 	}
 }
 
@@ -592,26 +541,4 @@ func TestAPasteAtTheNavigatorSaysWhereItWent(t *testing.T) {
 	if f := footer(next.(model)); !strings.Contains(f, "nothing here to paste") {
 		t.Errorf("footer = %q, want the paste explained", f)
 	}
-}
-
-// previewedShell is a model standing on a held shell's row without having
-// entered it: the pane is a preview, the keys are the navigator's.
-func previewedShell(t *testing.T) model {
-	th := t.Helper
-	th()
-	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, []Proc{
-		{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"},
-	})
-	rows := make([]string, m.paneHeight())
-	for i := range rows {
-		rows[i] = "srow"
-	}
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n")}}
-	m.rebuild()
-	for i, r := range m.rows {
-		if r.kind == rowProc && r.holds(700) {
-			m.cursor = i
-		}
-	}
-	return m
 }

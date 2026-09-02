@@ -10,17 +10,18 @@ import (
 )
 
 // The launcher and the chords. `scrn` brings the server up under scrn's
-// configuration, makes sure the home window exists, and hands the terminal
-// to tmux. The chords the configuration binds run this same binary with a
-// word — home, shell, agent, run, jump — each a short command against the
-// server that says nothing on success: run-shell would put anything printed
-// in front of the user, so a failure is said through display-message.
+// configuration, makes sure the home window exists with the navigator down
+// its left, and hands the terminal to tmux. The chords the configuration
+// binds run this same binary with a word — home, shell, agent, run, jump,
+// next, prev — each a short command against the server that says nothing
+// on success: run-shell would put anything printed in front of the user,
+// so a failure is said through display-message.
 
 // homeName is what the home window is called.
 const homeName = "scrn"
 
-// homeCommand is what the home window runs: this build, as the navigator.
-// A variable so the tests can put something inert there.
+// homeCommand is what the navigator's pane runs: this build, as the
+// navigator. A variable so the tests can put something inert there.
 var homeCommand = func() string {
 	return "'" + strings.ReplaceAll(scrnExe(), "'", `'\''`) + "' nav"
 }
@@ -50,7 +51,7 @@ func runLaunch() error {
 		return err
 	}
 	conf := confPath()
-	if err := os.WriteFile(conf, []byte(tmuxConf(scrnExe(), scrollbackLines)), 0o600); err != nil {
+	if err := os.WriteFile(conf, []byte(tmuxConf(scrnExe(), scrollbackLines, navWidth)), 0o600); err != nil {
 		return err
 	}
 
@@ -58,11 +59,13 @@ func runLaunch() error {
 		// The first launch brings the server up under the configuration,
 		// with the home window as the session's first.
 		out, err := tmuxCommand("-f", conf, "new-session", "-d", "-s", tmuxSession,
-			"-n", homeName, "-c", "/", "-P", "-F", "#{window_id}", homeCommand())
+			"-n", homeName, "-c", "/", "-P", "-F", "#{window_id}\t#{pane_id}", homeCommand())
 		if err != nil {
 			return err
 		}
-		_, _ = tmuxCommand("set", "-w", "-t", out, "@scrn_home", "1")
+		if f := strings.Split(out, "\t"); len(f) == 2 {
+			markHome(f[0], f[1])
+		}
 	} else {
 		// A server already running learns this build's bindings, and the
 		// home window comes back if it was closed.
@@ -77,23 +80,52 @@ func runLaunch() error {
 	return syscall.Exec(tmux, []string{"tmux", "-S", socketPath(), "attach", "-t", tmuxSession}, os.Environ())
 }
 
-// home is the home window: the window and the pane the navigator runs in.
+// home is the home window, and the pane in it the navigator runs in.
 type home struct {
 	win  string
 	pane string
 }
 
-// ensureHome finds the home window, or makes one when it has been closed.
+// markHome pins the options that tell the home window and the navigator's
+// pane apart from the rest: the window's reaches every pane in it, which is
+// how a shell shown beside the navigator is known to be shown.
+func markHome(win, pane string) {
+	_, _ = tmuxCommand("set", "-w", "-t", win, "@scrn_home", "1", ";",
+		"set", "-p", "-t", pane, "@scrn_nav", "1")
+}
+
+// ensureHome finds the navigator, or makes it when it has gone: a new pane
+// down the left of a home window that lost it, or a new home window.
 func ensureHome() (home, error) {
-	out, err := tmuxCommand("list-windows", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@scrn_home}")
+	out, err := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@scrn_nav}\t#{@scrn_home}")
 	if err != nil {
 		return home{}, err
 	}
+	homeWin := ""
 	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) == 3 && f[2] == "1" {
+		if len(f) != 4 {
+			continue
+		}
+		if f[2] == "1" {
 			return home{win: f[0], pane: f[1]}, nil
 		}
+		if f[3] == "1" {
+			homeWin = f[0]
+		}
+	}
+	if homeWin != "" {
+		// The window is there with a shell in it and no navigator: the
+		// navigator goes back on the left, as the main pane of the layout.
+		out, err = tmuxCommand("split-window", "-h", "-b", "-d", "-P", "-F", "#{pane_id}",
+			"-t", homeWin, "-c", "/", homeCommand(), ";",
+			"select-layout", "-t", homeWin, "main-vertical")
+		if err != nil {
+			return home{}, err
+		}
+		pane := strings.TrimSpace(out)
+		markHome(homeWin, pane)
+		return home{win: homeWin, pane: pane}, nil
 	}
 	out, err = tmuxCommand("new-window", "-d", "-P", "-t", tmuxSession+":", "-F", "#{window_id}\t#{pane_id}",
 		"-n", homeName, "-c", "/", homeCommand())
@@ -104,7 +136,7 @@ func ensureHome() (home, error) {
 	if len(f) != 2 {
 		return home{}, errors.New("tmux said " + out)
 	}
-	_, _ = tmuxCommand("set", "-w", "-t", f[0], "@scrn_home", "1")
+	markHome(f[0], f[1])
 	return home{win: f[0], pane: f[1]}, nil
 }
 
@@ -115,7 +147,7 @@ func runHome(key string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tmuxCommand("select-window", "-t", h.win); err != nil {
+	if _, err := tmuxCommand("select-window", "-t", h.win, ";", "select-pane", "-t", h.pane); err != nil {
 		return err
 	}
 	if key != "" {
@@ -124,18 +156,33 @@ func runHome(key string) error {
 	return err
 }
 
-// runShellAt is `scrn shell [dir]` and `scrn agent [dir]`: a new window
-// holding a shell — or a command with a shell waiting behind it — in dir,
-// and the client taken to it.
+// tell presses a key at the navigator without going to it: the navigator
+// acts on the key — showing a shell, taking the keys there — and the keys
+// stay where they were unless that is where the navigator sends them. It
+// is how a chord reaches what only the navigator knows: the order of the
+// shells, and which agents are waiting.
+func tell(key string) error {
+	h, err := ensureHome()
+	if err != nil {
+		return err
+	}
+	_, err = tmuxCommand("send-keys", "-t", h.pane, key)
+	return err
+}
+
+// runShellAt is `scrn shell [dir]` and `scrn agent [dir]`: a shell — or a
+// command with a shell waiting behind it — in dir, opened in a window of
+// its own and wanted, which the navigator answers by showing it beside
+// itself and taking the keys there. The navigator is made sure of after,
+// so a home window that was closed is back to answer.
 func runShellAt(dir, command string) error {
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
-	b, err := createWindow(tmuxCommand, dir, command, "")
-	if err != nil {
+	if _, err := createWindow(tmuxCommand, dir, command, "", true); err != nil {
 		return err
 	}
-	_, err = tmuxCommand("select-window", "-t", b.win)
+	_, err := ensureHome()
 	return err
 }
 
@@ -173,7 +220,8 @@ func runPlanAt(dir string) error {
 		return err
 	}
 	running := map[string]bool{}
-	for _, pane := range parseListing(out) {
+	held, _ := parseListing(out)
+	for _, pane := range held {
 		if pane.name != "" && pane.dir == p.Path {
 			running[pane.name] = true
 		}
@@ -183,7 +231,7 @@ func runPlanAt(dir string) error {
 		return errors.New("everything " + p.Name + " needs is running")
 	}
 	for _, e := range missing {
-		if _, err := createWindow(tmuxCommand, p.Path, e.Run, e.Name); err != nil {
+		if _, err := createWindow(tmuxCommand, p.Path, e.Run, e.Name, false); err != nil {
 			return err
 		}
 	}
@@ -200,39 +248,19 @@ func report(err error) {
 	_, _ = tmuxCommand("display-message", "scrn: "+err.Error())
 }
 
-// runJump is `scrn jump`: the next agent waiting on you, in window order
-// from where the client is, wrapping — read off the marks the navigator
-// leaves on the windows, so it works from any shell without going through
-// the navigator. With no marked window it is the navigator's own summons,
-// which also covers the agents scrn can only watch and says when nothing is
-// waiting.
+// runJump is `scrn jump`: the next agent waiting on you, which is the
+// navigator's tab — it knows the marks, and it shows the shell and takes
+// the keys there. With nothing waiting the navigator says so at its foot,
+// which is in view from every shell.
 func runJump() error {
-	out, err := tmuxCommand("list-windows", "-t", tmuxSession, "-F", "#{window_id}\t#{window_active}\t#{@scrn_mark}")
-	if err != nil {
-		return err
+	return tell("Tab")
+}
+
+// runStep is `scrn next` and `scrn prev`: the shell after or before the one
+// shown, in the navigator's order, which is the navigator's J and K.
+func runStep(delta int) error {
+	if delta < 0 {
+		return tell("K")
 	}
-	type window struct {
-		id   string
-		mark string
-	}
-	var wins []window
-	at := 0
-	for line := range strings.SplitSeq(out, "\n") {
-		f := strings.Split(line, "\t")
-		if len(f) != 3 {
-			continue
-		}
-		if f[1] == "1" {
-			at = len(wins)
-		}
-		wins = append(wins, window{id: f[0], mark: f[2]})
-	}
-	for step := 1; step <= len(wins); step++ {
-		w := wins[(at+step)%len(wins)]
-		if w.mark == glyphAsk || w.mark == glyphOn {
-			_, err := tmuxCommand("select-window", "-t", w.id)
-			return err
-		}
-	}
-	return runHome("Tab")
+	return tell("J")
 }

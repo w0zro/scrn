@@ -55,14 +55,6 @@ func onlyShell(t *testing.T, m model) int {
 	return 0
 }
 
-// screenHas reports whether a shell's previewed screen carries text.
-func screenHas(pid int, text string) func(model) bool {
-	return func(m model) bool {
-		rt := m.terms[pid]
-		return rt != nil && strings.Contains(strings.Join(rt.lines(30), "\n"), text)
-	}
-}
-
 // openShellIn opens a shell through the server and waits for it to be held.
 func openShellIn(t *testing.T, m model, dir string) model {
 	t.Helper()
@@ -89,19 +81,40 @@ func TestOpeningAShellHoldsItInAWindowOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestTheShellIsRealAndItsScreenReachesThePreview(t *testing.T) {
-	// The shell is a tmux pane the keys reach through tmux; what it draws
-	// comes back to the navigator as the preview, and the navigator is
-	// still there beside it.
-	m := openShellIn(t, repoModel(), "/tmp")
-	pid := onlyShell(t, m)
-	p := m.server.pane(pid)
-	if _, err := tmuxCommand("send-keys", "-t", p.id, "echo marker-in-the-pane", "Enter"); err != nil {
+func TestTheShellIsShownBesideTheNavigatorAndParkedAgain(t *testing.T) {
+	// The shell is a tmux pane. Shown, it sits in the home window beside the
+	// navigator's pane, which keeps its column; parked, it is back in a
+	// window of its own and the navigator has the home window to itself.
+	m := connected(t, repoModel())
+	out, err := tmuxCommand("new-session", "-d", "-s", tmuxSession, "-x", "120", "-y", "30",
+		"-n", homeName, "-P", "-F", "#{window_id}\t#{pane_id}", "sleep 30")
+	if err != nil {
 		t.Fatal(err)
 	}
-	m.server.attach(pid)
-	m = pump(t, m, screenHas(pid, "marker-in-the-pane"), 10*time.Second)
+	f := strings.Split(out, "\t")
+	markHome(f[0], f[1])
+	if _, err := tmuxCommand("set", "-g", "main-pane-width", "28"); err != nil {
+		t.Fatal(err)
+	}
 
+	m.server.open("/tmp", "", "")
+	m = pump(t, m, hasShell, 10*time.Second)
+	pid := onlyShell(t, m)
+	shown := func(m model) bool { p := m.server.pane(pid); return p != nil && p.shown }
+
+	m.server.show(pid)
+	m = pump(t, m, shown, 10*time.Second)
+	out, _ = tmuxCommand("list-panes", "-t", f[0], "-F", "#{pane_id} #{pane_left} #{pane_width} #{pane_active}")
+	if !strings.Contains(out, f[1]+" 0 28 0") || !strings.Contains(out, m.server.pane(pid).id+" 29 ") {
+		t.Errorf("home window panes:\n%s\nwant the navigator 28 wide on the left and the shell active beside it", out)
+	}
+
+	m.server.preview(0)
+	m = pump(t, m, func(m model) bool { return !shown(m) }, 10*time.Second)
+	out, _ = tmuxCommand("list-panes", "-t", f[0], "-F", "#{pane_id}")
+	if out != f[1] {
+		t.Errorf("home window panes = %q, want the navigator alone", out)
+	}
 	if nav := navColumn(m); len(nav) == 0 || !strings.Contains(nav[0], "tmp") {
 		t.Errorf("the navigator should still be there, got %v", nav)
 	}

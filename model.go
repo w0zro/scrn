@@ -244,7 +244,8 @@ type model struct {
 	// each one. A repository can hold as many as you open; they tell themselves
 	// apart in the navigator because each is its own process in that
 	// repository's tree. The navigator owns none of them: tmux holds them,
-	// draws them, and takes the keys to them.
+	// draws the one under the cursor in the pane beside the navigator, and
+	// takes the keys to it.
 	terms map[int]*remoteTerm
 
 	// server is the connection to the tmux server holding the shells, and
@@ -270,14 +271,30 @@ type model struct {
 	// leaves the cursor on the row that shell belongs to.
 	wantCursor int
 
-	// previewing is the shell whose screen the pane is showing — the held
-	// shell under the cursor. Tracked so that leaving the row stops the
-	// captures.
+	// previewing is the shell the pane beside the navigator was last asked
+	// to hold — the held shell under the cursor — and zero when the
+	// navigator was asked for the window to itself. The pane is only asked
+	// again when this changes.
 	previewing int
 
-	// dressed is the name and mark each shell's window last wore, so the
-	// status line is only told what changed.
+	// previewKey is the row the pane was last arranged for. The pane
+	// follows the cursor, so it is only rearranged when the cursor is on a
+	// different row than it was — the world changing under a cursor that
+	// has not moved leaves the pane alone. That is what lets a shell with
+	// no row of its own, shown by J or a chord, stay shown until the cursor
+	// moves on.
+	previewKey string
+
+	// synced says the first list from this connection has been read: the
+	// one that tells a navigator starting beside a shell already shown
+	// which shell that is, so it can begin on that row rather than move
+	// the shell aside.
+	synced bool
+
+	// dressed is the tab each shell's pane last wore, and strip the tab
+	// strip the status line last read, so tmux is only told what changed.
 	dressed map[int]string
+	strip   string
 
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
@@ -407,10 +424,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.retryConnect()
 		}
 		m.server, m.serverErr = msg.session, ""
-		// A fresh connection holds no watches, whatever this navigator was
-		// previewing over the last one; the preview is asked for again once
-		// the server says what it holds.
-		m.previewing = 0
+		// A fresh connection knows nothing of the arrangement the last one
+		// made; the server says what it holds, and the pane follows from
+		// there.
+		m.previewing, m.synced = 0, false
+		m.strip = ""
 		// Ask what is already running: shells from a window that has since
 		// been closed are still there, and this is where they come back.
 		m.server.list()
@@ -441,10 +459,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// A shell asked for by name is one of several a project needed, and
 		// none of them is more the one you meant than the others. Only a shell
-		// opened on its own takes the client to it, and the cursor with it.
+		// opened on its own is shown, with the keys in it and the cursor on it.
 		if msg.name == "" {
-			m.server.show(msg.pid)
-			m.wantCursor = msg.pid
+			m.showPID(msg.pid)
 		}
 		return m, tea.Batch(nextEvent(m.server), m.scanNow())
 
@@ -454,7 +471,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The server is the authority on what it holds, so the client takes
 		// the list rather than merging into what it thought it knew.
 		held := make(map[int]*remoteTerm, len(msg.sessions))
+		shown, wanted := 0, 0
 		for _, s := range msg.sessions {
+			if s.Shown {
+				shown = s.PID
+			}
+			if s.Wanted {
+				wanted = s.PID
+			}
 			if was, ok := m.terms[s.PID]; ok {
 				held[s.PID] = was
 				continue
@@ -462,28 +486,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			held[s.PID] = &remoteTerm{pid: s.PID, dir: s.Dir, name: s.Name}
 		}
 		m.terms = held
+		// A navigator starting beside a shell already shown — the last
+		// navigator closed, or the server was found holding shells —
+		// begins on that shell's row rather than moving it aside for
+		// whatever row the cursor happened to start on.
+		if !m.synced {
+			m.synced = true
+			if shown != 0 {
+				m.previewing, m.wantCursor = shown, shown
+			}
+		}
 		m.rebuild()
+		// A shell a chord opened to be shown is shown the way one opened
+		// here is: the keys go to it and the cursor follows.
+		if wanted != 0 {
+			m.showPID(wanted)
+		}
 		// The server may have just said what it holds while the cursor was
 		// already standing on one of those shells; the pane should not wait
 		// for the cursor to move before showing it.
 		m.syncPreview()
 		return m, tea.Batch(nextEvent(m.server), m.scanNow())
 
-	case screenMsg:
-		t, ok := m.terms[msg.pid]
-		if !ok {
-			// A screen can arrive for a shell this window has not been told
-			// about yet; take it either way.
-			t = &remoteTerm{pid: msg.pid}
-			m.terms[msg.pid] = t
-		}
-		t.screen = msg.screen
-		return m, nextEvent(m.server)
-
 	case termGoneMsg:
 		delete(m.terms, msg.pid)
 		delete(m.dressed, msg.pid)
+		if m.previewing == msg.pid {
+			// Its pane went with it, and the navigator has the window.
+			m.previewing = 0
+		}
 		m.rebuild()
+		m.syncPreview()
 		// Asking again is what notices a server that has just become
 		// replaceable: the shell keeping an out-of-date one alive was this.
 		m.server.list()
@@ -722,6 +755,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.move(1)
 		case "up", "k":
 			return m, m.move(-1)
+		case "J":
+			return m, m.stepShell(1)
+		case "K":
+			return m, m.stepShell(-1)
 		case "tab":
 			// The next agent waiting on you, and again around them in
 			// turn: the summons the chord ctrl-space enter delivers from
@@ -983,9 +1020,9 @@ func (m *model) jumpWaiting() tea.Cmd {
 	return nil
 }
 
-// show takes the client to a shell's window from anywhere: the cursor goes
-// to its row, a filter that led here is finished, like enter's, and tmux
-// draws the shell from there.
+// show takes the keys to a shell from anywhere: the cursor goes to its row,
+// a filter that led here is finished, like enter's, and the shell is shown
+// beside the navigator with the keys in it.
 func (m *model) show(t *remoteTerm) {
 	m.typing = false
 	m.resume = nil
@@ -997,7 +1034,82 @@ func (m *model) show(t *remoteTerm) {
 			break
 		}
 	}
+	m.previewing, m.previewKey = t.pid, m.cursorKey()
 	m.server.show(t.pid)
+}
+
+// showPID shows a shell that may not have a row yet — one just opened,
+// before the process scan has seen it. The keys go to it now; the cursor
+// follows as soon as its row lands.
+func (m *model) showPID(pid int) {
+	m.previewing, m.previewKey = pid, m.cursorKey()
+	m.wantCursor = pid
+	m.server.show(pid)
+}
+
+// cursorKey names what the pane beside the navigator is arranged for: the
+// row under the cursor, and whether the picker is over it.
+func (m model) cursorKey() string {
+	key := ""
+	if r, ok := m.selected(); ok {
+		key = detailKey(r)
+	}
+	if m.resume != nil {
+		key = "picker:" + key
+	}
+	return key
+}
+
+// stepShell shows the next or previous held shell in the navigator's order
+// from the one shown, wrapping, and takes the keys to it: the chord
+// ctrl-space j and k, from any shell.
+func (m *model) stepShell(delta int) tea.Cmd {
+	order := m.heldOrder()
+	if len(order) == 0 {
+		m.status, m.statusErr = "no shell is open", false
+		return nil
+	}
+	at := -1
+	for i, pid := range order {
+		if pid == m.previewing {
+			at = i
+		}
+	}
+	next := order[(at+delta+len(order))%len(order)]
+	m.show(m.terms[next])
+	return nil
+}
+
+// heldOrder is every held shell in the order the navigator lists them: by
+// place as the places are listed, then by age. It is the order the tab
+// strip reads in and the order J and K step through, and it does not
+// depend on what is folded or filtered — a shell is still there when its
+// row is not.
+func (m model) heldOrder() []int {
+	rank := map[string]int{}
+	for i, p := range m.projects {
+		rank[p.Path] = i
+	}
+	pids := make([]int, 0, len(m.terms))
+	for pid := range m.terms {
+		pids = append(pids, pid)
+	}
+	at := func(pid int) int {
+		if p, ok := m.placeAt(m.terms[pid].dir); ok {
+			if r, ok := rank[p.Path]; ok {
+				return r
+			}
+		}
+		return len(m.projects)
+	}
+	sort.Slice(pids, func(i, j int) bool {
+		a, b := at(pids[i]), at(pids[j])
+		if a != b {
+			return a < b
+		}
+		return pids[i] < pids[j]
+	})
+	return pids
 }
 
 // openFilter starts typing a filter. The list becomes every project straight
@@ -1626,15 +1738,21 @@ func (m *model) rebuild() {
 	}
 
 	// A shell just opened takes the cursor as soon as it is in the tree, so
-	// that leaving it leaves the cursor somewhere that makes sense.
+	// that leaving it leaves the cursor somewhere that makes sense. One the
+	// scan has seen and the tree has no row for — opened somewhere no
+	// project holds — is not coming, and the cursor stops waiting for it.
 	if m.wantCursor != 0 {
+		landed := false
 		for i, r := range m.rows {
 			// The shell may have folded into whatever it started, so the row
 			// to land on is the one whose run begins with it.
 			if r.kind == rowProc && r.holds(m.wantCursor) {
-				m.cursor, m.wantCursor = i, 0
+				m.cursor, landed = i, true
 				break
 			}
+		}
+		if landed || m.running(m.wantCursor) {
+			m.wantCursor = 0
 		}
 	}
 
@@ -1644,21 +1762,37 @@ func (m *model) rebuild() {
 	m.dressWindows()
 }
 
-// dressWindows names each held shell's window for the status line — the
-// place and what is running there — and marks it the way its row is marked,
-// so the status line reads as the navigator's leaves and `scrn jump` can
-// find the waiting ones without the navigator. Only what changed is said:
-// a rename is a redraw, and a redraw a second for a name that is what it
-// was would be noise.
+// dressWindows writes the status line's tab strip — every held shell in
+// the navigator's order, named for its place and what is running there,
+// marked the way its row is marked, the shown one lit — and names each
+// shell's pane the same way for the terminal's title. Only what changed is
+// said: the strip is redrawn every second whatever is said, and saying the
+// same thing again would be noise on the server.
 func (m *model) dressWindows() {
-	for pid, t := range m.terms {
-		name, mark := m.shellLabel(pid, t)
-		wore := name + "\x00" + mark
-		if m.dressed[pid] == wore {
-			continue
+	var tabs []string
+	for _, pid := range m.heldOrder() {
+		name, mark := m.shellLabel(pid, m.terms[pid])
+		tab := name
+		if mark != "" {
+			tab += " " + mark
 		}
-		m.dressed[pid] = wore
-		m.server.dress(pid, name, mark)
+		if m.dressed[pid] != tab {
+			m.dressed[pid] = tab
+			m.server.dress(pid, tab)
+		}
+		// A # is tmux's to expand in a format, so the strip's are doubled.
+		shown := strings.ReplaceAll(tab, "#", "##")
+		if pid == m.previewing {
+			shown = "#[fg=#79C0FF,bold] " + shown + " #[default]"
+		} else {
+			shown = " " + shown + " "
+		}
+		tabs = append(tabs, shown)
+	}
+	strip := strings.Join(tabs, "")
+	if strip != m.strip {
+		m.strip = strip
+		m.server.strip(strip)
 	}
 }
 
@@ -2251,23 +2385,35 @@ func (m model) awaiting(r navRow) agent {
 	return a
 }
 
-// syncPreview keeps the server sending the screen the pane is showing: the
-// held shell under the cursor. What the pane stops showing is let go.
+// syncPreview keeps the pane beside the navigator holding the shell under
+// the cursor: the cursor has moved, or the world has changed under it. A
+// row with no held shell — a place, a process scrn only watches — and the
+// picker both ask for the window whole, so the shown shell goes back to a
+// window of its own.
 func (m *model) syncPreview() {
+	// A shell just opened is shown before its row exists; until the row
+	// lands and the cursor is on it, the cursor stands somewhere else and
+	// says nothing about what the pane should hold.
+	if m.wantCursor != 0 || m.server == nil {
+		return
+	}
+	key := m.cursorKey()
+	if key == m.previewKey {
+		return
+	}
+	m.previewKey = key
 	want := 0
-	if t := m.paneTerm(); t != nil {
-		want = t.pid
+	if m.resume == nil {
+		if t := m.paneTerm(); t != nil {
+			want = t.pid
+		}
 	}
 	if want == m.previewing {
 		return
 	}
-	if m.previewing != 0 {
-		m.server.detach(m.previewing)
-	}
 	m.previewing = want
-	if want != 0 {
-		m.server.attach(want)
-	}
+	m.server.preview(want)
+	m.dressWindows()
 }
 
 // detailCmd inspects the selected row unless it has been inspected already.

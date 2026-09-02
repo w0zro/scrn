@@ -46,6 +46,9 @@ func (m *model) openResumePlace(p Project) tea.Cmd {
 	dirs := m.convoDirs(p)
 	live := m.liveConversations()
 	m.resume = &resumeView{place: p}
+	// The picker takes the pane beside the list, so a shell shown there
+	// steps aside for it.
+	m.syncPreview()
 	return func() tea.Msg {
 		return convosMsg{place: p.Path, convos: suspendedConversations(dirs, live)}
 	}

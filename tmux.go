@@ -20,13 +20,12 @@ import (
 //
 // The bridge speaks to it two ways, on purpose:
 //
-//   - One-shot commands (tmuxCommand) for anything whose answer is read:
-//     capture-pane, list-panes, display. Their output crosses as a plain
-//     subprocess's stdout, where a captured line that happens to begin with
-//     "%end" is just a line. Inside control mode it would be a frame.
+//   - One-shot commands (tmuxCommand) for anything whose answer is read —
+//     list-panes, display — and for everything that moves a pane. Their
+//     output crosses as a plain subprocess's stdout.
 //   - A control-mode client (ctlClient) for the stream of notifications:
-//     output arriving, windows closing, the server going. Nothing is ever
-//     written down it; the keys are tmux's own now.
+//     windows coming and going, panes moving, the server going. Nothing is
+//     ever written down it; the keys are tmux's own.
 
 // tmuxSession is the name of the one session scrn keeps its windows in.
 const tmuxSession = "scrn"
@@ -80,7 +79,6 @@ var errNoServer = errors.New("no server is running")
 // acts on.
 type ctlNote struct {
 	kind noteKind
-	pane string // "%1", for output
 	err  string // what an %error block said
 }
 
@@ -88,26 +86,28 @@ type noteKind int
 
 const (
 	noteNothing noteKind = iota // a line the bridge has no use for
-	noteOutput                  // a pane drew something
-	noteWindows                 // the set of windows changed
+	noteWindows                 // the set of windows, or what they hold, changed
 	noteError                   // a command was refused
 	noteExit                    // the server hung up this client
 )
 
-// parseNote reads one control-mode line. The data of an %output is not kept:
-// scrn renders panes by asking tmux for the screen as it stands, so the
-// notification is a doorbell, not a delivery.
+// parseNote reads one control-mode line. Every pane's output crosses this
+// stream too, octal-escaped, to be dropped here: tmux could be asked not to
+// send it — refresh-client -A pane:off — but once every client has turned a
+// pane off tmux stops reading the pane, and a program in it blocks the
+// moment its output buffer fills. That is a shell stalling because nobody
+// is looking at it, which is the one thing held shells must never do; the
+// traffic is the price.
 func parseNote(line string) ctlNote {
 	switch {
-	case strings.HasPrefix(line, "%output "):
-		rest := strings.TrimPrefix(line, "%output ")
-		pane, _, _ := strings.Cut(rest, " ")
-		return ctlNote{kind: noteOutput, pane: pane}
 	case strings.HasPrefix(line, "%window-close "),
 		strings.HasPrefix(line, "%unlinked-window-close "),
-		strings.HasPrefix(line, "%window-add "):
-		// Either way the set of windows is not what it was. Which windows
-		// remain is asked of tmux rather than tracked by arithmetic.
+		strings.HasPrefix(line, "%window-add "),
+		strings.HasPrefix(line, "%layout-change "):
+		// Either way the windows are not what they were: one came or went,
+		// or a pane moved between two — a shell shown beside the navigator
+		// or parked again. What holds what is asked of tmux rather than
+		// tracked by arithmetic.
 		return ctlNote{kind: noteWindows}
 	case line == "%exit" || strings.HasPrefix(line, "%exit "):
 		return ctlNote{kind: noteExit}

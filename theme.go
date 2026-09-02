@@ -67,7 +67,7 @@ const (
 	glyphBranch   = "├─"
 	glyphLast     = "└─"
 	glyphRail     = "│" // the tree's vertical, continuing past a branch
-	glyphDivider  = "│" // between the navigator and the pane
+	glyphDivider  = "│" // between the navigator and its own pane; tmux's border stands where a shell's is
 	glyphOn       = "●"
 	glyphOff      = "○"
 	glyphAsk      = "◆"
@@ -93,7 +93,7 @@ var (
 	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
 	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
 	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
-	offSelStyle, noteStyle, previewStyle, matchStyle       lipgloss.Style
+	offSelStyle, noteStyle, matchStyle                     lipgloss.Style
 )
 
 func init() { applyBackground(true) }
@@ -155,13 +155,6 @@ func applyBackground(dark bool) {
 		toneAccent: lipgloss.NewStyle().Foreground(p.accent),
 		toneQuiet:  faintStyle,
 	}
-
-	// previewStyle is a shell's screen being looked at rather than typed
-	// into. It wears the quiet gray in place of the program's own colors, so
-	// a glance answers whether the keys are going there: full color is
-	// attached, gray is a preview.
-	previewStyle = lipgloss.NewStyle().Foreground(p.muted)
-
 }
 
 // tone is how a value in the detail pane reads. Most facts are plain; the

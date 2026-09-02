@@ -39,12 +39,13 @@ usage:
   scrn --version   report the version
 
 the chords run these; they are not for typing:
-  scrn nav         the navigator, in the home window
+  scrn nav         the navigator, in the home window's left pane
   scrn home [key]  to the navigator, pressing key there
-  scrn shell [dir] a shell in dir, in a new window
-  scrn agent [dir] an agent in dir, in a new window
+  scrn shell [dir] a shell in dir, shown beside the navigator
+  scrn agent [dir] an agent in dir, shown beside the navigator
   scrn run [dir]   the plan of the place holding dir
   scrn jump        the next agent waiting on you
+  scrn next, prev  the next and previous shell
 
 files:
   ~/.config/scrn/config.json  configuration
@@ -72,7 +73,7 @@ func main() {
 		case "nav":
 			runNav()
 			return
-		case "home", "shell", "agent", "run", "jump":
+		case "home", "shell", "agent", "run", "jump", "next", "prev":
 			arg := ""
 			if len(os.Args) > 2 {
 				arg = os.Args[2]
@@ -88,6 +89,7 @@ func main() {
 	}
 
 	if cfg, err := loadConfig(); err == nil {
+		applyNavWidth(cfg.NavWidth)
 		applyScrollback(cfg.Scrollback)
 		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
 	}
@@ -110,6 +112,10 @@ func runChord(word, arg string) error {
 		return runPlanAt(arg)
 	case "jump":
 		return runJump()
+	case "next":
+		return runStep(1)
+	case "prev":
+		return runStep(-1)
 	}
 	return nil
 }

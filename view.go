@@ -31,11 +31,16 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 
 // View lays the window out as two full-height columns.
 //
-// scrn's own name and keys sit at the top and bottom of the left one rather
-// than spanning the window, so the pane on the right is the attached process
-// and nothing else. A terminal made to give up its first and last rows to a
-// header and a footer is a terminal drawing something other than what it was
-// told it had room for.
+// The navigator draws in a pane of its own down the left of the home
+// window, and the shell under its cursor is the tmux pane on its right: when
+// a shell is shown, this view is exactly the navigator's column, as wide as
+// its pane. With no shell to show the navigator has the whole window, and
+// the right becomes its own pane — what is known about the row, or the
+// picker. scrn's name and keys sit at the top and bottom of the left column
+// rather than spanning the window either way, so the right is the shell and
+// nothing else. A terminal made to give up its first and last rows to a
+// header and a footer is a terminal drawing something other than what it
+// was told it had room for.
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
@@ -56,10 +61,7 @@ func (m model) layout() string {
 
 		lines = make([]string, 0, rows)
 		for i := 0; i < rows; i++ {
-			// The pane's rows are somebody else's styling, captured as it
-			// stood — a background left open at a row's end would run across
-			// the newline and paint the next line's navigator. Every line
-			// ends reset, so nothing a program set can outlive its row.
+			// Every line ends reset, so nothing a row set can outlive it.
 			lines = append(lines, pad(at(left, i), navWidth)+divider+at(right, i)+ansi.ResetStyle)
 		}
 	}
@@ -199,6 +201,7 @@ func (m model) footLines(width int) []string {
 func (m model) keysModal(rows int) []string {
 	keys := [][2]string{
 		{"↑↓ j k", "move"},
+		{"J K", "next · previous shell"},
 		{"enter", "open"},
 		{"s", "shell"},
 		{"a", "agent"},
@@ -213,7 +216,7 @@ func (m model) keysModal(rows int) []string {
 		{"q", "leave; the shells keep running"},
 		{"^spc n", "here, from any shell"},
 		{"^spc j k", "next · previous shell"},
-		{"^spc ^spc", "the last shell"},
+		{"^spc ^spc", "between the list and the shell"},
 		{"^spc enter", "the next waiting agent"},
 		{"^spc s a r A", "shell · agent · run · continue, here"},
 		{"^spc v", "read back; v marks, y copies"},
@@ -553,51 +556,26 @@ func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 }
 
 // paneLeft is the pane's first column in the window: past the navigator and
-// the divider. The layout and the mouse map both read it here, so a change
-// that moves the pane cannot leave the clicks landing where it used to be.
+// the divider.
 func (m model) paneLeft() int { return navWidth + 1 }
 
 // detailWidth is the room left for the detail pane beside the navigator.
 func (m model) detailWidth() int { return m.width - m.paneLeft() }
 
-// showDetail reports whether the terminal is wide enough to carry a detail
-// pane beside the navigator.
+// showDetail reports whether the navigator has room to carry a pane of its
+// own beside the list. Beside a shown shell it has exactly its column and
+// does not; with the window to itself it does, unless the window is narrow.
 func (m model) showDetail() bool { return m.detailWidth() >= paneMin }
 
-// paneLines renders the pane beside the navigator: a preview of the shell
-// under the cursor, or, when there is none, what is known about the selected
-// row.
+// paneLines renders the navigator's own pane beside the list: the picker
+// while it is open, and otherwise what is known about the selected row. A
+// held shell's row has no pane here — its shell is the tmux pane beside
+// the navigator, drawn live.
 func (m model) paneLines(width, rows int) []string {
 	if m.resume != nil {
 		return m.resumeLines(width, rows)
 	}
-	t := m.paneTerm()
-	if t == nil {
-		return m.detailLines(width, rows)
-	}
-
-	// A row that folded a run into one line has more to say than its shell's
-	// screen: what the run is, its ports, what its agent is doing. The pane
-	// splits — those facts in a banner across the top, the screen under
-	// them — so standing on the row shows both.
-	banner := m.runBanner(width, rows)
-	var screen []string
-	if len(banner) > 0 {
-		screen = screenTail(t, rows-len(banner))
-	} else {
-		screen = t.lines(rows)
-	}
-
-	// The screen arrives as wide as the shell's window, which is not this
-	// pane's width; a row wider than the pane would wrap and take the layout
-	// with it, so each is cut to fit. The preview wears the quiet gray in
-	// place of the program's own colors: it is a glance, and the shell
-	// itself is a keystroke away, drawn whole by tmux. The banner keeps its
-	// colors — it is scrn's report about the row, not the screen.
-	for i, row := range screen {
-		screen[i] = previewStyle.Render(ansi.Strip(ansi.Truncate(row, width, "")))
-	}
-	return append(banner, screen...)
+	return m.detailLines(width, rows)
 }
 
 // resumeLines is the picker: a place's suspended conversations, newest
@@ -696,48 +674,6 @@ func resumeDetail(c conversation, width, rows int) []string {
 	}
 	out := []string{ruleStyle.Render(strings.Repeat("─", width))}
 	return append(out, renderBlock(fs, width)...)
-}
-
-// runBanner is the detail summary drawn across the top of the pane when the
-// row under the cursor stands for a shell scrn holds — a folded run or a
-// bare shell alike: a screen dump with no name over it says what the shell
-// is showing but not what it is, and every other row gets its facts. The
-// banner takes at most a third of the pane: it is there to say what the row
-// is, and the screen below to show what it is doing, and of the two it is
-// the screen that is live.
-func (m model) runBanner(width, rows int) []string {
-	r, ok := m.selected()
-	if !ok || r.kind != rowProc {
-		return nil
-	}
-	if len(r.run) < 2 && m.terms[r.node.PID] == nil {
-		return nil
-	}
-	room := rows / 3
-	if room < 1 {
-		return nil
-	}
-	lines := m.detailLines(width, room)
-	return append(lines, ruleStyle.Render(strings.Repeat("─", width)))
-}
-
-// screenTail is the bottom of a shell's screen, trailing blank rows dropped.
-// Under a banner the pane is shorter than the shell was sized for, so some of
-// the screen has to go; what goes is blank padding first and the oldest rows
-// second, because the bottom of a screen — the prompt, the last thing said —
-// is the part a glance is after.
-func screenTail(t *remoteTerm, rows int) []string {
-	if rows <= 0 {
-		return nil
-	}
-	lines := strings.Split(t.screen, "\n")
-	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > rows {
-		lines = lines[len(lines)-rows:]
-	}
-	return lines
 }
 
 // detailLines renders everything known about the selected row.
