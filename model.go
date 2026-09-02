@@ -196,6 +196,11 @@ type model struct {
 	// pendingG is a g waiting for the g that makes it mean the top.
 	pendingG bool
 
+	// lastClick is the row last clicked and when, so a second click on the
+	// same row soon after reads as opening it.
+	lastClick   int
+	lastClickAt time.Time
+
 	// resume is the picker over a place's suspended conversations, and nil
 	// while it is closed. Open, it has the pane and the keys.
 	resume *resumeView
@@ -623,6 +628,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		applyBackground(msg.IsDark())
 		return m, nil
 
+	case tea.MouseClickMsg:
+		return m, m.click(msg)
+
+	case tea.MouseWheelMsg:
+		// The wheel moves the list the way j and k do, unless something
+		// has the keys: a confirmation, the picker.
+		if m.pendingKill != nil || m.pendingReplace || m.resume != nil {
+			return m, nil
+		}
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			return m, m.move(-1)
+		case tea.MouseWheelDown:
+			return m, m.move(1)
+		}
+		return m, nil
+
 	case tea.PasteMsg:
 		// Into the picker it is more of the query, the way it is for the
 		// filter: pasting a phrase from a transcript is a fine way to look.
@@ -783,6 +805,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// doubleClick is how soon a second click on the same row means open.
+const doubleClick = 400 * time.Millisecond
+
+// click puts the cursor on the row under the pointer, and a second click
+// on that row soon after opens it, as enter would. A click anywhere else
+// in the column — the masthead, the foot, the blank under the list — is
+// nothing, and while something has the keys the mouse waits its turn.
+func (m *model) click(msg tea.MouseClickMsg) tea.Cmd {
+	if msg.Button != tea.MouseLeft || msg.X >= navWidth {
+		return nil
+	}
+	if m.pendingKill != nil || m.pendingReplace || m.resume != nil {
+		return nil
+	}
+	i := m.offset + msg.Y - m.listTop()
+	if msg.Y < m.listTop() || i >= min(m.offset+m.bodyHeight(), len(m.rows)) {
+		return nil
+	}
+	m.status = ""
+	again := i == m.lastClick && time.Since(m.lastClickAt) < doubleClick
+	m.lastClick, m.lastClickAt = i, time.Now()
+	if again {
+		m.lastClickAt = time.Time{}
+		m.cursor = i
+		return m.openShell()
+	}
+	return m.jump(i)
 }
 
 // filterKey handles a keystroke while something is being looked up.

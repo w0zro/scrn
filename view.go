@@ -44,6 +44,10 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
+	// Clicks and the wheel: a row is selected by clicking it, opened by
+	// clicking it twice, and the list moves under the wheel. tmux hands
+	// the navigator its own pane's events and keeps the rest.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -77,10 +81,11 @@ func (m model) leftColumn(rows int) []string {
 	// The name wears the gutter every row wears and takes a blank row after
 	// it: a masthead, not the first item of the list. The blank is spacing,
 	// and spacing is the first thing a short window gives up — bodyHeight
-	// makes the same call, so the list and the layout agree.
+	// and listTop make the same call, so the list, the layout and the
+	// clicks agree.
 	lines := make([]string, 0, rows)
 	lines = append(lines, " "+titleStyle.Render("scrn"))
-	if rows-2-len(hint) > 0 {
+	if m.listTop() > 1 {
 		lines = append(lines, "")
 	}
 
@@ -96,6 +101,16 @@ func (m model) leftColumn(rows int) []string {
 		lines = append(lines, "")
 	}
 	return append(lines, hint...)
+}
+
+// listTop is the screen row the list's first row is drawn on: under the
+// masthead and its blank, or under the masthead alone when the window
+// cannot spare the blank.
+func (m model) listTop() int {
+	if m.height-2-len(m.trimmedHint(m.height)) > 0 {
+		return 2
+	}
+	return 1
 }
 
 // trimmedHint is what scrn has to say at the foot of its column, cut to what

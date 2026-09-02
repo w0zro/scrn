@@ -177,10 +177,15 @@ way a tmux pane behaves, with the navigator beside it. scrn keeps one key:
 the prefix \(em tmux's own, bound by scrn's configuration; it reaches scrn
 from any shell
 .PP
-The mouse is the terminal's: scrn does not ask tmux to take it, so
-dragging, double\-clicking and copying are the terminal's own, everywhere.
-A program that copies for itself \(em vim's clipboard yank, anything
-speaking OSC 52 \(em reaches the system clipboard through tmux.
+The mouse is tmux's, so it reaches every pane. A click goes to the pane
+under it and takes the keys there; in the navigator it selects the row,
+a second click opens it, and the wheel moves the list. A program that
+speaks mouse gets its own clicks and wheel. In one that does not, the
+wheel scrolls back through the transcript, a drag selects and copies to
+the clipboard on release, a double click takes the word and a triple the
+line. Hold shift to drag a selection the terminal's own way. A program
+that copies for itself \(em vim's clipboard yank, anything speaking OSC
+52 \(em reaches the system clipboard through tmux.
 .SS The chords
 Each hangs off
 .B ctrl\-space

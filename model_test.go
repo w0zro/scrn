@@ -2594,6 +2594,73 @@ func TestThePopupIsCutToAShortClient(t *testing.T) {
 	}
 }
 
+func TestAClickSelectsTheRowUnderIt(t *testing.T) {
+	// The list starts under the masthead and its blank; a click on a row
+	// puts the cursor there, and one on the masthead or past the list is
+	// nothing.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: m.listTop() + 1, Button: tea.MouseLeft})
+	m = next.(model)
+	if r, ok := m.selected(); !ok || !r.holds(700) {
+		t.Errorf("cursor on %+v, want the shell's row, the second in the list", r)
+	}
+	next, _ = m.Update(tea.MouseClickMsg{X: 3, Y: 0, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.cursor != 1 {
+		t.Errorf("a click on the masthead moved the cursor to %d", m.cursor)
+	}
+	next, _ = m.Update(tea.MouseClickMsg{X: 3, Y: m.listTop() + 9, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.cursor != 1 {
+		t.Errorf("a click under the list moved the cursor to %d", m.cursor)
+	}
+}
+
+func TestAClickPastTheColumnIsNotTheLists(t *testing.T) {
+	// With the window to itself the navigator draws its own pane on the
+	// right; a click there is on the pane, not on whatever row shares
+	// its screen line.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	next, _ := m.Update(tea.MouseClickMsg{X: navWidth + 5, Y: m.listTop() + 1, Button: tea.MouseLeft})
+	if m = next.(model); m.cursor != 0 {
+		t.Errorf("a click in the pane moved the cursor to %d", m.cursor)
+	}
+}
+
+func TestASecondClickOnTheRowOpensIt(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m, asked := pipeServer(t, m)
+	click := tea.MouseClickMsg{X: 3, Y: m.listTop() + 1, Button: tea.MouseLeft}
+	next, _ := m.Update(click)
+	m = next.(model)
+	askedForKind(t, asked, kindShow) // the row's shell shown beside the list
+	next, _ = m.Update(click)
+	m = next.(model)
+	if got := askedForKind(t, asked, kindFocus); got.PID != 700 {
+		t.Errorf("asked %+v, want the second click to take the keys to the shell", got)
+	}
+}
+
+func TestTheWheelMovesTheList(t *testing.T) {
+	m := manyProjects(90, 14)
+	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	m = next.(model)
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d after a wheel down, want 1", m.cursor)
+	}
+	next, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if m = next.(model); m.cursor != 0 {
+		t.Errorf("cursor = %d after a wheel up, want 0", m.cursor)
+	}
+}
+
 func TestEscapeWithNothingOpenDoesNothing(t *testing.T) {
 	m := manyProjects(90, 14)
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
