@@ -374,6 +374,14 @@ func (s *session) themeStyle() string {
 func (s *session) notify(n ctlNote) {
 	switch n.kind {
 	case noteOutput:
+		// Every pane's output rings here, watched or not: a build pouring
+		// text in a shell no window is looking at still crosses the control
+		// stream, octal-escaped, to be dropped. tmux could be asked not to
+		// send it — refresh-client -A pane:off — but once every client has
+		// turned a pane off tmux stops reading the pane, and a program in
+		// it blocks the moment its output buffer fills. That is a shell
+		// stalling because nobody is looking at it, which is the one thing
+		// held shells must never do; the traffic is the price.
 		s.mu.Lock()
 		pid, known := s.byPane[n.pane]
 		watched := known && s.watching[pid]
