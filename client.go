@@ -441,9 +441,12 @@ func (s *session) captureSoon(paneID string) {
 }
 
 // paneMeta is what one capture asks display for, beside the screen itself.
+// The host rides along because it is what a pane's title is until a program
+// sets one, and a title nobody set is not one to put on the window. The
+// title goes last: it is the one field with spaces in it.
 const paneMeta = "#{cursor_x} #{cursor_y} #{alternate_on} " +
 	"#{mouse_any_flag} #{mouse_sgr_flag} #{history_size} " +
-	"#{pane_width} #{pane_height} #{pane_title}"
+	"#{pane_width} #{pane_height} #{host} #{pane_title}"
 
 // capture reads a pane's screen as it stands and sends it to the model. The
 // screen and its facts come back from one command so they describe the same
@@ -468,8 +471,8 @@ func (s *session) capture(paneID string) {
 	meta := lines[len(lines)-1]
 	rows := selfContained(lines[:len(lines)-1])
 
-	f := strings.SplitN(meta, " ", 9)
-	if len(f) < 8 {
+	f := strings.SplitN(meta, " ", 10)
+	if len(f) < 9 {
 		return
 	}
 	curX, _ := strconv.Atoi(f[0])
@@ -481,8 +484,10 @@ func (s *session) capture(paneID string) {
 	width, _ := strconv.Atoi(f[6])
 	height, _ := strconv.Atoi(f[7])
 	title := ""
-	if len(f) > 8 {
-		title = f[8]
+	if len(f) > 9 && f[9] != f[8] {
+		// A title that is the host's name is tmux's default, not a program
+		// asking for anything; the window keeps whatever it had.
+		title = f[9]
 	}
 
 	s.mu.Lock()

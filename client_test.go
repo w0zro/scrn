@@ -23,7 +23,7 @@ func TestACaptureBecomesAScreen(t *testing.T) {
 		if args[0] != "capture-pane" {
 			t.Fatalf("asked %v, want one capture", args)
 		}
-		return "hello\nworld\n2 1 1 1 1 40 10 4 my title", nil
+		return "hello\nworld\n2 1 1 1 1 40 10 4 box my title", nil
 	}
 
 	s.capture("%1")
@@ -187,5 +187,24 @@ func TestAClientThatHangsUpAtOnceIsProbedForAgain(t *testing.T) {
 			t.Fatalf("probed %d times; the hangup should have kept the probe going", n)
 		case <-time.After(10 * time.Millisecond):
 		}
+	}
+}
+
+func TestATitleNobodySetIsNoTitle(t *testing.T) {
+	// A pane's title is the host's name until a program sets one. That is
+	// tmux's default, not an ask, and it must not land on the window's tab
+	// the moment a shell is focused.
+	s := newSession()
+	s.closed = true
+	s.panes[700] = &pane{id: "%1", pid: 700}
+	s.byPane["%1"] = 700
+	s.run = func(args ...string) (string, error) {
+		return "hello\n0 0 0 0 0 0 10 1 box box", nil
+	}
+
+	s.capture("%1")
+	msg := (<-s.events).(screenMsg)
+	if msg.title != "" {
+		t.Errorf("title = %q, want none: the host's name is nobody's ask", msg.title)
 	}
 }
