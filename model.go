@@ -428,6 +428,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// bridge keeps watching for a new one on its own; here the window
 		// only stops showing shells that are no longer held.
 		m.terms = map[int]*remoteTerm{}
+		m.dressed = map[int]string{}
 		if msg.err != nil {
 			m.status, m.statusErr = msg.err.Error(), true
 		}
@@ -507,6 +508,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.worked, pid)
 			}
 		}
+		// The marks changed without the tree changing; the windows wear
+		// the new ones.
+		m.dressWindows()
 		// An instance that has started working sets the markers turning.
 		if !m.spinning && m.spinNeeded() {
 			m.spinning = true
@@ -1637,6 +1641,72 @@ func (m *model) rebuild() {
 	m.pruneDetails()
 	m.pruneDying()
 	m.scrollToCursor()
+	m.dressWindows()
+}
+
+// dressWindows names each held shell's window for the status line — the
+// place and what is running there — and marks it the way its row is marked,
+// so the status line reads as the navigator's leaves and `scrn jump` can
+// find the waiting ones without the navigator. Only what changed is said:
+// a rename is a redraw, and a redraw a second for a name that is what it
+// was would be noise.
+func (m *model) dressWindows() {
+	for pid, t := range m.terms {
+		name, mark := m.shellLabel(pid, t)
+		wore := name + "\x00" + mark
+		if m.dressed[pid] == wore {
+			continue
+		}
+		m.dressed[pid] = wore
+		m.server.dress(pid, name, mark)
+	}
+}
+
+// windowLabelWidth is as much of a shell's label as the status line gets.
+// A window's name is one tab among several; a whole command line there
+// would push the others off the end.
+const windowLabelWidth = 24
+
+// shellLabel is what a held shell's window is called and how it is marked:
+// the place it works in and the name its row would wear — the plan's name
+// for it, unless what is running says more — and its agent's mark, if it
+// is running one. It reads the process tree rather than the rows, because
+// a row can be folded away or filtered out and the window is still there.
+func (m model) shellLabel(pid int, t *remoteTerm) (string, string) {
+	label := t.name
+	mark := ""
+	if n := m.nodes[pid]; n != nil {
+		run := []*ProcNode{n}
+		for i := 0; len(n.Children) == 1 && i < len(m.procs); i++ {
+			n = n.Children[0]
+			run = append(run, n)
+		}
+		r := navRow{kind: rowProc, run: run, node: nameOf(run)}
+		if cmd := commandOf(r.node); label == "" || tellsMore(cmd, label) {
+			label = cmd
+		}
+		if a := m.agentFor(r); a != nil {
+			switch {
+			case a.working():
+				mark = glyphBusy
+			case m.awaiting(r) != nil:
+				if _, blocked := a.blocked(); blocked {
+					mark = glyphAsk
+				} else {
+					mark = glyphOn
+				}
+			default:
+				mark = glyphOff
+			}
+		}
+	}
+	if label == "" {
+		label = "shell"
+	}
+	if p, ok := m.placeAt(t.dir); ok {
+		label = p.Name + ": " + label
+	}
+	return truncateTail(label, windowLabelWidth), mark
 }
 
 // running reports whether a pid is in the process list as it now stands.

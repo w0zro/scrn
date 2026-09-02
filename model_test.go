@@ -1649,6 +1649,7 @@ const (
 	kindClose  = "close"
 	kindShow   = "show"
 	kindLeave  = "leave"
+	kindDress  = "dress"
 )
 
 // pipeServer gives a model a session whose asks land on the returned
@@ -1733,6 +1734,10 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			return "", nil
 		case "detach-client":
 			asked <- message{Kind: kindLeave}
+			return "", nil
+		case "rename-window":
+			// The name the window is given, and the mark set beside it.
+			asked <- message{Kind: kindDress, PID: target(args), Name: args[3], Run: args[len(args)-1]}
 			return "", nil
 		case "kill-pane":
 			asked <- message{Kind: kindClose, PID: target(args)}
@@ -3335,5 +3340,58 @@ func TestTheCursorRidesOutATransientChild(t *testing.T) {
 	m = next.(model)
 	if r, ok := m.selected(); !ok || r.kind != rowProc || !r.holds(901) {
 		t.Errorf("cursor stranded off the shell when its transient child exited")
+	}
+}
+
+func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
+	// The status line is tmux's, and it shows window names; the navigator
+	// names each shell's window for the place and what is running there,
+	// and marks it the way its row is marked, so the line reads as the
+	// list's leaves from any shell.
+	m := withProcList(96, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 701, PPID: 700, Command: "claude", Dir: "/p/scrn"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/scrn"}}
+	m, asked := pipeServer(t, m)
+
+	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
+		701: {PID: 701, Status: waitingStatus, WaitingFor: "permission prompt"},
+	})})
+	m = next.(model)
+
+	got := askedForKind(t, asked, kindDress)
+	if got.PID != 700 || got.Name != "scrn: claude ◆" || got.Run != "◆" {
+		t.Errorf("dressed %+v, want window 700 named for its place and claude, marked ◆", got)
+	}
+
+	// The same state again says nothing: a rename is a redraw.
+	next, _ = m.Update(agentsMsg{agents: m.agents})
+	m = next.(model)
+	select {
+	case again := <-asked:
+		if again.Kind == kindDress {
+			t.Errorf("dressed again with nothing changed: %+v", again)
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestAPlannedShellIsNamedByItsPlanUntilItRunsSomething(t *testing.T) {
+	m := withProcList(96, 14,
+		[]Project{{Name: "web", Path: "/p/web"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/web"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/web", name: "dev"}}
+	name, mark := m.shellLabel(700, m.terms[700])
+	if name != "web: dev" || mark != "" {
+		t.Errorf("label = %q %q, want the plan's name and no mark", name, mark)
+	}
+
+	m.procs = append(m.procs, Proc{PID: 701, PPID: 700, Command: "node", Argv: "npm run dev", Dir: "/p/web"})
+	m.rebuild()
+	if name, _ := m.shellLabel(700, m.terms[700]); name != "web: npm run dev" {
+		t.Errorf("label = %q, want what is running once it says more than the plan", name)
 	}
 }

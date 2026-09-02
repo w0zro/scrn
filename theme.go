@@ -71,6 +71,7 @@ const (
 	glyphOn       = "●"
 	glyphOff      = "○"
 	glyphAsk      = "◆"
+	glyphBusy     = "⋯" // the spinner, standing still: for a status line that is not redrawn per frame
 	glyphJoin     = "›" // between the processes of a run
 )
 

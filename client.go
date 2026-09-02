@@ -695,6 +695,28 @@ func (s *session) replace() {
 	go func() { _, _ = s.run("kill-server") }()
 }
 
+// dress names a shell's window and marks it, for the status line and for
+// `scrn jump`. The mark rides in the name, because a rename is what makes
+// the status line redraw, and in a window option, because that is what a
+// jump can read without a navigator.
+func (s *session) dress(pid int, name, mark string) {
+	if s == nil {
+		return
+	}
+	p := s.pane(pid)
+	if p == nil {
+		return
+	}
+	shown := name
+	if mark != "" {
+		shown += " " + mark
+	}
+	go func() {
+		_, _ = s.run("rename-window", "-t", p.win, shown, ";",
+			"set", "-w", "-t", p.win, "@scrn_mark", mark)
+	}()
+}
+
 func (s *session) pane(pid int) *pane {
 	s.mu.Lock()
 	defer s.mu.Unlock()

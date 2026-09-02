@@ -201,7 +201,38 @@ func report(err error) {
 }
 
 // runJump is `scrn jump`: the next agent waiting on you, in window order
-// from where the client is, wrapping.
+// from where the client is, wrapping — read off the marks the navigator
+// leaves on the windows, so it works from any shell without going through
+// the navigator. With no marked window it is the navigator's own summons,
+// which also covers the agents scrn can only watch and says when nothing is
+// waiting.
 func runJump() error {
-	return errors.New("jump is not wired yet")
+	out, err := tmuxCommand("list-windows", "-t", tmuxSession, "-F", "#{window_id}\t#{window_active}\t#{@scrn_mark}")
+	if err != nil {
+		return err
+	}
+	type window struct {
+		id   string
+		mark string
+	}
+	var wins []window
+	at := 0
+	for line := range strings.SplitSeq(out, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) != 3 {
+			continue
+		}
+		if f[1] == "1" {
+			at = len(wins)
+		}
+		wins = append(wins, window{id: f[0], mark: f[2]})
+	}
+	for step := 1; step <= len(wins); step++ {
+		w := wins[(at+step)%len(wins)]
+		if w.mark == glyphAsk || w.mark == glyphOn {
+			_, err := tmuxCommand("select-window", "-t", w.id)
+			return err
+		}
+	}
+	return runHome("Tab")
 }
