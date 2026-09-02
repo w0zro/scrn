@@ -120,7 +120,7 @@
   <p>The status line at the foot is tmux's: scrn's name, a tab per shell named for its place and what is running there, the shown one lit, and <b>prefix</b> while a chord hangs. Anything the navigator has to say — a report, an error, a confirmation — appears at the foot of its column.</p>
   <p>Shells keep running when the terminal closes. <b>q</b> in the navigator, or <b>ctrl-space q</b> anywhere, detaches; quit the terminal, come back, run <code class="chip">scrn</code>, and everything is where it was.</p>
   <p><b>ctrl-space v</b> reads back through what has scrolled away: tmux's copy mode, with vi keys. <b>v</b> marks, <b>y</b> copies the marked text to the system clipboard, <b>q</b> leaves. Each shell keeps 10,000 lines of transcript by default — <code class="chip">scrollback</code> in the config raises it.</p>
-  <p>The mouse is tmux's, so it reaches every pane. A click goes to the pane under it and takes the keys there; in the navigator it selects the row, a second click opens it, and the wheel moves the list. A program that speaks mouse gets its own clicks and wheel. In one that does not, the wheel scrolls back through the transcript, a drag selects and copies to the clipboard on release, a double click takes the word and a triple the line; hold shift to drag a selection the terminal's own way. A program that copies for itself — vim's clipboard yank, anything speaking OSC 52 — reaches the system clipboard through tmux.</p>
+  <p>The mouse is the terminal's: scrn does not ask tmux to take it, so dragging, double-clicking and copying are the terminal's own, everywhere. A program that copies for itself — vim's clipboard yank, anything speaking OSC 52 — reaches the system clipboard through tmux.</p>
 </section>
 
 <section id="agents">

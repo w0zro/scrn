@@ -34,7 +34,6 @@ var keyList = [][2]string{
 	{"gg · G", "top · bottom"},
 	{"R", "end the server, shells and all"},
 	{"q", "leave; the shells keep running"},
-	{"click · twice", "select · open; the wheel moves"},
 	{"^spc n", "here, from any shell"},
 	{"^spc j k", "next · previous shell"},
 	{"^spc ^spc", "between the list and the shell"},

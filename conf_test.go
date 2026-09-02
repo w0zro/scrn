@@ -22,8 +22,6 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"set -g history-limit 4242",
 		"set -g automatic-rename off",
 		"set -g main-pane-width 33",
-		"set -g mouse on",
-		`bind -T root MouseDown1Pane select-pane -t = \; send-keys -M`,
 		`set-hook -g window-resized 'if -F "#{@scrn_home}" "select-layout main-vertical"'`,
 		`set -g status-left "#[fg=#B9A7FF,bold] scrn #[default]#{@scrn_tabs}"`,
 	} {
