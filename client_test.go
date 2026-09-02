@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -103,5 +104,44 @@ func TestPartialStylingAccumulatesInThePen(t *testing.T) {
 	})
 	if rows[1] != "\x1b[1m\x1b[42mcarries both" {
 		t.Errorf("row two = %q, want bold and background both restated", rows[1])
+	}
+}
+
+func TestAListThatCouldNotBeReadLeavesTheShellsStanding(t *testing.T) {
+	// A list-panes that failed for any reason but the server being gone — a
+	// timeout under load — says nothing about the shells. Reporting them
+	// gone would drop the focus and close the reader over a hiccup.
+	s := newSession()
+	s.closed = true
+	s.panes[700] = &pane{id: "%1", pid: 700}
+	s.byPane["%1"] = 700
+	s.run = func(args ...string) (string, error) { return "", errors.New("signal: killed") }
+
+	if !s.refreshList() {
+		t.Error("a shell was held a moment ago, so a session was there to read")
+	}
+	if n := len(s.events); n != 0 {
+		t.Errorf("%d events sent, want none: nothing is known to have changed", n)
+	}
+	if s.pane(700) == nil {
+		t.Error("the shell should still be held")
+	}
+}
+
+func TestNoServerIsEveryShellGone(t *testing.T) {
+	s := newSession()
+	s.closed = true
+	s.panes[700] = &pane{id: "%1", pid: 700}
+	s.byPane["%1"] = 700
+	s.run = func(args ...string) (string, error) { return "", errNoServer }
+
+	if s.refreshList() {
+		t.Error("no server means no session to read")
+	}
+	if _, ok := (<-s.events).(termGoneMsg); !ok {
+		t.Error("the shell should be reported gone")
+	}
+	if msg, ok := (<-s.events).(sessionsMsg); !ok || len(msg.sessions) != 0 {
+		t.Errorf("msg = %+v, want an empty list", msg)
 	}
 }

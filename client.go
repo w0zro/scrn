@@ -590,7 +590,19 @@ func (p *pane) info() sessionInfo {
 // the model clears focus and scroll by the pid, not by the list.
 func (s *session) refreshList() bool {
 	out, err := s.run("list-panes", "-a", "-F", listFormat)
+	if err != nil && !errors.Is(err, errNoServer) {
+		// A list that could not be read says nothing about the shells: a
+		// tmux slow enough to time out under load is still holding them,
+		// and a window that reported them gone would drop the keys out of
+		// the focused one and close the reader over nothing. The last list
+		// stands, and the model hears nothing until the next one is read.
+		s.mu.Lock()
+		held := len(s.panes) > 0
+		s.mu.Unlock()
+		return held
+	}
 	if err != nil {
+		// No server is the one answer that means every shell is gone.
 		s.mu.Lock()
 		was := s.panes
 		s.panes, s.byPane = map[int]*pane{}, map[string]int{}
