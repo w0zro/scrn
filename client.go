@@ -569,20 +569,23 @@ func (s *session) refreshList() bool {
 		infos = append(infos, sessionInfo{PID: pid, Dir: dir, Name: f[3]})
 	}
 
+	// Which shells left is worked out under the lock and carried out as a
+	// list of pids. Reading the new map after publishing it is reading a map
+	// an open may be writing to in the same breath.
+	var gone []int
 	s.mu.Lock()
 	for pid, old := range s.panes {
 		if p, ok := held[pid]; ok {
 			p.sgr = old.sgr
+		} else {
+			gone = append(gone, pid)
 		}
 	}
-	was := s.panes
 	s.panes, s.byPane = held, byPane
 	s.mu.Unlock()
 
-	for pid := range was {
-		if _, still := held[pid]; !still {
-			s.events <- termGoneMsg{pid: pid}
-		}
+	for _, pid := range gone {
+		s.events <- termGoneMsg{pid: pid}
 	}
 	s.events <- sessionsMsg{sessions: infos}
 	return true
