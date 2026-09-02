@@ -265,6 +265,21 @@ func (s *session) watchForServer() {
 	}()
 }
 
+// close lets go of the server. The shells stay held — this is a window
+// finishing with them, not an end to them — and the session stops watching,
+// stops probing, and will not attach again. Without it a session outlives
+// what made it and goes looking for whatever server it can find.
+func (s *session) close() {
+	s.mu.Lock()
+	s.closed = true
+	ctl := s.ctl
+	s.ctl = nil
+	s.mu.Unlock()
+	if ctl != nil {
+		ctl.close()
+	}
+}
+
 // ensureCtl attaches the control-mode client if it is not already attached.
 func (s *session) ensureCtl() {
 	s.mu.Lock()
@@ -280,9 +295,18 @@ func (s *session) ensureCtl() {
 		return
 	}
 	s.mu.Lock()
-	s.ctl = ctl
+	closed := s.closed
+	if !closed {
+		s.ctl = ctl
+	}
 	w, h := s.width, s.height
 	s.mu.Unlock()
+	if closed {
+		// Closed while the client was starting: it is not this session's to
+		// keep, and a control client nobody holds is one still attached.
+		ctl.close()
+		return
+	}
 	if w > 0 && h > 0 {
 		ctl.say("refresh-client -C " + strconv.Itoa(w) + "x" + strconv.Itoa(h))
 	}

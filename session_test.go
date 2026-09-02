@@ -16,7 +16,12 @@ import (
 func connected(t *testing.T, m model) model {
 	t.Helper()
 	tmuxOnSocket(t)
-	next, _ := m.Update(daemonReadyMsg{session: newSession()})
+	// The session is let go before the server is: one left watching finds
+	// the next test's server on its next probe and joins it as a second
+	// client, which is a size arbitration nobody asked for.
+	s := newSession()
+	t.Cleanup(s.close)
+	next, _ := m.Update(daemonReadyMsg{session: s})
 	return next.(model)
 }
 
