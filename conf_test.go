@@ -11,7 +11,8 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 	conf := tmuxConf("/opt/my tools/it's/scrn", 4242, 33)
 	for _, want := range []string{
 		"set -g prefix C-Space",
-		"unbind -a -T root",
+		"unbind -a",
+		"set -g mouse on",
 		`bind n run-shell "'/opt/my tools/it'\''s/scrn' home"`,
 		`bind s run-shell "'/opt/my tools/it'\''s/scrn' shell '#{pane_current_path}'"`,
 		`bind j run-shell "'/opt/my tools/it'\''s/scrn' next"`,
@@ -28,5 +29,9 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		if !strings.Contains(conf, want+"\n") {
 			t.Errorf("the configuration lacks %q", want)
 		}
+	}
+	// The root table is tmux's: that is where its mouse bindings live.
+	if strings.Contains(conf, "-T root") {
+		t.Error("the configuration touches the root table")
 	}
 }
