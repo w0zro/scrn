@@ -172,3 +172,38 @@ func TestAnAbsentServerIsAnEmptyAnswer(t *testing.T) {
 		t.Fatalf("err = %v, want errNoServer", err)
 	}
 }
+
+func TestARefusedCommandIsReportedByItsReason(t *testing.T) {
+	// A reply is framed %begin, body, %end or %error — the reason a command
+	// was refused comes before the %error that says it was. What follows the
+	// frame is the ordinary stream again, and none of it is the error's.
+	stream := strings.Join([]string{
+		"%begin 1788307014 309 0",
+		"%end 1788307014 309 0",
+		"%session-changed $0 scrn",
+		"%begin 1788307014 314 1",
+		"parse error: unknown command: nosuchcommand",
+		"%error 1788307014 314 1",
+		"%output %0 hello",
+		"%begin 1788307015 315 1",
+		"%end 1788307015 315 1",
+		"%exit",
+	}, "\n") + "\n"
+
+	var notes []ctlNote
+	readCtl(strings.NewReader(stream), func(n ctlNote) { notes = append(notes, n) })
+
+	want := []ctlNote{
+		{kind: noteError, err: "parse error: unknown command: nosuchcommand"},
+		{kind: noteOutput, pane: "%0"},
+		{kind: noteExit},
+	}
+	if len(notes) != len(want) {
+		t.Fatalf("notes = %+v, want %+v", notes, want)
+	}
+	for i := range want {
+		if notes[i] != want[i] {
+			t.Errorf("note %d = %+v, want %+v", i, notes[i], want[i])
+		}
+	}
+}

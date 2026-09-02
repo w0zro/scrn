@@ -123,8 +123,6 @@ func parseNote(line string) ctlNote {
 		// this says so — the hop through which a copy inside a pane reaches
 		// the system clipboard outside.
 		return ctlNote{kind: notePaste, buffer: strings.TrimPrefix(line, "%paste-buffer-changed ")}
-	case strings.HasPrefix(line, "%error"):
-		return ctlNote{kind: noteError}
 	case line == "%exit" || strings.HasPrefix(line, "%exit "):
 		return ctlNote{kind: noteExit}
 	}
@@ -161,39 +159,54 @@ func startCtl(notify func(ctlNote)) (*ctlClient, error) {
 
 	c := &ctlClient{cmd: cmd, in: in}
 	go func() {
-		// An %error block's text follows the %error line inside the reply
-		// frame; the scanner folds the block into one note as it goes.
-		sc := bufio.NewScanner(out)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		inError := false
-		errText := ""
-		for sc.Scan() {
-			line := sc.Text()
-			if inError {
-				if strings.HasPrefix(line, "%end") || strings.HasPrefix(line, "%error") {
-					inError = false
-					notify(ctlNote{kind: noteError, err: errText})
-					continue
-				}
-				if errText == "" {
-					errText = line
-				}
-				continue
-			}
-			n := parseNote(line)
-			if n.kind == noteError {
-				inError = true
-				errText = ""
-				continue
-			}
-			if n.kind != noteNothing {
-				notify(n)
-			}
-		}
-		notify(ctlNote{kind: noteExit})
+		readCtl(out, notify)
 		_ = cmd.Wait()
 	}()
 	return c, nil
+}
+
+// readCtl reads the control stream to its end, handing notify one note per
+// line worth acting on and noteExit when the stream closes.
+//
+// A command's reply is a frame: %begin, the reply's body, then %end or
+// %error closing it. The body of a refused command is the reason it was
+// refused, and it comes before the %error that says so — so the body is
+// held until its closing line says which of the two it was. Every command
+// scrn sends over this stream answers with an empty body when it succeeds,
+// which is why a body is only ever read as an error's text.
+func readCtl(r io.Reader, notify func(ctlNote)) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inReply := false
+	body := ""
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "%begin"):
+			inReply, body = true, ""
+			continue
+		case strings.HasPrefix(line, "%end"):
+			inReply = false
+			continue
+		case strings.HasPrefix(line, "%error"):
+			inReply = false
+			notify(ctlNote{kind: noteError, err: body})
+			continue
+		}
+		n := parseNote(line)
+		if n.kind == noteExit {
+			// Said once, below: the server closes the stream right after.
+			break
+		}
+		if n.kind != noteNothing {
+			notify(n)
+			continue
+		}
+		if inReply && body == "" && strings.TrimSpace(line) != "" {
+			body = line
+		}
+	}
+	notify(ctlNote{kind: noteExit})
 }
 
 // say sends one command down the control stream, fire and forget: what comes
