@@ -598,34 +598,65 @@ func (s *session) arrange(p placement) error {
 // changed it. The layout is main-vertical with the navigator as the main
 // pane, which is what holds the navigator's width when the window is
 // resized: the configuration re-applies it on every resize.
+//
+// A shell keeps its size as it moves. It joins at the slot's width in one
+// step rather than at half the window and then the slot, and the window it
+// goes back to is sized to the slot as it goes — a window sized by hand
+// stays that size whatever the client does — so a program in it sees no
+// change in its terminal, and has nothing to repaint, as the cursor moves
+// over its row and off again. A shell's first showing is the one resize:
+// its window was made at the client's size.
 func showPane(run runner, nav, target string) error {
-	out, err := run("list-panes", "-t", nav, "-F", "#{pane_id}\t#{@scrn_nav}")
+	out, err := run("list-panes", "-t", nav, "-F", "#{pane_id}\t#{@scrn_nav}\t#{window_width}\t#{window_height}")
 	if err != nil {
 		return err
 	}
 	shown := ""
+	var slot []string // -x width -y height of the slot, when known
 	for line := range strings.SplitSeq(out, "\n") {
-		id, isNav, _ := strings.Cut(line, "\t")
-		if id != "" && isNav != "1" {
-			shown = id
-			break
+		f := strings.Split(line, "\t")
+		if len(f) != 4 || f[0] == "" {
+			continue
 		}
+		if f[1] != "1" && shown == "" {
+			shown = f[0]
+		}
+		w, werr := strconv.Atoi(f[2])
+		h, herr := strconv.Atoi(f[3])
+		if werr == nil && herr == nil && w > navWidth+1 && h > 0 {
+			slot = []string{"-x", strconv.Itoa(w - navWidth - 1), "-y", strconv.Itoa(h)}
+		}
+	}
+	// park sizes the window a pane has just gone back to: the pane names
+	// its window, and the window takes the slot's size.
+	park := func(pane string) []string {
+		if slot == nil {
+			return nil
+		}
+		return append([]string{";", "resize-window", "-t", pane}, slot...)
 	}
 	switch {
 	case target == shown:
 		return nil
 	case target == "":
-		_, err = run("break-pane", "-d", "-n", heldName, "-s", shown)
+		args := []string{"break-pane", "-d", "-n", heldName, "-s", shown}
+		_, err = run(append(args, park(shown)...)...)
 	case shown == "":
 		// Shown is what a window named for wanting asked; the name goes
 		// first, while the pane is still there to name the window by —
 		// joined, its window closes behind it.
-		_, err = run("rename-window", "-t", target, heldName, ";",
-			"join-pane", "-h", "-d", "-s", target, "-t", nav, ";",
+		args := []string{"rename-window", "-t", target, heldName, ";",
+			"join-pane", "-h", "-d"}
+		if slot != nil {
+			args = append(args, "-l", slot[1])
+		}
+		args = append(args, "-s", target, "-t", nav, ";",
 			"select-layout", "-t", nav, "main-vertical")
+		_, err = run(args...)
 	default:
-		_, err = run("rename-window", "-t", target, heldName, ";",
-			"swap-pane", "-s", target, "-t", shown)
+		args := []string{"rename-window", "-t", target, heldName, ";",
+			"swap-pane", "-s", target, "-t", shown}
+		_, err = run(append(args, park(shown)...)...)
 	}
 	return err
 }

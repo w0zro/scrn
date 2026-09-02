@@ -60,9 +60,9 @@ func homeWith(shown string) (runner, *[]string) {
 	run := func(args ...string) (string, error) {
 		switch args[0] {
 		case "list-panes":
-			out := "%0\t1"
+			out := "%0\t1\t120\t29"
 			if shown != "" {
-				out += "\n" + shown + "\t"
+				out += "\n" + shown + "\t\t120\t29"
 			}
 			return out, nil
 		case "rename-window":
@@ -88,12 +88,13 @@ func TestShowingAShellJoinsSwapsOrParks(t *testing.T) {
 	}{
 		// Nothing beside the navigator: the shell joins it, and the layout
 		// gives the navigator its column.
-		{"", "%5", "join-pane -h -d -s %5 -t %0 ; select-layout -t %0 main-vertical"},
+		{"", "%5", "join-pane -h -d -l 91 -s %5 -t %0 ; select-layout -t %0 main-vertical"},
 		// A shell there already: the two trade places, so the one leaving
-		// takes the window the other came from.
-		{"%3", "%5", "swap-pane -s %5 -t %3"},
-		// No shell wanted: the one there goes back to a window of its own.
-		{"%3", "", "break-pane -d -n shell -s %3"},
+		// takes the window the other came from, sized to the slot it left.
+		{"%3", "%5", "swap-pane -s %5 -t %3 ; resize-window -t %3 -x 91 -y 29"},
+		// No shell wanted: the one there goes back to a window of its own,
+		// at the slot's size.
+		{"%3", "", "break-pane -d -n shell -s %3 ; resize-window -t %3 -x 91 -y 29"},
 	}
 	for _, c := range cases {
 		run, moved := homeWith(c.shown)
@@ -143,7 +144,7 @@ func TestArrangementsCoalesceToTheLastAsked(t *testing.T) {
 				close(started)
 				<-release
 			}
-			return "%0\t1", nil
+			return "%0\t1\t120\t29", nil
 		}
 		mu.Lock()
 		moved = append(moved, strings.Join(args, " "))
@@ -173,7 +174,7 @@ func TestArrangementsCoalesceToTheLastAsked(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(moved) != 2 || !strings.Contains(moved[0], "join-pane -h -d -s %1 ") || !strings.Contains(moved[1], "join-pane -h -d -s %4 ") {
+	if len(moved) != 2 || !strings.Contains(moved[0], "join-pane -h -d -l 91 -s %1 ") || !strings.Contains(moved[1], "join-pane -h -d -l 91 -s %4 ") {
 		t.Errorf("moved %q, want the first ask and then only the last", moved)
 	}
 }

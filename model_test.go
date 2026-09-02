@@ -1766,9 +1766,9 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		case "list-panes":
 			if has(args, "-t") {
 				// The home window: the navigator, and the shell beside it.
-				out := "%0\t1"
+				out := "%0\t1\t120\t29"
 				if shown != 0 {
-					out += fmt.Sprintf("\n%%%d\t", shown)
+					out += fmt.Sprintf("\n%%%d\t\t120\t29", shown)
 				}
 				return out, nil
 			}
@@ -1785,7 +1785,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		case "select-pane":
 			asked <- message{Kind: kindFocus, PID: target(args)}
 			return "", nil
-		case "select-window", "rename-window", "select-layout":
+		case "select-window", "rename-window", "select-layout", "resize-window":
 			return "", nil
 		case "detach-client":
 			asked <- message{Kind: kindLeave}
