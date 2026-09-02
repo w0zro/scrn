@@ -736,10 +736,9 @@ func (s *session) replace() {
 	go func() { _, _ = s.run("kill-server") }()
 }
 
-// dress names a shell's pane the way its tab reads — its place, what runs
-// there, and its mark — for the terminal's title while the keys are in it.
-// The tab strip itself is the navigator's to say whole, in strip.
-func (s *session) dress(pid int, tab string) {
+// dress names a shell's pane — its place, what runs there, and its mark —
+// for the terminal's title while the keys are in it.
+func (s *session) dress(pid int, name string) {
 	if s == nil {
 		return
 	}
@@ -747,17 +746,7 @@ func (s *session) dress(pid int, tab string) {
 	if p == nil {
 		return
 	}
-	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@scrn_tab", tab) }()
-}
-
-// strip hands tmux the status line's tab strip: every held shell in the
-// navigator's order, the shown one lit. tmux draws the line; scrn says
-// what it reads, because only the navigator knows the order and the marks.
-func (s *session) strip(text string) {
-	if s == nil {
-		return
-	}
-	go func() { _, _ = s.run("set", "-g", "@scrn_tabs", text, ";", "refresh-client", "-S") }()
+	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@scrn_tab", name) }()
 }
 
 // statusText is what the navigator has the status line read: the mode

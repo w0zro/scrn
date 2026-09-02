@@ -75,7 +75,7 @@
  scrn
  <span class="t-dim">└─</span> go test ./...
 
- <span class="c-brand b">scrn</span>  web: npm run dev  <span class="c-urgent">scrn: claude ◆</span> <span class="t-num">④</span></pre>
+<span class="c-brand b"> NAV </span>                                         <span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
@@ -83,7 +83,7 @@
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
     <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .scrn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
-    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, then a tab per shell, named for its place and what runs there, marked like its row, the shown one lit.</p></div>
+    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
   </div>
 </section>
 
@@ -182,26 +182,14 @@
   }
 
   // The status line is tmux's: the mode the keys are in — the navigator,
-  // a shell, the prefix while a chord hangs — then a tab per shell named
-  // for its place and what runs there and marked like its row. The shown
-  // shell's tab is lit.
-  const TABS = [
-    { label: 'web: npm run dev' },
-    { label: 'web: claude ⋯' },
-    { label: 'scrn: claude ◆', urgent: true },
-  ];
+  // a shell, the prefix while a chord hangs.
   const MODE_CHIP = {
     navigate: span('c-brand b', ' NAV '),
     proc: span('c-sel b', ' SHELL '),
     prefix: span('c-attn b', ' PREFIX '),
   };
-  function statusLine(current, mode) {
-    let line = MODE_CHIP[mode] + ' ';
-    TABS.forEach((tab, i) => {
-      const cls = i === current ? 'c-sel b' : (tab.urgent ? 'c-urgent' : 'c-label');
-      line += span(cls, ' ' + tab.label + ' ');
-    });
-    return line;
+  function statusLine(mode) {
+    return MODE_CHIP[mode];
   }
 
   // The pane. A label and its value line up under the widest label in their
@@ -258,20 +246,19 @@
   const cursorLine = line => line + span('c-cur', ' ');
 
   // The beats: what the cursor is on, what mode the keys are in, what the
-  // pane shows, and the sentence under the window that says why. A tab of
-  // -1 is no shell shown: the navigator has the window.
+  // pane shows, and the sentence under the window that says why.
   const BEATS = [
-    { cursor: 1, mode: 'navigate', tab: -1, pane: PANE_REPO, hold: 2400,
+    { cursor: 1, mode: 'navigate', pane: PANE_REPO, hold: 2400,
       cap: 'The list: every repository under your project roots, and everything running in each.' },
-    { cursor: 2, mode: 'navigate', tab: 0, pane: screen(DEV), hold: 1700,
+    { cursor: 2, mode: 'navigate', pane: screen(DEV), hold: 1700,
       cap: '<kbd>j</kbd> <kbd>k</kbd> move. The pane beside the list is the shell under the cursor.' },
-    { cursor: 2, mode: 'proc', tab: 0, pane: screen(DEV_MORE).concat([cursorLine('')]), hold: 2600,
+    { cursor: 2, mode: 'proc', pane: screen(DEV_MORE).concat([cursorLine('')]), hold: 2600,
       cap: '<kbd>enter</kbd> puts the keys in it — tmux draws the pane, and the keystrokes are the shell&rsquo;s.' },
-    { cursor: 2, mode: 'prefix', tab: 0, pane: screen(DEV_MORE).concat([cursorLine('')]), hold: 950,
+    { cursor: 2, mode: 'prefix', pane: screen(DEV_MORE).concat([cursorLine('')]), hold: 950,
       cap: '<kbd>ctrl-space</kbd> is the one key scrn keeps: it reaches scrn from any shell.' },
-    { cursor: 7, mode: 'proc', tab: 2, pane: screen(CLAUDE), hold: 2900,
-      cap: '<kbd>enter</kbd> goes to the agent that is waiting on you — the ◆ on the status line.' },
-    { cursor: 7, mode: 'navigate', tab: 2, pane: screen(CLAUDE), hold: 2400,
+    { cursor: 7, mode: 'proc', pane: screen(CLAUDE), hold: 2900,
+      cap: '<kbd>enter</kbd> goes to the agent that is waiting on you — the ◆ in the list.' },
+    { cursor: 7, mode: 'navigate', pane: screen(CLAUDE), hold: 2400,
       cap: '<kbd>n</kbd> is back to the list. The agent is still there beside it; nothing stopped along the way.' },
   ];
 
@@ -283,7 +270,7 @@
     const lines = b.pane.slice(0, ROWS);
     while (lines.length < ROWS) lines.push('');
     pane.innerHTML = lines.join('\n');
-    status.innerHTML = statusLine(b.tab, b.mode);
+    status.innerHTML = statusLine(b.mode);
     cap.innerHTML = b.cap;
   }
 

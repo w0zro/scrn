@@ -1658,7 +1658,6 @@ const (
 	kindFocus = "focus" // the keys taken to a pane
 	kindLeave = "leave"
 	kindDress = "dress" // a pane named for the title
-	kindStrip = "strip" // the status line's tab strip said whole
 	kindHelp  = "help"  // the keys popup asked for
 	kindMode  = "mode"  // the status line's mode chip said
 	kindMsg   = "msg"   // the status line's message said
@@ -1764,8 +1763,6 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			switch {
 			case has(args, "@scrn_tab"):
 				asked <- message{Kind: kindDress, PID: target(args), Name: args[len(args)-1]}
-			case has(args, "@scrn_tabs"):
-				asked <- message{Kind: kindStrip, Name: args[len(args)-1]}
 			case has(args, "@scrn_mode"):
 				asked <- message{Kind: kindMode, Name: args[len(args)-1]}
 			case has(args, "@scrn_msg"):
@@ -1822,7 +1819,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 }
 
 // askedForKind waits for the server to be asked something of one kind,
-// letting the asks before it — the tab strip, most often — go by.
+// letting the asks before it — a pane's name, most often — go by.
 func askedForKind(t *testing.T, asked chan message, kind string) message {
 	t.Helper()
 	deadline := time.After(time.Second)
@@ -3532,22 +3529,8 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 	})})
 	m = next.(model)
 
-	// The pane's name and the strip are said in either order.
-	said := map[string]message{}
-	deadline := time.After(time.Second)
-	for len(said) < 2 {
-		select {
-		case got := <-asked:
-			said[got.Kind] = got
-		case <-deadline:
-			t.Fatalf("said %v, want the pane dressed and the strip said", said)
-		}
-	}
-	if got := said[kindDress]; got.PID != 700 || got.Name != "scrn: claude ◆" {
+	if got := askedForKind(t, asked, kindDress); got.PID != 700 || got.Name != "scrn: claude ◆" {
 		t.Errorf("dressed %+v, want pane 700 named for its place and claude, marked ◆", got)
-	}
-	if got := said[kindStrip]; got.Name != " scrn: claude ◆ " {
-		t.Errorf("strip = %q, want the one tab, unlit: nothing is shown", got.Name)
 	}
 
 	// The same state again says nothing: what tmux has is what it would
@@ -3556,7 +3539,7 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 	m = next.(model)
 	select {
 	case again := <-asked:
-		if again.Kind == kindDress || again.Kind == kindStrip {
+		if again.Kind == kindDress {
 			t.Errorf("dressed again with nothing changed: %+v", again)
 		}
 	case <-time.After(50 * time.Millisecond):
@@ -3630,27 +3613,6 @@ func TestTheKeysLeavingForAShellDisarmsTheKillAndDimsTheCursor(t *testing.T) {
 	m = next.(model)
 	if got := m.rowStyle(row, true); got.GetForeground() != selStyle.GetForeground() {
 		t.Error("with the keys back the cursor row should be lit again")
-	}
-}
-
-func TestTheShownShellsTabIsLit(t *testing.T) {
-	m := withProcList(90, 14,
-		[]Project{{Name: "tmp", Path: "/tmp"}},
-		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
-	m, asked := pipeServer(t, m)
-
-	m = press(m, "down")
-	deadline := time.After(time.Second)
-	for {
-		select {
-		case got := <-asked:
-			if got.Kind == kindStrip && got.Name == "#[fg=#79C0FF,bold] tmp: zsh #[default]" {
-				return
-			}
-		case <-deadline:
-			t.Fatal("the strip never lit the shown shell's tab")
-		}
 	}
 }
 

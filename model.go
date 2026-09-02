@@ -291,10 +291,9 @@ type model struct {
 	// the shell aside.
 	synced bool
 
-	// dressed is the tab each shell's pane last wore, and strip the tab
-	// strip the status line last read, so tmux is only told what changed.
+	// dressed is the name each shell's pane last wore, so tmux is only
+	// told what changed.
 	dressed map[int]string
-	strip   string
 
 	// said is the mode and message the status line last read, for the
 	// same reason.
@@ -453,7 +452,7 @@ func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 		// made; the server says what it holds, and the pane follows from
 		// there.
 		m.previewing, m.synced = 0, false
-		m.strip, m.said = "", statusText{}
+		m.said = statusText{}
 		// Ask what is already running: shells from a window that has since
 		// been closed are still there, and this is where they come back.
 		m.server.list()
@@ -1112,10 +1111,9 @@ func (m *model) stepShell(delta int) tea.Cmd {
 }
 
 // heldOrder is every held shell in the order the navigator lists them: by
-// place as the places are listed, then by age. It is the order the tab
-// strip reads in and the order J and K step through, and it does not
-// depend on what is folded or filtered — a shell is still there when its
-// row is not.
+// place as the places are listed, then by age. It is the order J and K
+// step through, and it does not depend on what is folded or filtered — a
+// shell is still there when its row is not.
 func (m model) heldOrder() []int {
 	rank := map[string]int{}
 	for i, p := range m.projects {
@@ -1792,37 +1790,20 @@ func (m *model) rebuild() {
 	m.dressWindows()
 }
 
-// dressWindows writes the status line's tab strip — every held shell in
-// the navigator's order, named for its place and what is running there,
-// marked the way its row is marked, the shown one lit — and names each
-// shell's pane the same way for the terminal's title. Only what changed is
-// said: the strip is redrawn every second whatever is said, and saying the
-// same thing again would be noise on the server.
+// dressWindows names each held shell's pane — its place, what is running
+// there, and its mark — for the terminal's title while the keys are in
+// it. Only what changed is said: saying the same thing again would be
+// noise on the server.
 func (m *model) dressWindows() {
-	var tabs []string
-	for _, pid := range m.heldOrder() {
-		name, mark := m.shellLabel(pid, m.terms[pid])
-		tab := name
+	for pid, t := range m.terms {
+		name, mark := m.shellLabel(pid, t)
 		if mark != "" {
-			tab += " " + mark
+			name += " " + mark
 		}
-		if m.dressed[pid] != tab {
-			m.dressed[pid] = tab
-			m.server.dress(pid, tab)
+		if m.dressed[pid] != name {
+			m.dressed[pid] = name
+			m.server.dress(pid, name)
 		}
-		// A # is tmux's to expand in a format, so the strip's are doubled.
-		shown := strings.ReplaceAll(tab, "#", "##")
-		if pid == m.previewing {
-			shown = "#[fg=#79C0FF,bold] " + shown + " #[default]"
-		} else {
-			shown = " " + shown + " "
-		}
-		tabs = append(tabs, shown)
-	}
-	strip := strings.Join(tabs, "")
-	if strip != m.strip {
-		m.strip = strip
-		m.server.strip(strip)
 	}
 }
 
@@ -1882,9 +1863,9 @@ func (m model) statusLine() statusText {
 	return t
 }
 
-// windowLabelWidth is as much of a shell's label as the status line gets.
-// A window's name is one tab among several; a whole command line there
-// would push the others off the end.
+// windowLabelWidth is as much of a shell's label as its title gets: a
+// whole command line there would run the terminal's title bar off the
+// end.
 const windowLabelWidth = 24
 
 // shellLabel is what a held shell's window is called and how it is marked:

@@ -97,10 +97,8 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"# The status line: the mode the keys are in — the prefix while a",
 		"# chord hangs, copy mode, the navigator's own when it has one to",
 		"# name, else which pane the keys are in — then what the navigator",
-		"# says, or, when it says nothing, every shell with its mark: the strip",
-		"# is the navigator's to write, in its order. The window list tmux",
-		"# would draw is turned off: the windows are where shells wait, not",
-		"# something to read.",
+		"# says. The window list tmux would draw is turned off: the windows",
+		"# are where shells wait, and the navigator is the list of them.",
 		"set -g status on",
 		"set -g status-position bottom",
 		"set -g status-interval 1",
@@ -119,12 +117,11 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 	return b.String()
 }
 
-// statusLeft is the status line's format: the mode, then the message or
-// the strip. tmux knows most of the modes itself — the prefix, copy mode,
-// which pane the keys are in — and the navigator names its own in
-// @scrn_mode, which counts only while the keys are with it: a filter
-// half-typed is not the mode of a shell. What the navigator has to say is
-// in @scrn_msg, and takes the strip's place while it stands.
+// statusLeft is the status line's format: the mode, then the message.
+// tmux knows most of the modes itself — the prefix, copy mode, which pane
+// the keys are in — and the navigator names its own in @scrn_mode, which
+// counts only while the keys are with it: a filter half-typed is not the
+// mode of a shell. What the navigator has to say is in @scrn_msg.
 func statusLeft() string {
 	// A chip is one word in one color. It stands inside a conditional,
 	// where a comma would split the alternatives, so the style's is escaped.
@@ -135,5 +132,5 @@ func statusLeft() string {
 		",#{?pane_in_mode," + chip(darkFg, "COPY") +
 		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(darkBrand, "NAV") + "}," +
 		chip(darkAccent, "SHELL") + "}}}"
-	return mode + "#{?@scrn_msg,#{@scrn_msg},#{@scrn_tabs}}"
+	return mode + "#{@scrn_msg}"
 }
