@@ -2075,7 +2075,10 @@ func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
 		lo, hi := s.selection(s.cur)
 		lines := make([]string, 0, hi-lo+1)
 		for _, row := range s.doc[lo : hi+1] {
-			lines = append(lines, ansi.Strip(row))
+			// The screen's rows are padded to the pane's width so the
+			// cursor can be cut into any cell; the padding is scrn's, not
+			// the program's, and it does not go to the clipboard.
+			lines = append(lines, strings.TrimRight(ansi.Strip(row), " "))
 		}
 		m.scroll = nil // the yank is the end of the reading
 		text := strings.Join(lines, "\n")

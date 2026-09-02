@@ -1010,3 +1010,32 @@ func TestTheNavigatorIgnoresTheMouseEvenWhenItIsHeld(t *testing.T) {
 			was, got.cursor, got.focus)
 	}
 }
+
+func TestAYankDoesNotCarryThePanesPadding(t *testing.T) {
+	// Screen rows arrive padded to the pane's width so the cursor can be
+	// cut into any cell. The padding is scrn's, and a yank is the program's
+	// text: nobody pastes twelve spaces after "hello".
+	copied := ""
+	old := writeClipboard
+	writeClipboard = func(text string) error { copied = text; return nil }
+	t.Cleanup(func() { writeClipboard = old })
+
+	m := readingBack(t)
+	m.scroll.doc = []string{"hello       ", "world  \x1b[0m   "}
+	m.scroll.cur, m.scroll.above, m.scroll.anchor = 1, 0, -1
+
+	for _, key := range []string{"v", "k"} {
+		next, _ := m.Update(typed(key))
+		m = next.(model)
+	}
+	next, cmd := m.Update(typed("y"))
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("y should have scheduled the copy")
+	}
+	_, _ = m.Update(cmd())
+
+	if copied != "hello\nworld" {
+		t.Errorf("copied = %q, want the text without the pane's padding", copied)
+	}
+}
