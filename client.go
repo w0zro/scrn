@@ -687,95 +687,106 @@ func nextEvent(s *session) tea.Cmd {
 // has to be told its size before it draws, and the size is said per window.
 const paneBirth = "#{pane_id} #{window_id} #{pane_pid}"
 
+// runner is one tmux command against scrn's server: a session's seam, or
+// tmuxCommand itself for a one-shot caller.
+type runner func(args ...string) (string, error)
+
+// birth is a shell just opened: its pane, the window holding it, and the
+// pid of the shell in it.
+type birth struct {
+	pane string
+	win  string
+	pid  int
+}
+
+// createWindow opens a window in scrn's session holding a shell — or, handed
+// a command, that command with a shell waiting behind it — in dir, and pins
+// the name and the opening directory on its pane so the list can tell a
+// plan's web apart from a shell that wandered there. The first shell brings
+// the server up around it when nothing else has; w and h size that server's
+// first window, and style is the terminal's colors for it, if known.
+func createWindow(run runner, dir, command, name string, w, h int, style string) (birth, error) {
+	cmd := ""
+	if command != "" {
+		// Under a shell, so the command is found on the user's own PATH,
+		// and one that exits leaves the shell rather than the row
+		// vanishing.
+		cmd = command + "; exec " + shellCommand()
+	}
+
+	another := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
+		"-F", paneBirth, "-c", dir}
+	args := another
+	if _, err := run("has-session", "-t", tmuxSession); err != nil {
+		// The socket's directory is scrn's to make: tmux creates the
+		// socket but not the directory around it.
+		_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
+		args = []string{"start-server", ";",
+			"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
+			"set", "-g", "window-size", "smallest", ";",
+			"set", "-g", "set-clipboard", "on", ";"}
+		if style != "" {
+			args = append(args, "set", "-g", "window-style", style, ";")
+		}
+		args = append(args, "new-session", "-d", "-s", tmuxSession,
+			"-x", strconv.Itoa(max(w, 1)), "-y", strconv.Itoa(max(h, 1)),
+			"-P", "-F", paneBirth, "-c", dir)
+	}
+	if cmd != "" {
+		another = append(another, cmd)
+		args = append(args, cmd)
+	}
+
+	out, err := run(args...)
+	if err != nil && strings.Contains(err.Error(), "duplicate session") {
+		// Two windows opened their first shells in the same instant,
+		// each found no session, and one of them made it. The other's
+		// shell still opens — as every shell after the first does.
+		out, err = run(another...)
+	}
+	if err != nil {
+		return birth{}, err
+	}
+	f := strings.Fields(out)
+	if len(f) != 3 {
+		return birth{}, errors.New("tmux said " + out)
+	}
+	pid, err := strconv.Atoi(f[2])
+	if err != nil {
+		return birth{}, errors.New("tmux said " + out)
+	}
+	_, _ = run("set", "-p", "-t", f[0], "@scrn_dir", dir, ";",
+		"set", "-p", "-t", f[0], "@scrn_name", name)
+	return birth{pane: f[0], win: f[1], pid: pid}, nil
+}
+
 // open starts a shell — or handed a command, that command with a shell
-// waiting behind it — in dir, held by the server. The first shell is what
-// creates the session, and the session is what the control client attaches
-// to, in that order.
+// waiting behind it — in dir, held by the server, and tells the model when
+// it is there.
 func (s *session) open(dir, run, name string, w, h int) {
 	if s == nil {
 		return
 	}
 	s.setSize(w, h)
 	go func() {
-		cmd := ""
-		if run != "" {
-			// Under a shell, so the command is found on the user's own PATH,
-			// and one that exits leaves the shell rather than the row
-			// vanishing — the same wrapper the old daemon built.
-			cmd = run + "; exec " + shellCommand()
-		}
-
-		another := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
-			"-F", paneBirth, "-c", dir}
-		args := another
-		if _, err := s.run("has-session", "-t", tmuxSession); err != nil {
-			// The first shell brings the server up around it. The options
-			// ride in the same invocation: the transcript cap has to stand
-			// before the first pane exists to keep any, and the terminal's
-			// colors before the first program asks what color it is.
-			//
-			// The socket's directory is scrn's to make: tmux creates the
-			// socket but not the directory around it, and on a machine that
-			// has never run scrn there is no ~/.local/state/scrn to put it
-			// in. A directory that cannot be made is left for the creation
-			// to complain about, in tmux's words.
-			_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
-			args = []string{"start-server", ";",
-				"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
-				"set", "-g", "window-size", "smallest", ";",
-				"set", "-g", "set-clipboard", "on", ";"}
-			if style := s.themeStyle(); style != "" {
-				args = append(args, "set", "-g", "window-style", style, ";")
-			}
-			args = append(args, "new-session", "-d", "-s", tmuxSession,
-				"-x", strconv.Itoa(max(w, 1)), "-y", strconv.Itoa(max(h, 1)),
-				"-P", "-F", paneBirth, "-c", dir)
-		}
-		if cmd != "" {
-			another = append(another, cmd)
-			args = append(args, cmd)
-		}
-
-		out, err := s.run(args...)
-		if err != nil && strings.Contains(err.Error(), "duplicate session") {
-			// Two windows opened their first shells in the same instant,
-			// each found no session, and one of them made it. The other's
-			// shell still opens — as every shell after the first does.
-			out, err = s.run(another...)
-		}
+		b, err := createWindow(s.run, dir, run, name, w, h, s.themeStyle())
 		if err != nil {
 			s.events <- serverErrorMsg{err: err}
 			return
 		}
-		f := strings.Fields(out)
-		if len(f) != 3 {
-			s.events <- serverErrorMsg{err: errors.New("tmux said " + out)}
-			return
-		}
-		id, win := f[0], f[1]
-		pid, aerr := strconv.Atoi(f[2])
-		if aerr != nil {
-			s.events <- serverErrorMsg{err: errors.New("tmux said " + out)}
-			return
-		}
-
-		// The name and the opening directory are pinned on the pane, so the
-		// list can tell a plan's web apart from a shell that wandered there.
-		_, _ = s.run("set", "-p", "-t", id, "@scrn_dir", dir, ";",
-			"set", "-p", "-t", id, "@scrn_name", name)
 
 		s.mu.Lock()
-		s.panes[pid] = &pane{id: id, win: win, pid: pid, dir: dir, name: name}
-		s.byPane[id] = pid
-		s.watching[pid] = true
+		s.panes[b.pid] = &pane{id: b.pane, win: b.win, pid: b.pid, dir: dir, name: name}
+		s.byPane[b.pane] = b.pid
+		s.watching[b.pid] = true
 		s.mu.Unlock()
 
 		// The control client is wired before the model is told: a keystroke
 		// typed the moment the shell appears has to have somewhere to go.
 		s.refreshList()
 		s.ensureCtl()
-		s.events <- termOpenedMsg{pid: pid, dir: dir, name: name}
-		s.captureSoon(id)
+		s.events <- termOpenedMsg{pid: b.pid, dir: dir, name: name}
+		s.captureSoon(b.pane)
 	}()
 }
 

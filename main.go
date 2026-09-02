@@ -33,14 +33,22 @@ func versionString() string {
 const usage = `scrn is a terminal UI for working on projects at the command line.
 
 usage:
-  scrn             open the window
+  scrn             open the window: scrn's tmux server, with the navigator
   scrn ls          list the held shells: pid, directory, name
   scrn -h, --help  show this
   scrn --version   report the version
 
+the chords run these; they are not for typing:
+  scrn nav         the navigator, in the home window
+  scrn home [key]  to the navigator, pressing key there
+  scrn shell [dir] a shell in dir, in a new window
+  scrn agent [dir] an agent in dir, in a new window
+  scrn run [dir]   the plan of the place holding dir
+  scrn jump        the next agent waiting on you
+
 files:
   ~/.config/scrn/config.json  configuration
-  ~/.local/state/scrn/        the socket of the tmux server holding the shells
+  ~/.local/state/scrn/        the tmux server's socket and configuration
 
 environment:
   SCRN_SOCKET  where that server listens, instead of the state directory
@@ -61,6 +69,16 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "nav":
+			runNav()
+			return
+		case "home", "shell", "agent", "run", "jump":
+			arg := ""
+			if len(os.Args) > 2 {
+				arg = os.Args[2]
+			}
+			report(runChord(os.Args[1], arg))
+			return
 		// Anything else is refused rather than shrugged off: a mistyped
 		// argument that silently opened the window would look like it worked.
 		default:
@@ -69,18 +87,42 @@ func main() {
 		}
 	}
 
-	// The navigator's width is drawn from before the first paint, and the
-	// transcript cap has to stand before the first shell brings the server
-	// up, so both are applied here rather than on a scan.
+	if cfg, err := loadConfig(); err == nil {
+		applyScrollback(cfg.Scrollback)
+		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
+	}
+	if err := runLaunch(); err != nil {
+		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runChord carries out one of the chords' commands.
+func runChord(word, arg string) error {
+	switch word {
+	case "home":
+		return runHome(arg)
+	case "shell":
+		return runShellAt(arg, "")
+	case "agent":
+		return runShellAt(arg, startAgent())
+	case "run":
+		return runPlanAt(arg)
+	case "jump":
+		return runJump()
+	}
+	return nil
+}
+
+// runNav is the navigator: the program in the home window. The navigator's
+// width is drawn from before the first paint and the agent kind before the
+// first a, so both are applied here rather than on a scan.
+func runNav() {
 	if cfg, err := loadConfig(); err == nil {
 		applyNavWidth(cfg.NavWidth)
 		applyScrollback(cfg.Scrollback)
 		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
 	}
-
-	// The alternate screen and the mouse are asked for on the view rather
-	// than here: in Bubble Tea v2 they are facts about what is being drawn,
-	// and the view carries them out with every frame.
 	p := tea.NewProgram(newModel())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
