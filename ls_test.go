@@ -9,7 +9,7 @@ import (
 
 func TestLsPrintsWhatTheServerHolds(t *testing.T) {
 	m := connected(t, repoModel())
-	m.server.open("/tmp", "cat", "web", 60, 12)
+	m.server.open("/tmp", "cat", "web")
 	m = pump(t, m, func(m model) bool { return len(m.terms) == 1 }, 10*time.Second)
 
 	var pid int

@@ -232,31 +232,6 @@ func TestAStaleListingIsDropped(t *testing.T) {
 	}
 }
 
-func TestFocusTakesThePickerDown(t *testing.T) {
-	m := pickerOn(conversation{ID: "aaaa-1111", Prompt: "anything"})
-	m.terms[700] = &remoteTerm{pid: 700, dir: "/p/scrn"}
-
-	// A shell opened by hand takes the keys, which is the pane's now.
-	next, _ := m.Update(termOpenedMsg{pid: 700})
-	if next.(model).resume != nil {
-		t.Fatal("the picker outlived the focus moving into a shell")
-	}
-}
-
-func TestPrefixAReachesFromAFocusedShell(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "absent"))
-	m := twoShells(700)
-	m.terms[700].dir = "/p/a"
-
-	m = chord(m, "A")
-	if m.resume == nil || m.resume.place.Path != "/p/a" {
-		t.Fatalf("picker = %+v, want it open on the focused shell's place", m.resume)
-	}
-	if m.focus != 0 {
-		t.Errorf("focus = %d, want the keys given to the picker", m.focus)
-	}
-}
-
 func TestConvoDirsCoverThePlace(t *testing.T) {
 	m := withProcs(96, 14, []Project{
 		{Name: "a", Path: "/g/one/a", Group: "/g/one"},

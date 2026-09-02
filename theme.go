@@ -91,7 +91,7 @@ var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
 var (
 	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
 	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
-	attnStyle, blockedStyle, cursorStyle, headingStyle     lipgloss.Style
+	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
 	offSelStyle, noteStyle, previewStyle, matchStyle       lipgloss.Style
 )
 
@@ -127,8 +127,6 @@ func applyBackground(dark bool) {
 	// waiting, because this answer is holding up work already in flight.
 	blockedStyle = lipgloss.NewStyle().Bold(true).Foreground(p.urgent)
 
-	cursorStyle = lipgloss.NewStyle().Reverse(true)
-
 	// headingStyle names what the detail pane is about, so that what a row is
 	// does not read at the same weight as its memory share.
 	headingStyle = itemStyle.Bold(true)
@@ -163,39 +161,7 @@ func applyBackground(dark bool) {
 	// attached, gray is a preview.
 	previewStyle = lipgloss.NewStyle().Foreground(p.muted)
 
-	// modeLooks is the bar across the foot: the chip in the mode's own
-	// color, and the rest of the line washed in a pale field of the same
-	// hue, so it reads as one bar to the divider rather than a floating
-	// badge. Reverse for the chip rather than a background color, because
-	// the page's background is the terminal's own to know. Navigate is the
-	// selection's blue — the list is where choosing happens; proc is the
-	// green of something alive, because the keys are inside it; prefix is
-	// the amber of a question, because the next key is one.
-	modeLooks = map[string]modeLook{
-		modeNavigate: {
-			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.accent),
-			bar:  lipgloss.NewStyle().Background(p.accentWash),
-		},
-		modeProc: {
-			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.success),
-			bar:  lipgloss.NewStyle().Background(p.successWash),
-		},
-		modePrefix: {
-			chip: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.attention),
-			bar:  lipgloss.NewStyle().Background(p.attentionWash),
-		},
-	}
 }
-
-// modeLook is how one mode dresses the foot's bar: the chip, and the field
-// it rides on. Declared with the other styles and rebuilt with them; see
-// applyBackground.
-type modeLook struct {
-	chip lipgloss.Style
-	bar  lipgloss.Style
-}
-
-var modeLooks map[string]modeLook
 
 // tone is how a value in the detail pane reads. Most facts are plain; the
 // few that carry a state carry it in the same colors the navigator's marks

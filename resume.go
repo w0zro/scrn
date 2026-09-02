@@ -40,27 +40,6 @@ func (m *model) openResume() tea.Cmd {
 	return m.openResumePlace(r.project)
 }
 
-// resumeHere opens the picker for the place the keys are in: the focused
-// shell's place when one is taking them, else the selected row's — the same
-// reach the other chords have.
-func (m *model) resumeHere() tea.Cmd {
-	t := m.focused()
-	if t == nil {
-		return m.openResume()
-	}
-	p, ok := m.placeAt(t.dir)
-	if !ok {
-		m.status, m.statusErr = "no project holds "+t.dir, true
-		return nil
-	}
-	// The picker takes the pane and the keys, so the shell gives them up;
-	// the cursor lands on the place whose conversations are being offered.
-	m.scroll = nil
-	m.setFocus(0)
-	m.selectProject(p.Path)
-	return m.openResumePlace(p)
-}
-
 // openResumePlace opens the picker and asks for the listing off the render
 // path: it is dozens of files, and the pane says "looking" until they land.
 func (m *model) openResumePlace(p Project) tea.Cmd {
@@ -186,7 +165,7 @@ func (m *model) resumePick() tea.Cmd {
 		return nil
 	}
 	m.resume = nil
-	m.server.open(c.Dir, run, "", m.detailWidth(), m.paneHeight())
+	m.server.open(c.Dir, run, "")
 	return nil
 }
 

@@ -3,9 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -442,7 +439,7 @@ func TestCursorStartsOnTheFirstRow(t *testing.T) {
 }
 
 func TestCursorMovesWithArrowsAndJK(t *testing.T) {
-	for _, key := range []string{"down", "j", "tab"} {
+	for _, key := range []string{"down", "j"} {
 		if c := press(threeRepos(10), key).cursor; c != 1 {
 			t.Errorf("%q moved cursor to %d, want 1", key, c)
 		}
@@ -497,7 +494,7 @@ func manyRepos(n, h int) model {
 }
 
 func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
-	m := manyRepos(10, 6) // 3 body rows, under the masthead, blank and chip
+	m := manyRepos(10, 5) // 3 body rows, under the masthead and its blank
 	for range 3 {
 		m = press(m, "down")
 	}
@@ -874,9 +871,10 @@ func TestQuitStillWorksWhileArmed(t *testing.T) {
 	// Cancelling is the priority, but the user must not be trapped: the next
 	// key after cancelling quits as usual.
 	armed := press(press(nestedTree(12), "down"), "x")
-	cancelled := press(armed, "q")
-	if _, cmd := cancelled.Update(typed("q")); cmd == nil {
-		t.Error("q should quit once the confirmation is cleared")
+	cancelled, asked := pipeServer(t, press(armed, "q"))
+	press(cancelled, "q")
+	if got := askedForKind(t, asked, kindLeave); got.Kind != kindLeave {
+		t.Error("q should leave once the confirmation is cleared")
 	}
 }
 
@@ -1563,7 +1561,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 
 	// The chord counts it among the waiting, unlike an instance merely idle
 	// since launch.
-	if got := chordKey(m, tea.KeyEnter).status; got == "no agent is waiting" {
+	if got := press(m, "tab").status; got == "no agent is waiting" {
 		t.Error("the chord passed over a blocked instance")
 	}
 }
@@ -1581,8 +1579,8 @@ func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
 		t.Errorf("row = %q, want a hollow marker on an instance idle since launch", row)
 	}
 
-	if got := chordKey(m, tea.KeyEnter).status; got != "no agent is waiting" {
-		t.Errorf("status = %q, want the chord to find nothing owed", got)
+	if got := press(m, "tab").status; got != "no agent is waiting" {
+		t.Errorf("status = %q, want the summons to find nothing owed", got)
 	}
 }
 
@@ -1605,7 +1603,7 @@ func TestARecycledPidDoesNotInheritAFinishedTurn(t *testing.T) {
 }
 
 func TestPrefixEnterCyclesTheWaitingAgents(t *testing.T) {
-	// ctrl+space enter is the summons: it goes to the next agent waiting on
+	// tab is the summons at the list: it goes to the next agent waiting on
 	// its user, and pressing it again continues around them in turn.
 	m := withProcList(96, 14,
 		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
@@ -1619,139 +1617,19 @@ func TestPrefixEnterCyclesTheWaitingAgents(t *testing.T) {
 	})
 	m.worked = map[int]bool{700: true, 701: true}
 
-	m = chordKey(m, tea.KeyEnter)
+	m = press(m, "tab")
 	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
 		t.Errorf("cursor on %+v, want the first waiting agent, pid 700", r)
 	}
 
-	m = chordKey(m, tea.KeyEnter)
+	m = press(m, "tab")
 	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 701 {
 		t.Errorf("cursor on %+v, want the next waiting agent, pid 701", r)
 	}
 
-	m = chordKey(m, tea.KeyEnter)
+	m = press(m, "tab")
 	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
 		t.Errorf("cursor on %+v, want the cycle to wrap back to pid 700", r)
-	}
-}
-
-func TestPrefixReachesOutOfAFocusedShell(t *testing.T) {
-	// The prefix's point is to reach scrn from wherever the keys are going:
-	// a working agent focused elsewhere must not swallow the summons.
-	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Status: "idle", StatusFor: time.Minute},
-	})
-	m.worked = map[int]bool{700: true}
-	m.terms = map[int]*remoteTerm{900: {pid: 900}}
-	m.focus = 900
-
-	m = chordKey(m, tea.KeyEnter)
-
-	if m.focus != 0 {
-		t.Error("the chord should leave the shell for the navigator")
-	}
-	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 700 {
-		t.Errorf("cursor on %+v, want the waiting agent", r)
-	}
-}
-
-func TestAnUnboundChordCancelsThePrefix(t *testing.T) {
-	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Status: "idle", StatusFor: time.Minute},
-	})
-	m.worked = map[int]bool{700: true}
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(typed("z"))
-	m = next.(model)
-
-	if m.pendingPrefix {
-		t.Error("an unbound key should cancel the prefix")
-	}
-	if m.cursor != 0 {
-		t.Error("the cancelling key should be swallowed, not acted on")
-	}
-}
-
-// chord presses the prefix and then one key.
-func chord(m model, key string) model {
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(typed(key))
-	return next.(model)
-}
-
-// chordKey presses the prefix and then one non-printable key.
-func chordKey(m model, code rune) model {
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: code})
-	return next.(model)
-}
-
-// chordPrefix presses the prefix twice.
-func chordPrefix(m model) model {
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	next, _ = next.(model).Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	return next.(model)
-}
-
-// twoShells is two repos, each with a shell scrn holds, plus a process it
-// does not own, focused on the first shell when pid is not zero.
-func twoShells(focus int) model {
-	m := withProcList(96, 14,
-		[]Project{{Name: "a", Path: "/p/a"}, {Name: "b", Path: "/p/b"}},
-		[]Proc{
-			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/a"},
-			{PID: 800, PPID: 1, Command: "cargo", Dir: "/p/a"},
-			{PID: 701, PPID: 1, Command: "zsh", Dir: "/p/b"},
-		})
-	m.terms = map[int]*remoteTerm{700: {pid: 700}, 701: {pid: 701}}
-	m.focus = focus
-	return m
-}
-
-func TestPrefixJStepsToTheNextShell(t *testing.T) {
-	m := chord(twoShells(700), "j")
-
-	if m.focus != 701 {
-		t.Errorf("focus = %d, want the next shell 701", m.focus)
-	}
-	if r, ok := m.selected(); !ok || r.kind != rowProc || r.node.PID != 701 {
-		t.Errorf("cursor on %+v, want it moved with the attachment", r)
-	}
-
-	// The step skips the foreign process and wraps at the end.
-	if m = chord(m, "j"); m.focus != 700 {
-		t.Errorf("focus = %d, want the step to wrap back to 700", m.focus)
-	}
-}
-
-func TestPrefixKStepsBack(t *testing.T) {
-	if m := chord(twoShells(701), "k"); m.focus != 700 {
-		t.Errorf("focus = %d, want the previous shell 700", m.focus)
-	}
-}
-
-func TestPrefixJFromTheNavigatorAttaches(t *testing.T) {
-	// Not focused anywhere, cursor on the first repo row: the chord still
-	// means motion between shells, so it enters the nearest one ahead.
-	if m := chord(twoShells(0), "j"); m.focus != 700 {
-		t.Errorf("focus = %d, want the first shell 700", m.focus)
-	}
-}
-
-func TestPrefixJWithNoOtherShellSaysSo(t *testing.T) {
-	m := withProcList(96, 14,
-		[]Project{{Name: "a", Path: "/p/a"}},
-		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/a"}})
-	m.terms = map[int]*remoteTerm{700: {pid: 700}}
-	m.focus = 700
-
-	m = chord(m, "j")
-	if m.focus != 700 {
-		t.Errorf("focus = %d, want it left where it was", m.focus)
-	}
-	if m.status != "nothing else to attach to" {
-		t.Errorf("status = %q, want it to say there is nowhere to go", m.status)
 	}
 }
 
@@ -1769,34 +1647,9 @@ const (
 	kindOpen   = "open"
 	kindAttach = "attach"
 	kindClose  = "close"
-	kindInput  = "input"
-	kindTheme  = "theme"
+	kindShow   = "show"
+	kindLeave  = "leave"
 )
-
-// sayCollector stands in for the control client's stdin: every send-keys or
-// paste line the session says becomes a kindInput ask, with the line itself
-// riding in Run.
-type sayCollector struct {
-	asked chan message
-}
-
-func (c sayCollector) Write(p []byte) (int, error) {
-	line := strings.TrimRight(string(p), "\n")
-	if strings.HasPrefix(line, "send-keys ") || strings.HasPrefix(line, "set-buffer ") ||
-		strings.HasPrefix(line, "paste-buffer ") {
-		pid := 0
-		f := strings.Fields(line)
-		for i, a := range f {
-			if a == "-t" && i+1 < len(f) && strings.HasPrefix(f[i+1], "%") {
-				pid, _ = strconv.Atoi(strings.TrimPrefix(f[i+1], "%"))
-			}
-		}
-		c.asked <- message{Kind: kindInput, PID: pid, Run: line}
-	}
-	return len(p), nil
-}
-
-func (c sayCollector) Close() error { return nil }
 
 // pipeServer gives a model a session whose asks land on the returned
 // channel. The session runs over a fake tmux: panes are seeded from the
@@ -1814,7 +1667,6 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 	s.closed = true // never attach a control client or probe for a server
 
 	asked := make(chan message, 16)
-	s.ctl = &ctlClient{in: sayCollector{asked: asked}}
 	var mu sync.Mutex
 	var opening *message
 	var listing []string
@@ -1822,15 +1674,17 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 
 	for pid, rt := range terms {
 		id := "%" + strconv.Itoa(pid)
-		s.panes[pid] = &pane{id: id, pid: pid, dir: rt.dir, name: rt.name, sgr: true}
+		s.panes[pid] = &pane{id: id, win: "@" + strconv.Itoa(pid), pid: pid, dir: rt.dir, name: rt.name}
 		s.byPane[id] = pid
-		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s", id, pid, pid, rt.dir, rt.name, rt.dir))
+		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s\t", id, pid, pid, rt.dir, rt.name, rt.dir))
 	}
 
+	// The fake's panes and windows are numbered by pid, so a target names
+	// its pid whichever it is.
 	target := func(args []string) int {
 		for i, a := range args {
-			if a == "-t" && i+1 < len(args) && strings.HasPrefix(args[i+1], "%") {
-				pid, _ := strconv.Atoi(strings.TrimPrefix(args[i+1], "%"))
+			if a == "-t" && i+1 < len(args) && (strings.HasPrefix(args[i+1], "%") || strings.HasPrefix(args[i+1], "@")) {
+				pid, _ := strconv.Atoi(args[i+1][1:])
 				return pid
 			}
 		}
@@ -1858,15 +1712,10 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			nextPID++
 			opening = &message{Kind: kindOpen, PID: nextPID, Dir: dir, Run: run}
 			id := "%" + strconv.Itoa(nextPID)
-			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s", id, nextPID, nextPID, dir, dir))
+			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s\t", id, nextPID, nextPID, dir, dir))
 			return fmt.Sprintf("%s @%d %d", id, nextPID, nextPID), nil
 		case "set":
-			// The terminal's colors land as the server's window-style; a
-			// pane's name lands right after its open, making the ask whole.
-			if slices.Contains(args, "window-style") {
-				asked <- message{Kind: kindTheme, Run: args[len(args)-1]}
-				return "", nil
-			}
+			// A pane's name lands right after its open, making the ask whole.
 			if opening != nil {
 				opening.Name = args[len(args)-1]
 				asked <- *opening
@@ -1876,11 +1725,14 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		case "list-panes":
 			return strings.Join(listing, "\n"), nil
 		case "capture-pane":
-			// A screen ask means the pane is being watched; a history read
-			// (-S) is the transcript, not a watch.
-			if !slices.Contains(args, "-S") {
-				asked <- message{Kind: kindAttach, PID: target(args)}
-			}
+			// A screen ask means the pane is being previewed.
+			asked <- message{Kind: kindAttach, PID: target(args)}
+			return "", nil
+		case "select-window":
+			asked <- message{Kind: kindShow, PID: target(args)}
+			return "", nil
+		case "detach-client":
+			asked <- message{Kind: kindLeave}
 			return "", nil
 		case "kill-pane":
 			asked <- message{Kind: kindClose, PID: target(args)}
@@ -1889,6 +1741,24 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		return "", nil
 	}
 	return s, asked
+}
+
+// askedForKind waits for the server to be asked something of one kind,
+// letting the asks before it — a preview's capture, most often — go by.
+func askedForKind(t *testing.T, asked chan message, kind string) message {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case got := <-asked:
+			if got.Kind == kind {
+				return got
+			}
+		case <-deadline:
+			t.Fatalf("the server was never asked to %s", kind)
+			return message{}
+		}
+	}
 }
 
 // askedFor waits for the server to be asked something, or fails the test.
@@ -1900,47 +1770,6 @@ func askedFor(t *testing.T, asked chan message) message {
 	case <-time.After(time.Second):
 		t.Fatal("the server was asked for nothing")
 		return message{}
-	}
-}
-
-func TestPrefixSOpensAShellBesideTheFocusedOne(t *testing.T) {
-	m := twoShells(700)
-	m.terms[700].dir = "/p/a"
-	m, asked := pipeServer(t, m)
-
-	chord(m, "s")
-	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != "" {
-		t.Fatalf("asked %+v, want a bare shell opened at /p/a", got)
-	}
-}
-
-func TestPrefixAStartsAnAgentBesideTheFocusedShell(t *testing.T) {
-	m := twoShells(700)
-	m.terms[700].dir = "/p/a"
-	m, asked := pipeServer(t, m)
-
-	chord(m, "a")
-	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != "/p/a" || got.Run != startAgent() {
-		t.Fatalf("asked %+v, want an agent started at /p/a", got)
-	}
-}
-
-func TestPrefixRRunsThePlanOfTheFocusedShellsPlace(t *testing.T) {
-	// The shell sits below the project root; the plan lives at the root, so
-	// the chord has to walk the dir up to its place before reading it.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".scrn"), []byte("web: npm run dev\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	m := withProcList(96, 14, []Project{{Name: "app", Path: dir}}, nil)
-	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: filepath.Join(dir, "src")}}
-	m.focus = 700
-	m, asked := pipeServer(t, m)
-
-	chord(m, "r")
-	if got := askedFor(t, asked); got.Kind != kindOpen || got.Dir != dir || got.Name != "web" {
-		t.Fatalf("asked %+v, want the plan's web entry at the project root", got)
 	}
 }
 
@@ -1965,72 +1794,13 @@ func TestPlaceAtPrefersTheInnermostPlace(t *testing.T) {
 	}
 }
 
-func TestPrefixQQuitsFromAFocusedShell(t *testing.T) {
-	// Leaving is q's word, and the prefix carries it out of a shell the
-	// letter would otherwise type into.
-	m := twoShells(700)
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	_, cmd := next.(model).Update(typed("q"))
-
-	if cmd == nil {
-		t.Fatal("^space q should quit, got no command")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("^space q produced %T, want tea.QuitMsg", cmd())
-	}
-}
-
-func TestPrefixSlashOpensTheFilterFromAShell(t *testing.T) {
-	m := chord(twoShells(700), "/")
-
-	if !m.typing {
-		t.Error("^space / should start the filter")
-	}
-	if m.focus != 0 {
-		t.Error("the filter is typed in the navigator, so the shell should be left")
-	}
-}
-
 func TestPrefixEnterWithNothingWaitingSaysSo(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{
 		700: {PID: 700, Status: busyStatus},
 	})
 
-	if m = chordKey(m, tea.KeyEnter); m.status != "no agent is waiting" {
+	if m = press(m, "tab"); m.status != "no agent is waiting" {
 		t.Errorf("status = %q, want it to say nothing is waiting", m.status)
-	}
-}
-
-func TestPrefixPrefixTogglesBetweenTheLastTwoShells(t *testing.T) {
-	m := chord(twoShells(700), "j") // over to 701; 700 is now the one before
-
-	if m = chordPrefix(m); m.focus != 700 {
-		t.Errorf("focus = %d, want the toggle back to 700", m.focus)
-	}
-	if m = chordPrefix(m); m.focus != 701 {
-		t.Errorf("focus = %d, want the toggle forth to 701", m.focus)
-	}
-}
-
-func TestTheToggleResumesAShellLeftWithPrefixN(t *testing.T) {
-	m := chord(twoShells(700), "n")
-	if m.focus != 0 {
-		t.Fatalf("focus = %d, want ^space n to step out first", m.focus)
-	}
-
-	if m = chordPrefix(m); m.focus != 700 {
-		t.Errorf("focus = %d, want the toggle to resume the shell just left", m.focus)
-	}
-}
-
-func TestTheToggleWithNothingBeforeSaysSo(t *testing.T) {
-	m := chordPrefix(twoShells(700))
-
-	if m.focus != 700 {
-		t.Errorf("focus = %d, want the toggle to stay put with nowhere to go", m.focus)
-	}
-	if m.status != "no shell to step back into" {
-		t.Errorf("status = %q, want it to explain", m.status)
 	}
 }
 
@@ -2241,19 +2011,6 @@ func TestTheSplitPaneKeepsTheBottomOfTheScreen(t *testing.T) {
 	}
 }
 
-func TestAFocusedShellHasNoBanner(t *testing.T) {
-	// Focused, the pane is the shell: the banner belongs to looking, not to
-	// working in it.
-	m := runWithShell("hello-from-the-shell")
-	m.focus = 10
-
-	for _, row := range detailColumn(m) {
-		if strings.HasPrefix(strings.TrimSpace(row), "──") {
-			t.Error("a focused pane should be the whole screen")
-		}
-	}
-}
-
 // --- finding a project ---------------------------------------------------
 
 // manyProjects is a set wide enough that finding one matters, with nothing
@@ -2351,7 +2108,7 @@ func TestTypingAnEmptyQueryListsPlacesAlone(t *testing.T) {
 	}
 }
 
-func TestEnterOnAFoundProcessStepsIn(t *testing.T) {
+func TestEnterOnAFoundProcessShowsItsWindow(t *testing.T) {
 	m := withProcList(90, 14, []Project{{Name: "brand", Path: "/p/brand"}},
 		[]Proc{{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/brand"}})
 	m.terms[100] = &remoteTerm{pid: 100}
@@ -2362,11 +2119,11 @@ func TestEnterOnAFoundProcessStepsIn(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
-	if m.focus != 100 {
-		t.Fatalf("focus = %d, want the found shell, pid 100", m.focus)
+	if m.typing {
+		t.Error("stepping in is the end of looking")
 	}
-	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 100 {
-		t.Fatalf("asked %+v, want an attach to pid 100", got)
+	if got := askedForKind(t, asked, kindShow); got.PID != 100 {
+		t.Fatalf("asked %+v, want the client taken to pid 100's window", got)
 	}
 }
 
@@ -2486,11 +2243,14 @@ func TestEscapeNeverQuits(t *testing.T) {
 	// Esc closes what is open, and leaving is q's word alone: the esc that
 	// closed the filter is often followed by a reflexive second one, and
 	// that beat must not take the window with it.
-	if _, cmd := manyProjects(90, 14).Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
-		t.Error("esc with nothing open should do nothing, not quit")
+	m, asked := pipeServer(t, manyProjects(90, 14))
+	m = press(m, "esc")
+	if len(asked) != 0 {
+		t.Error("esc with nothing open should do nothing, not leave")
 	}
-	if _, cmd := manyProjects(90, 14).Update(typed("q")); cmd == nil {
-		t.Error("q should still quit")
+	press(m, "q")
+	if got := askedForKind(t, asked, kindLeave); got.Kind != kindLeave {
+		t.Error("q should still leave")
 	}
 }
 
@@ -2521,27 +2281,6 @@ func TestEscWhileTypingPutsTheCursorBack(t *testing.T) {
 
 	if r, ok = m.selected(); !ok || detailKey(r) != was {
 		t.Fatalf("cursor on %q, want back on %q", detailKey(r), was)
-	}
-}
-
-func TestEscWhileTypingStepsBackIntoTheShell(t *testing.T) {
-	// A filter opened from inside a shell was a look out of it; abandoning
-	// the look means the keys go back where they came from.
-	m := twoShells(700)
-	m, asked := pipeServer(t, m)
-	m = chord(m, "/")
-	if !m.typing || m.focus != 0 {
-		t.Fatalf("setup: typing=%v focus=%d, want the filter to have the keys", m.typing, m.focus)
-	}
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	m = next.(model)
-
-	if m.focus != 700 {
-		t.Fatalf("focus = %d, want back in the shell, pid 700", m.focus)
-	}
-	if got := askedFor(t, asked); got.Kind != kindAttach || got.PID != 700 {
-		t.Fatalf("asked %+v, want a re-attach to pid 700", got)
 	}
 }
 
@@ -2763,42 +2502,24 @@ func TestALoginShellIsStillAShell(t *testing.T) {
 
 // --- the keys, on request ------------------------------------------------
 
-func TestTheFootWearsTheMode(t *testing.T) {
-	// navigate at the list, proc while the keys are inside one, prefix while
-	// the chord hangs — the way vim says INSERT.
-	if f := footer(twoShells(0)); !strings.HasPrefix(f, "navigate") {
-		t.Errorf("footer = %q, want it to open with navigate", f)
-	}
-
-	m := twoShells(700)
-	if f := footer(m); !strings.HasPrefix(f, "proc") {
-		t.Errorf("footer = %q, want proc while the keys are in a shell", f)
-	}
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	if f := footer(next.(model)); !strings.HasPrefix(f, "prefix") {
-		t.Errorf("footer = %q, want prefix while the chord hangs", f)
-	}
-}
-
-func TestTheFootIsOnlyTheModeWhenQuiet(t *testing.T) {
-	// The keys live behind ?; the foot wears the mode and nothing else
-	// until something has to be said.
+func TestTheFootIsEmptyWhenQuiet(t *testing.T) {
+	// The keys live behind ?, and the mode is the status line's to show;
+	// the foot says nothing until something has to be said.
 	m := manyProjects(90, 14)
-	if got := footer(m); got != "navigate" {
-		t.Errorf("footer = %q, want the mode alone", got)
+	if got := footer(m); got != "" {
+		t.Errorf("footer = %q, want nothing", got)
 	}
 }
 
 func TestQuestionMarkOpensTheKeysModal(t *testing.T) {
 	m := press(manyProjects(160, 24), "?")
 	view := stripANSI(m.View().Content)
-	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the next waiting agent", "quit"} {
+	for _, key := range []string{"╭─ keys", "s", "shell", "kill the tree", "the next waiting agent", "leave"} {
 		if !strings.Contains(view, key) {
 			t.Errorf("view does not show %q with the modal open", key)
 		}
 	}
-	if got := footer(m); got != "navigate" {
+	if got := footer(m); got != "" {
 		t.Errorf("footer = %q, want the foot untouched by the modal", got)
 	}
 }
@@ -2860,28 +2581,6 @@ func TestEscapeClosesTheKeysFirst(t *testing.T) {
 	}
 }
 
-func TestPrefixQuestionMarkShowsTheKeysFromAShell(t *testing.T) {
-	// The modal rides the prefix so it can be asked for from wherever the
-	// keys are going, including inside a focused shell — and the key that
-	// closes it must not fall through into the shell.
-	m := manyProjects(90, 14)
-	m.terms = map[int]*remoteTerm{900: {pid: 900}}
-	m.focus = 900
-
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
-	m = press(next.(model), "?")
-	if !m.showHelp {
-		t.Fatal("^spc ? should show the keys over a focused shell")
-	}
-	m = press(m, "x") // would reach the shell, or panic on the nil server
-	if m.showHelp {
-		t.Error("the next key should close the modal")
-	}
-	if m.focus != 900 {
-		t.Error("the modal should leave the shell focused")
-	}
-}
-
 func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	m := manyProjects(90, 14)
 	closed := m.bodyHeight()
@@ -2890,8 +2589,8 @@ func TestTheKeysModalTakesNoRoomFromTheList(t *testing.T) {
 	if open != closed {
 		t.Errorf("rows for the list: %d with the modal open, %d closed; a modal covers, it does not squeeze", open, closed)
 	}
-	if closed != m.height-3 {
-		t.Errorf("the list has %d rows, want all but the masthead, its blank and the chip", closed)
+	if closed != m.height-2 {
+		t.Errorf("the list has %d rows, want all but the masthead and its blank", closed)
 	}
 }
 
@@ -3087,12 +2786,10 @@ func TestLettersAreStillLettersWhileTyping(t *testing.T) {
 	}
 }
 
-func TestTheFilterPromptSitsAboveTheMode(t *testing.T) {
-	// The prompt is messaging, so it stacks above the chip; the chip keeps
-	// the bottom line to itself.
+func TestTheFilterPromptIsTheFoot(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(160, 24)), "/"), "b")
-	if got := footer(m); got != "/b█ navigate" {
-		t.Errorf("footer = %q, want the prompt above the mode alone", got)
+	if got := footer(m); got != "/b█" {
+		t.Errorf("footer = %q, want the prompt alone", got)
 	}
 }
 
@@ -3194,11 +2891,10 @@ func TestALostServerClearsTheShells(t *testing.T) {
 	// its own.
 	m := sized(90, 14)
 	m.terms = map[int]*remoteTerm{700: {pid: 700}}
-	m.focus = 700
 	next, _ := m.Update(serverLostMsg{})
 	got := next.(model)
-	if len(got.terms) != 0 || got.focus != 0 {
-		t.Errorf("terms = %d, focus = %d; want the held shells cleared", len(got.terms), got.focus)
+	if len(got.terms) != 0 {
+		t.Errorf("terms = %d; want the held shells cleared", len(got.terms))
 	}
 	if got.status != "" {
 		t.Errorf("status = %q, want a clean loss to say nothing", got.status)
@@ -3598,35 +3294,13 @@ func TestTheJumpToAWaitingAgentLeavesTheFilter(t *testing.T) {
 	})
 	m = press(m, "/")
 
-	m = chordKey(m, tea.KeyEnter)
+	m = press(m, "tab")
 	if m.status == "no agent is waiting" {
 		t.Error("the chord searched only the filter's answers")
 	}
 	if m.typing {
 		t.Error("the jump should be the end of looking")
 	}
-}
-
-func TestTheTerminalsColorsReachTheServer(t *testing.T) {
-	// A pane asking OSC 11 — what color is this terminal — has to get the
-	// truth, so what the real terminal answered is carried to the server.
-	m := sized(90, 14)
-	m, asked := pipeServer(t, m)
-
-	next, _ := m.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#1a1b26")})
-	m = next.(model)
-	got := askedFor(t, asked)
-	if got.Kind != kindTheme || !strings.Contains(got.Run, "bg=#1a1b26") {
-		t.Fatalf("asked %+v, want the background carried over", got)
-	}
-
-	next, _ = m.Update(tea.ForegroundColorMsg{Color: lipgloss.Color("#e6e6e6")})
-	got = askedFor(t, asked)
-	if got.Kind != kindTheme || !strings.Contains(got.Run, "fg=#e6e6e6") ||
-		!strings.Contains(got.Run, "bg=#1a1b26") {
-		t.Fatalf("asked %+v, want both colors once both have answered", got)
-	}
-	_ = next
 }
 
 func TestTheCursorRidesOutATransientChild(t *testing.T) {
@@ -3642,7 +3316,6 @@ func TestTheCursorRidesOutATransientChild(t *testing.T) {
 	}
 	m := withProcList(96, 20, []Project{{Name: "repo", Path: "/p/repo"}}, procs)
 	m.terms = map[int]*remoteTerm{200: {pid: 200, dir: "/p/repo"}, 901: {pid: 901, dir: "/p/repo"}}
-	m.focus = 901
 	m.wantCursor = 901 // the shell just opened, as termOpenedMsg leaves it
 	m.rebuild()
 

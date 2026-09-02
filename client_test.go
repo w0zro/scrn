@@ -11,10 +11,9 @@ import (
 )
 
 func TestACaptureBecomesAScreen(t *testing.T) {
-	// One command answers with the screen and, on its last line, the facts
-	// about the pane; the session turns that into the message the model
-	// draws from — the grid padded whole, the flags read as booleans, the
-	// title kept with its spaces.
+	// One command answers with the screen and, on its last line, the pane's
+	// size; the session turns that into the message the preview draws from,
+	// the grid padded whole.
 	s := newSession()
 	s.closed = true
 	s.panes[700] = &pane{id: "%1", pid: 700}
@@ -23,7 +22,7 @@ func TestACaptureBecomesAScreen(t *testing.T) {
 		if args[0] != "capture-pane" {
 			t.Fatalf("asked %v, want one capture", args)
 		}
-		return "hello\nworld\n2 1 1 1 1 40 10 4 box my title", nil
+		return "hello\nworld\n10 4", nil
 	}
 
 	s.capture("%1")
@@ -31,11 +30,8 @@ func TestACaptureBecomesAScreen(t *testing.T) {
 	if !ok {
 		t.Fatal("no screen came of the capture")
 	}
-	if msg.pid != 700 || msg.curX != 2 || msg.curY != 1 {
-		t.Errorf("msg = %+v, want the cursor at (2,1) on pid 700", msg)
-	}
-	if !msg.alt || !msg.mouse || msg.sb != 40 || msg.title != "my title" {
-		t.Errorf("msg = %+v, want the pane's facts read back", msg)
+	if msg.pid != 700 {
+		t.Errorf("msg = %+v, want the screen for pid 700", msg)
 	}
 	rows := strings.Split(msg.screen, "\n")
 	if len(rows) != 4 {
@@ -46,9 +42,6 @@ func TestACaptureBecomesAScreen(t *testing.T) {
 			t.Errorf("row %d is %d wide, want the pane's 10", i, lipgloss.Width(row))
 		}
 	}
-	if !s.panes[700].sgr {
-		t.Error("the SGR flag should be kept for the mouse to read")
-	}
 }
 
 func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
@@ -57,7 +50,7 @@ func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
 	s := newSession()
 	s.closed = true
 	s.run = func(args ...string) (string, error) {
-		return "%1\t@1\t700\t\t\t/somewhere/else", nil
+		return "%1\t@1\t700\t\t\t/somewhere/else\t", nil
 	}
 
 	s.refreshList()
@@ -190,25 +183,6 @@ func TestAClientThatHangsUpAtOnceIsProbedForAgain(t *testing.T) {
 	}
 }
 
-func TestATitleNobodySetIsNoTitle(t *testing.T) {
-	// A pane's title is the host's name until a program sets one. That is
-	// tmux's default, not an ask, and it must not land on the window's tab
-	// the moment a shell is focused.
-	s := newSession()
-	s.closed = true
-	s.panes[700] = &pane{id: "%1", pid: 700}
-	s.byPane["%1"] = 700
-	s.run = func(args ...string) (string, error) {
-		return "hello\n0 0 0 0 0 0 10 1 box box", nil
-	}
-
-	s.capture("%1")
-	msg := (<-s.events).(screenMsg)
-	if msg.title != "" {
-		t.Errorf("title = %q, want none: the host's name is nobody's ask", msg.title)
-	}
-}
-
 func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
 	// Two windows open their first shells at once: both find no session,
 	// both try to make one, and tmux refuses the second as a duplicate. The
@@ -221,17 +195,17 @@ func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
 		switch args[0] {
 		case "has-session":
 			return "", errNoServer
-		case "start-server":
+		case "new-session":
 			return "", errors.New("duplicate session: scrn")
 		case "new-window":
 			return "%1 @1 700", nil
 		case "list-panes":
-			return "%1\t@1\t700\t/tmp\t\t/tmp", nil
+			return "%1\t@1\t700\t/tmp\t\t/tmp\t", nil
 		}
 		return "", nil
 	}
 
-	s.open("/tmp", "", "", 60, 12)
+	s.open("/tmp", "", "")
 	deadline := time.After(3 * time.Second)
 	for {
 		select {

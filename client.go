@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,10 +15,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The client side of the split. It never touches a pty: the shells live in
-// scrn's private tmux server, and this file is the session that talks to it —
-// asking for shells, forwarding what the user did, and turning what tmux says
-// into the messages the model reads.
+// The navigator's side of the server. It never touches a pty and never draws
+// a shell for real — tmux does both, in the window the shell lives in. This
+// file is the session that talks to the server: asking for windows, taking
+// the client to one, hearing which shells are held, and reading a shell's
+// screen for the preview beside the list.
 
 // socketPath is where scrn's tmux server listens. It is per user and outside
 // any project, because one server holds the shells for every repository. It
@@ -36,33 +36,6 @@ func socketPath() string {
 	return filepath.Join(state, "scrn", "tmux-"+strconv.Itoa(os.Getuid())+".sock")
 }
 
-// keyPress is a keystroke as the window saw it: which key, which modifiers,
-// and what it types if it types anything. It is carried as the event it was
-// rather than as bytes, because the bytes depend on modes only the far side
-// of the pane knows — tmux's business now, reached through tmuxKeyLines.
-type keyPress struct {
-	Code rune
-	Text string
-	Mod  int
-}
-
-// mousePress is a mouse event in the pane's own coordinates, which is what
-// the program drawing there believes it is being told about.
-type mousePress struct {
-	X      int
-	Y      int
-	Button int
-	Mod    int
-	Action string
-}
-
-// What a mouse can be doing.
-const (
-	actPress   = "press"
-	actRelease = "release"
-	actMotion  = "motion"
-)
-
 // sessionInfo is a shell the server is holding. Name is what the project
 // that asked for it calls it, and empty for a shell opened by hand.
 type sessionInfo struct {
@@ -71,30 +44,16 @@ type sessionInfo struct {
 	Name string
 }
 
-// remoteTerm is a shell the server is holding, as the client sees it: the
-// last screen it sent and where the cursor was.
+// remoteTerm is a shell the server is holding, as the navigator sees it: the
+// last screen captured for the preview.
 type remoteTerm struct {
 	pid    int
 	dir    string
 	name   string // what the project calls it, if a project asked for it
 	screen string
-	curX   int
-	curY   int
-
-	// What the last screen said about the pane: how much has scrolled off the
-	// top, whether the program wants the mouse, and whether it is on the
-	// alternate screen. They decide whether a wheel turn is the program's,
-	// the transcript's, or — on the alternate screen — a pair of arrow keys.
-	sb    int
-	mouse bool
-	alt   bool
-
-	// The title the program in it has asked of the terminal window. scrn is
-	// the one with a window, so it is scrn that has to ask for it.
-	title string
 }
 
-// Messages the client raises for the model.
+// Messages the session raises for the model.
 type (
 	// serverReadyMsg says the session is up, or explains why it is not.
 	serverReadyMsg struct {
@@ -102,7 +61,7 @@ type (
 		err     error
 	}
 
-	// termOpenedMsg is the shell this window just asked for.
+	// termOpenedMsg is the shell this navigator just asked for.
 	termOpenedMsg struct {
 		pid  int
 		dir  string
@@ -118,25 +77,12 @@ type (
 	screenMsg struct {
 		pid    int
 		screen string
-		curX   int
-		curY   int
-		title  string
-		sb     int
-		mouse  bool
-		alt    bool
-	}
-
-	// historyMsg is a shell's transcript, asked for when someone starts
-	// reading back through it.
-	historyMsg struct {
-		pid     int
-		history string
 	}
 
 	// termGoneMsg says a shell has finished.
 	termGoneMsg struct{ pid int }
 
-	// serverLostMsg says the server hung this window up. With no error it is
+	// serverLostMsg says the server hung this session up. With no error it is
 	// the ordinary end of holding nothing — the last shell closed, the
 	// session went, and the session object keeps watching for a new one.
 	serverLostMsg struct{ err error }
@@ -164,18 +110,18 @@ func reconnect(after time.Duration) tea.Cmd {
 // appear — another window may hold shells this one cannot see yet.
 const probeEvery = 2 * time.Second
 
-// pane is one held shell as the session tracks it: which tmux pane it is,
-// and what the last capture said about its modes.
+// pane is one held shell as the session tracks it: which tmux pane it is
+// and which window holds it.
 type pane struct {
 	id   string // "%3"
 	win  string // "@3", the window holding it — one pane to a window
 	pid  int
 	dir  string
 	name string
-	sgr  bool // the program listens for the mouse in SGR
 }
 
-// session is the client's connection to the tmux server holding the shells.
+// session is the navigator's connection to the tmux server holding the
+// shells.
 type session struct {
 	events chan tea.Msg
 
@@ -187,12 +133,9 @@ type session struct {
 	ctl      *ctlClient
 	panes    map[int]*pane   // by the pid of the shell in the pane
 	byPane   map[string]int  // pane id → that pid
-	watching map[int]bool    // pids whose screens this window renders
+	watching map[int]bool    // pids whose screens the preview shows
 	dirty    map[string]bool // panes that drew during their capture
 	live     map[string]bool // captures in flight, by pane id
-	width    int             // the pane size this window declared,
-	height   int             // which is what every capture is padded to
-	fg, bg   string          // the real terminal's colors, as "#rrggbb"
 	probing  bool
 	closed   bool
 
@@ -239,7 +182,7 @@ func (s *session) connect() {
 }
 
 // watchForServer polls for a session appearing, one probe at a time. It is
-// the quiet state of a scrn holding nothing.
+// the quiet state of a navigator holding nothing.
 func (s *session) watchForServer() {
 	s.mu.Lock()
 	if s.probing || s.closed {
@@ -276,10 +219,9 @@ func (s *session) watchForServer() {
 	}()
 }
 
-// close lets go of the server. The shells stay held — this is a window
+// close lets go of the server. The shells stay held — this is a navigator
 // finishing with them, not an end to them — and the session stops watching,
-// stops probing, and will not attach again. Without it a session outlives
-// what made it and goes looking for whatever server it can find.
+// stops probing, and will not attach again.
 func (s *session) close() {
 	s.mu.Lock()
 	s.closed = true
@@ -313,61 +255,7 @@ func (s *session) ensureCtl() {
 	s.mu.Unlock()
 	if closed {
 		ctl.close()
-		return
 	}
-	s.declareSizes()
-	// The server this window found may be another window's; it answers for
-	// the terminal's colors either way, so it is told what this one sees —
-	// and a program's OSC 52 must land in a buffer wherever the server
-	// came from, so the clipboard option is said again, idempotently.
-	s.applyTheme()
-	go func() { _, _ = s.run("set", "-g", "set-clipboard", "on") }()
-}
-
-// theme records the real terminal's colors and carries them to the server.
-// The server needs them to answer a pane asking OSC 10 or 11 — what color
-// the terminal is — which is how programs pick their theming: the old
-// emulator answered from its own defaults, and a server with no styles set
-// answers nothing at all, which reads as a terminal with no opinion.
-func (s *session) theme(fg, bg string) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	changed := fg != s.fg || bg != s.bg
-	s.fg, s.bg = fg, bg
-	s.mu.Unlock()
-	if changed {
-		go s.applyTheme()
-	}
-}
-
-// applyTheme sets the server's window-style to the terminal's own colors.
-// tmux answers OSC 10 and 11 from it, and a real client on the escape
-// hatch paints panes the way scrn's terminal would. It never lands in the
-// grid, so captures stay as they were. No server yet is fine: the colors
-// ride into the creation chain when the first shell brings one up.
-func (s *session) applyTheme() {
-	style := s.themeStyle()
-	if style == "" {
-		return
-	}
-	_, _ = s.run("set", "-g", "window-style", style)
-}
-
-// themeStyle is the window-style the terminal's colors spell, or nothing
-// while they are unknown.
-func (s *session) themeStyle() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var parts []string
-	if s.fg != "" {
-		parts = append(parts, "fg="+s.fg)
-	}
-	if s.bg != "" {
-		parts = append(parts, "bg="+s.bg)
-	}
-	return strings.Join(parts, ",")
 }
 
 // notify is what the control stream tells the session.
@@ -375,7 +263,7 @@ func (s *session) notify(n ctlNote) {
 	switch n.kind {
 	case noteOutput:
 		// Every pane's output rings here, watched or not: a build pouring
-		// text in a shell no window is looking at still crosses the control
+		// text in a shell nobody is previewing still crosses the control
 		// stream, octal-escaped, to be dropped. tmux could be asked not to
 		// send it — refresh-client -A pane:off — but once every client has
 		// turned a pane off tmux stops reading the pane, and a program in
@@ -391,16 +279,6 @@ func (s *session) notify(n ctlNote) {
 		}
 	case noteWindows:
 		go s.refreshList()
-	case noteClientGone:
-		go s.declareSizes()
-	case notePaste:
-		// A program inside a pane copied — OSC 52, caught by the server —
-		// and the copy belongs on the system clipboard, the same place it
-		// would have landed with no scrn in the middle. scrn's own paste
-		// buffer is the one changing that means nothing of the sort.
-		if n.buffer != "scrn-paste" {
-			go s.carryCopy(n.buffer)
-		}
 	case noteError:
 		s.events <- serverErrorMsg{err: errors.New(n.err)}
 	case noteExit:
@@ -446,17 +324,14 @@ func (s *session) captureSoon(paneID string) {
 	}()
 }
 
-// paneMeta is what one capture asks display for, beside the screen itself.
-// The host rides along because it is what a pane's title is until a program
-// sets one, and a title nobody set is not one to put on the window. The
-// title goes last: it is the one field with spaces in it.
-const paneMeta = "#{cursor_x} #{cursor_y} #{alternate_on} " +
-	"#{mouse_any_flag} #{mouse_sgr_flag} #{history_size} " +
-	"#{pane_width} #{pane_height} #{host} #{pane_title}"
+// paneMeta is what one capture asks display for, beside the screen itself:
+// the pane's size, which the screen is padded to.
+const paneMeta = "#{pane_width} #{pane_height}"
 
-// capture reads a pane's screen as it stands and sends it to the model. The
-// screen and its facts come back from one command so they describe the same
-// moment; the meta line is last because the commands run in order.
+// capture reads a pane's screen as it stands and sends it to the model for
+// the preview. The screen and its size come back from one command so they
+// describe the same moment; the size is last because the commands run in
+// order.
 func (s *session) capture(paneID string) {
 	s.mu.Lock()
 	pid, ok := s.byPane[paneID]
@@ -471,44 +346,16 @@ func (s *session) capture(paneID string) {
 		return // the pane may be mid-close; the list refresh will say
 	}
 	lines := strings.Split(out, "\n")
-	if len(lines) < 1 {
-		return
-	}
 	meta := lines[len(lines)-1]
 	rows := selfContained(lines[:len(lines)-1])
 
-	f := strings.SplitN(meta, " ", 10)
-	if len(f) < 9 {
+	f := strings.Fields(meta)
+	if len(f) != 2 {
 		return
 	}
-	curX, _ := strconv.Atoi(f[0])
-	curY, _ := strconv.Atoi(f[1])
-	alt := f[2] == "1"
-	mouse := f[3] == "1"
-	sgr := f[4] == "1"
-	sb, _ := strconv.Atoi(f[5])
-	width, _ := strconv.Atoi(f[6])
-	height, _ := strconv.Atoi(f[7])
-	title := ""
-	if len(f) > 9 && f[9] != f[8] {
-		// A title that is the host's name is tmux's default, not a program
-		// asking for anything; the window keeps whatever it had.
-		title = f[9]
-	}
-
-	s.mu.Lock()
-	if p := s.panes[pid]; p != nil {
-		p.sgr = sgr
-	}
-	s.mu.Unlock()
-
-	s.events <- screenMsg{
-		pid:    pid,
-		screen: padScreen(rows, width, height),
-		curX:   curX, curY: curY,
-		title: title,
-		sb:    sb, mouse: mouse, alt: alt,
-	}
+	width, _ := strconv.Atoi(f[0])
+	height, _ := strconv.Atoi(f[1])
+	s.events <- screenMsg{pid: pid, screen: padScreen(rows, width, height)}
 }
 
 // sgrSeq matches one SGR sequence, which is the only styling capture-pane
@@ -549,10 +396,10 @@ func writePen(pen, seq string) string {
 	return pen + seq
 }
 
-// padScreen makes capture output into the grid the client's cursor-cutting
-// leans on: exactly height rows, every row exactly width columns. capture
-// trims what a real terminal would not miss, and the cursor cannot be cut
-// into a cell a row does not carry.
+// padScreen makes capture output into a grid: exactly height rows, every row
+// exactly width columns. capture trims what a real terminal would not miss,
+// and the preview cuts rows to the pane it has, so every row has to be as
+// wide as the shell's.
 func padScreen(rows []string, width, height int) string {
 	if height > 0 && len(rows) > height {
 		rows = rows[:height]
@@ -573,18 +420,18 @@ func padScreen(rows []string, width, height int) string {
 // listFormat is the one line per shell the session reads the server's state
 // through. The directory a shell was opened in is a pane option scrn set;
 // a pane scrn never dressed — opened through a bare tmux attach — falls
-// back to where it is working now.
-const listFormat = "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}"
+// back to where it is working now. The home window is not a shell and is
+// left out by its option.
+const listFormat = "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}\t#{@scrn_home}"
 
 // parseListing reads what list-panes said in listFormat, one record per
 // shell. Both readers of the server's state come through here, so the format
-// is written once and read once — the drift that costs is a field added to
-// the format and counted in only one of the two places that count fields.
+// is written once and read once.
 func parseListing(out string) []*pane {
 	var held []*pane
 	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) < 6 {
+		if len(f) < 7 || f[6] == "1" {
 			continue
 		}
 		pid, err := strconv.Atoi(f[2])
@@ -609,15 +456,14 @@ func (p *pane) info() sessionInfo {
 
 // refreshList reads what the server holds and tells the model, reporting
 // whether a session was there to read. Shells that left are named going:
-// the model clears focus and scroll by the pid, not by the list.
+// the model clears the preview by the pid, not by the list.
 func (s *session) refreshList() bool {
 	out, err := s.run("list-panes", "-a", "-F", listFormat)
 	if err != nil && !errors.Is(err, errNoServer) {
 		// A list that could not be read says nothing about the shells: a
-		// tmux slow enough to time out under load is still holding them,
-		// and a window that reported them gone would drop the keys out of
-		// the focused one and close the reader over nothing. The last list
-		// stands, and the model hears nothing until the next one is read.
+		// tmux slow enough to time out under load is still holding them.
+		// The last list stands, and the model hears nothing until the next
+		// one is read.
 		s.mu.Lock()
 		held := len(s.panes) > 0
 		s.mu.Unlock()
@@ -650,19 +496,13 @@ func (s *session) refreshList() bool {
 	// an open may be writing to in the same breath.
 	var gone []int
 	s.mu.Lock()
-	for pid, old := range s.panes {
-		if p, ok := held[pid]; ok {
-			p.sgr = old.sgr
-		} else {
+	for pid := range s.panes {
+		if _, ok := held[pid]; !ok {
 			gone = append(gone, pid)
 		}
 	}
 	s.panes, s.byPane = held, byPane
 	s.mu.Unlock()
-
-	// A shell this window had not seen — its own, just opened, or one
-	// another window opened — has to be told what size to be.
-	s.declareSizes()
 
 	for _, pid := range gone {
 		s.events <- termGoneMsg{pid: pid}
@@ -683,8 +523,7 @@ func nextEvent(s *session) tea.Cmd {
 }
 
 // paneBirth is what an open asks for back: the pane, the window holding it,
-// and the shell's pid. The window comes back with the rest because a shell
-// has to be told its size before it draws, and the size is said per window.
+// and the shell's pid.
 const paneBirth = "#{pane_id} #{window_id} #{pane_pid}"
 
 // runner is one tmux command against scrn's server: a session's seam, or
@@ -702,10 +541,11 @@ type birth struct {
 // createWindow opens a window in scrn's session holding a shell — or, handed
 // a command, that command with a shell waiting behind it — in dir, and pins
 // the name and the opening directory on its pane so the list can tell a
-// plan's web apart from a shell that wandered there. The first shell brings
-// the server up around it when nothing else has; w and h size that server's
-// first window, and style is the terminal's colors for it, if known.
-func createWindow(run runner, dir, command, name string, w, h int, style string) (birth, error) {
+// plan's web apart from a shell that wandered there. The launcher is what
+// brings the server up; a session that has gone in the meantime is made
+// again around the first shell, without a home window, which `scrn home`
+// supplies when it is next asked for.
+func createWindow(run runner, dir, command, name string) (birth, error) {
 	cmd := ""
 	if command != "" {
 		// Under a shell, so the command is found on the user's own PATH,
@@ -718,19 +558,8 @@ func createWindow(run runner, dir, command, name string, w, h int, style string)
 		"-F", paneBirth, "-c", dir}
 	args := another
 	if _, err := run("has-session", "-t", tmuxSession); err != nil {
-		// The socket's directory is scrn's to make: tmux creates the
-		// socket but not the directory around it.
 		_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
-		args = []string{"start-server", ";",
-			"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
-			"set", "-g", "window-size", "smallest", ";",
-			"set", "-g", "set-clipboard", "on", ";"}
-		if style != "" {
-			args = append(args, "set", "-g", "window-style", style, ";")
-		}
-		args = append(args, "new-session", "-d", "-s", tmuxSession,
-			"-x", strconv.Itoa(max(w, 1)), "-y", strconv.Itoa(max(h, 1)),
-			"-P", "-F", paneBirth, "-c", dir)
+		args = []string{"new-session", "-d", "-s", tmuxSession, "-P", "-F", paneBirth, "-c", dir}
 	}
 	if cmd != "" {
 		another = append(another, cmd)
@@ -739,9 +568,9 @@ func createWindow(run runner, dir, command, name string, w, h int, style string)
 
 	out, err := run(args...)
 	if err != nil && strings.Contains(err.Error(), "duplicate session") {
-		// Two windows opened their first shells in the same instant,
-		// each found no session, and one of them made it. The other's
-		// shell still opens — as every shell after the first does.
+		// Two askers found no session in the same instant, and one of
+		// them made it. The other's shell still opens — as every shell
+		// after the first does.
 		out, err = run(another...)
 	}
 	if err != nil {
@@ -763,13 +592,12 @@ func createWindow(run runner, dir, command, name string, w, h int, style string)
 // open starts a shell — or handed a command, that command with a shell
 // waiting behind it — in dir, held by the server, and tells the model when
 // it is there.
-func (s *session) open(dir, run, name string, w, h int) {
+func (s *session) open(dir, run, name string) {
 	if s == nil {
 		return
 	}
-	s.setSize(w, h)
 	go func() {
-		b, err := createWindow(s.run, dir, run, name, w, h, s.themeStyle())
+		b, err := createWindow(s.run, dir, run, name)
 		if err != nil {
 			s.events <- serverErrorMsg{err: err}
 			return
@@ -778,15 +606,11 @@ func (s *session) open(dir, run, name string, w, h int) {
 		s.mu.Lock()
 		s.panes[b.pid] = &pane{id: b.pane, win: b.win, pid: b.pid, dir: dir, name: name}
 		s.byPane[b.pane] = b.pid
-		s.watching[b.pid] = true
 		s.mu.Unlock()
 
-		// The control client is wired before the model is told: a keystroke
-		// typed the moment the shell appears has to have somewhere to go.
 		s.refreshList()
 		s.ensureCtl()
 		s.events <- termOpenedMsg{pid: b.pid, dir: dir, name: name}
-		s.captureSoon(b.pane)
 	}()
 }
 
@@ -798,13 +622,38 @@ func (s *session) list() {
 	go s.refreshList()
 }
 
-// attach starts rendering a shell's screen in this window, beginning with
-// the screen as it stands.
-func (s *session) attach(pid, w, h int) {
+// show takes the client to a shell's window. tmux draws it from there; the
+// navigator keeps running in the home window behind it.
+func (s *session) show(pid int) {
 	if s == nil {
 		return
 	}
-	s.setSize(w, h)
+	p := s.pane(pid)
+	if p == nil {
+		return
+	}
+	go func() {
+		if _, err := s.run("select-window", "-t", p.win); err != nil {
+			s.events <- serverErrorMsg{err: err}
+		}
+	}()
+}
+
+// leave detaches the client this navigator is drawn in. The shells keep
+// running; `scrn` attaches again.
+func (s *session) leave() {
+	if s == nil {
+		return
+	}
+	go func() { _, _ = s.run("detach-client") }()
+}
+
+// attach starts previewing a shell's screen, beginning with the screen as it
+// stands.
+func (s *session) attach(pid int) {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	s.watching[pid] = true
 	p := s.panes[pid]
@@ -814,7 +663,7 @@ func (s *session) attach(pid, w, h int) {
 	}
 }
 
-// detach stops rendering a shell without touching it.
+// detach stops previewing a shell without touching it.
 func (s *session) detach(pid int) {
 	if s == nil {
 		return
@@ -822,168 +671,6 @@ func (s *session) detach(pid int) {
 	s.mu.Lock()
 	delete(s.watching, pid)
 	s.mu.Unlock()
-}
-
-// setSize records the pane this window gives its shells, and says so.
-func (s *session) setSize(w, h int) {
-	if w <= 0 || h <= 0 {
-		return
-	}
-	s.mu.Lock()
-	changed := w != s.width || h != s.height
-	s.width, s.height = w, h
-	s.mu.Unlock()
-	if changed {
-		s.declareSizes()
-	}
-}
-
-// declareSizes tells the server the size of this client and of every window
-// it draws. Both, because they are different questions.
-//
-// A tmux client has one current window, and its size is the one the server
-// hands out. scrn has no current window: it draws whichever shell is
-// selected, out of a set that all have to be the size of the pane they are
-// drawn into, because any of them can be selected next. A window no client
-// has current is left at whatever size it was last given — a second scrn
-// window, in a narrower terminal, takes every window down to its size, and
-// when it goes only the current one is handed back. The rest stay narrow,
-// and the shell that was drawing at 120 columns keeps drawing at 60.
-//
-// Said per window, tmux keeps the arbitration it always had: a shell two
-// scrn windows are watching is the size of the smaller of them, and a larger
-// size restated while the smaller window is still there moves nothing.
-// Restating is how a stranded window is handed back, which is why nothing
-// here is elided for being unchanged.
-func (s *session) declareSizes() {
-	s.mu.Lock()
-	ctl, w, h := s.ctl, s.width, s.height
-	wins := make([]string, 0, len(s.panes))
-	for _, p := range s.panes {
-		if p.win != "" {
-			wins = append(wins, p.win)
-		}
-	}
-	s.mu.Unlock()
-	if ctl == nil || w <= 0 || h <= 0 {
-		return
-	}
-
-	size := strconv.Itoa(w) + "x" + strconv.Itoa(h)
-	ctl.say("refresh-client -C " + size)
-	slices.Sort(wins)
-	for _, win := range slices.Compact(wins) {
-		ctl.say("refresh-client -C " + win + ":" + size)
-	}
-}
-
-// resize tells the server this window's pane changed shape. The size is the
-// window's, not any one shell's; the pid rides along only so the freshly
-// sized screen comes back for the shell being looked at.
-func (s *session) resize(pid, w, h int) {
-	if s == nil {
-		return
-	}
-	s.setSize(w, h)
-	s.mu.Lock()
-	p := s.panes[pid]
-	watched := s.watching[pid]
-	s.mu.Unlock()
-	if p != nil && watched {
-		s.captureSoon(p.id)
-	}
-}
-
-// say hands a line to the control client, if one is attached. A shell can
-// exist while the control client is between attachments; a keystroke then
-// has nowhere to go, and goes nowhere.
-func (s *session) say(lines []string) {
-	s.mu.Lock()
-	ctl := s.ctl
-	s.mu.Unlock()
-	if ctl == nil {
-		return
-	}
-	for _, line := range lines {
-		ctl.say(line)
-	}
-}
-
-// key sends a keystroke to a shell, as the keystroke it was. The bytes are
-// tmux's to decide, which is why it is not sent any.
-func (s *session) key(pid int, k *keyPress) {
-	if s == nil {
-		return
-	}
-	if k == nil {
-		return
-	}
-	if p := s.pane(pid); p != nil {
-		s.say(tmuxKeyLines(p.id, k))
-	}
-}
-
-// mouse sends a click, a drag or a wheel turn to a shell.
-func (s *session) mouse(pid int, m *mousePress) {
-	if s == nil {
-		return
-	}
-	if m == nil {
-		return
-	}
-	// The SGR flag is the capture's to write, under the lock; it is read
-	// under the same lock rather than off a pointer the capture may be
-	// writing through.
-	s.mu.Lock()
-	p := s.panes[pid]
-	var id string
-	var sgr bool
-	if p != nil {
-		id, sgr = p.id, p.sgr
-	}
-	s.mu.Unlock()
-	if p == nil {
-		return
-	}
-	s.say(tmuxMouseLines(id, m, sgr))
-}
-
-// paste sends pasted text as a paste, so a program with bracketed paste on
-// can tell it from someone typing very fast.
-func (s *session) paste(pid int, text string) {
-	if s == nil {
-		return
-	}
-	if text == "" {
-		return
-	}
-	if p := s.pane(pid); p != nil {
-		s.say(tmuxPasteLines(p.id, text))
-	}
-}
-
-// history asks for a shell's transcript — everything above the screen,
-// oldest first — which comes back as a historyMsg.
-func (s *session) history(pid int) {
-	if s == nil {
-		return
-	}
-	p := s.pane(pid)
-	if p == nil {
-		return
-	}
-	go func() {
-		out, err := s.run("capture-pane", "-e", "-p", "-t", p.id, "-S", "-", "-E", "-1")
-		if err != nil {
-			out = ""
-		}
-		if out != "" {
-			// The reader's window lands anywhere in this; every line has to
-			// stand alone the same way a screen's rows do.
-			out = strings.Join(selfContained(strings.Split(out, "\n")), "\n")
-		}
-		s.events <- historyMsg{pid: pid, history: out}
-	}()
 }
 
 // closeTerm ends a shell the server holds. Killing the pane takes its
@@ -1008,30 +695,6 @@ func (s *session) replace() {
 	go func() { _, _ = s.run("kill-server") }()
 }
 
-// carryCopy moves one buffer's bytes to the system clipboard and lets the
-// buffer go. Through a file rather than a command's stdout, so the copy
-// crosses byte-exact — a trailing newline included.
-func (s *session) carryCopy(buffer string) {
-	f, err := os.CreateTemp("", "scrn-clip-")
-	if err != nil {
-		return
-	}
-	path := f.Name()
-	_ = f.Close()
-	defer func() { _ = os.Remove(path) }()
-
-	if _, err := s.run("save-buffer", "-b", buffer, path); err != nil {
-		return
-	}
-	b, err := os.ReadFile(path)
-	if err != nil || len(b) == 0 {
-		return
-	}
-	if writeClipboard(string(b)) == nil {
-		_, _ = s.run("delete-buffer", "-b", buffer)
-	}
-}
-
 func (s *session) pane(pid int) *pane {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1048,8 +711,8 @@ func (t *remoteTerm) lines(height int) []string {
 }
 
 // scrollbackLines is how many lines of transcript each shell keeps once they
-// scroll off its pane. It is settled into the server when the first shell
-// brings it up, so raising it takes R — a fresh server — to reach anything.
+// scroll off its pane. It is written into the server's configuration at
+// launch, so raising it takes R — a fresh server — to reach anything.
 var scrollbackLines = 10000
 
 // applyScrollback sets the transcript cap from the config. Zero — unset —

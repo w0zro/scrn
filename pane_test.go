@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -41,8 +40,8 @@ func dimmed(m model, r navRow, selected bool) bool {
 }
 
 func TestAPreviewWearsGrayInPlaceOfTheProgramsColors(t *testing.T) {
-	// A glance at the pane should answer whether the keys are going there:
-	// full color is attached, gray is a preview.
+	// The pane is a glance at the shell, not the shell: it wears the quiet
+	// gray, and the shell itself is a keystroke away in its own colors.
 	m := withProcList(90, 14,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "claude", Dir: "/tmp"}})
@@ -56,12 +55,6 @@ func TestAPreviewWearsGrayInPlaceOfTheProgramsColors(t *testing.T) {
 	if !strings.Contains(stripANSI(preview), "red alert") {
 		t.Error("the preview lost the screen's text")
 	}
-
-	m.focus = 700
-	attached := strings.Join(m.paneLines(40, 5), "\n")
-	if !strings.Contains(attached, "\x1b[31m") {
-		t.Error("the attached shell should keep the program's own colors")
-	}
 }
 
 func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
@@ -73,9 +66,6 @@ func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 
-	if m.focus != 0 {
-		t.Error("scrn cannot attach to a process it did not start")
-	}
 	if f := footer(m); !strings.Contains(f, "did not start vim 900") {
 		t.Errorf("footer = %q, want it to explain why nothing happened", f)
 	}
@@ -292,27 +282,6 @@ func TestTheReportSaysWhatWasActuallyDone(t *testing.T) {
 	}
 }
 
-func TestOnlyTheAttachedProcessRetitlesTheWindow(t *testing.T) {
-	// The title rides out on the view, and only the shell being looked at
-	// speaks for it: another one finishing a build should not retitle a tab
-	// showing something else.
-	m := repoModel()
-	m.terms = map[int]*remoteTerm{700: {pid: 700}, 800: {pid: 800}}
-	m.focus = 700
-
-	next, _ := m.Update(screenMsg{pid: 800, title: "not yours"})
-	m = next.(model)
-	if got := m.View().WindowTitle; got != "" {
-		t.Errorf("title = %q, want an unfocused shell kept off the window", got)
-	}
-
-	next, _ = m.Update(screenMsg{pid: 700, title: "vim README.md"})
-	m = next.(model)
-	if got := m.View().WindowTitle; got != "vim README.md" {
-		t.Errorf("title = %q, want the focused shell's", got)
-	}
-}
-
 // replaceableServer is a model holding one shell over a recording session,
 // which is what R is for ending.
 func replaceableServer(t *testing.T) model {
@@ -343,8 +312,8 @@ func TestConfirmingEndsTheServer(t *testing.T) {
 	next, _ = next.(model).Update(typed("R"))
 	m = next.(model)
 
-	if len(m.terms) != 0 || m.focus != 0 {
-		t.Error("the shells went with the server; the window should not still hold them")
+	if len(m.terms) != 0 {
+		t.Error("the shells went with the server; the navigator should not still hold them")
 	}
 	if !strings.Contains(footer(m), "ending the server") {
 		t.Errorf("footer = %q, want it to say what is happening", footer(m))
@@ -507,47 +476,6 @@ func lookingUp(t *testing.T, filter string) model {
 	return m
 }
 
-func paneText(m model) string {
-	return strings.Join(detailColumn(m), "\n")
-}
-
-func wheelMsg(btn tea.MouseButton) tea.MouseMsg {
-	return tea.MouseWheelMsg{X: navWidth + 2, Y: 2, Button: btn}
-}
-
-// watchingTail is a model focused on a shell with forty lines of transcript
-// above a full screen, not yet reading back.
-func watchingTail(t *testing.T) model {
-	t.Helper()
-	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, nil)
-	rows := make([]string, m.paneHeight())
-	for i := range rows {
-		rows[i] = "srow"
-	}
-	rows[len(rows)-1] = "live-tail-marker"
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n"), sb: 40}}
-	m.focus = 700
-	return m
-}
-
-// readingBack is watchingTail with the reader opened through its one door —
-// the chord — and the transcript arrived: h-1 oldest through h-40 newest,
-// the cursor at the live tail.
-func readingBack(t *testing.T) model {
-	t.Helper()
-	m := chord(watchingTail(t), "v")
-	if m.scroll == nil {
-		t.Fatal("the chord should have opened the reader")
-	}
-
-	hist := make([]string, 40)
-	for i := range hist {
-		hist[i] = "h-" + strconv.Itoa(i+1)
-	}
-	next, _ := m.Update(historyMsg{pid: 700, history: strings.Join(hist, "\n")})
-	return next.(model)
-}
-
 func TestCtrlROnAProjectThatNeedsNothingSaysSo(t *testing.T) {
 	m := lookingUp(t, "alpha")
 
@@ -599,81 +527,6 @@ func TestTypingOnClearsWhatWasSaidAboutTheLastProject(t *testing.T) {
 	}
 }
 
-func TestTheMotionsMoveTheReading(t *testing.T) {
-	m := readingBack(t)
-	was := m.scroll.cur
-
-	m = press(m, "k")
-	if m.scroll.cur != was-1 {
-		t.Errorf("cur = %d, want k to have gone a line up from %d", m.scroll.cur, was)
-	}
-	m = press(m, "j")
-	if m.scroll.cur != was {
-		t.Errorf("cur = %d, want j to have come a line back", m.scroll.cur)
-	}
-
-	m = press(m, "g")
-	if m.scroll.cur != 0 || !strings.Contains(paneText(m), "h-1") {
-		t.Errorf("g should reach the oldest line:\n%s", paneText(m))
-	}
-	m = press(m, "G")
-	if m.scroll == nil || m.scroll.cur != len(m.scroll.doc)-1 {
-		t.Error("G should reach the last line with the reading kept; leaving is q's and esc's word")
-	}
-}
-
-func TestReadingSwallowsWhatIsNotAMotion(t *testing.T) {
-	m := readingBack(t)
-
-	m = press(m, "x")
-	if m.pendingKill != nil {
-		t.Error("x while reading should not arm a kill")
-	}
-	if m.scroll == nil {
-		t.Error("a swallowed key should not end the reading")
-	}
-
-	m = press(m, "esc")
-	if m.scroll != nil {
-		t.Error("esc should end the reading")
-	}
-}
-
-func TestPrefixNWhileReadingGoesAllTheWayOut(t *testing.T) {
-	m := chord(readingBack(t), "n")
-
-	if m.scroll != nil || m.focus != 0 {
-		t.Errorf("scroll = %v focus = %d, want the reading and the shell both left", m.scroll, m.focus)
-	}
-}
-
-func TestTheWheelIsTheProgramsWhenItAskedForIt(t *testing.T) {
-	m := watchingTail(t)
-	m.terms[700].mouse = true
-
-	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
-	if next.(model).scroll != nil {
-		t.Error("a program listening for the mouse should keep its wheel")
-	}
-}
-
-func TestTheWheelDoesNotReadOverTheAlternateScreen(t *testing.T) {
-	m := watchingTail(t)
-	m.terms[700].alt = true
-
-	next, _ := m.Update(wheelMsg(tea.MouseWheelUp))
-	if next.(model).scroll != nil {
-		t.Error("the alternate screen has no transcript above it to read")
-	}
-}
-
-func TestTheHintSaysTheTranscriptIsBeingRead(t *testing.T) {
-	m := readingBack(t)
-	if f := footer(m); !strings.Contains(f, "scrollback") {
-		t.Errorf("footer = %q, want it to say where the keys went", f)
-	}
-}
-
 func TestABareHeldShellGetsItsFactsAboveItsScreen(t *testing.T) {
 	// A screen dump with no name over it says what the shell is showing but
 	// not what it is. A shell scrn holds previews like a folded run: facts in
@@ -691,13 +544,6 @@ func TestABareHeldShellGetsItsFactsAboveItsScreen(t *testing.T) {
 	}
 	if !strings.Contains(pane, "marker-on-screen") {
 		t.Errorf("pane lacks the screen below the banner:\n%s", pane)
-	}
-
-	// Focused, the banner yields the whole pane to the shell.
-	m.focus = 700
-	pane = stripANSI(strings.Join(m.paneLines(60, 24), "\n"))
-	if strings.Contains(pane, "zsh 700") {
-		t.Error("a focused shell should have the pane whole, without the banner")
 	}
 }
 
@@ -719,7 +565,7 @@ func TestAPaneRowCannotBleedIntoTheNextLine(t *testing.T) {
 	// A captured row can end with a background still open — a full-width
 	// prompt bar does. Left unreset it would run across the newline and
 	// paint the next line's navigator, so every composed line ends reset.
-	m := watchingTail(t)
+	m := previewedShell(t)
 	rows := strings.Split(m.terms[700].screen, "\n")
 	rows[2] = "\x1b[42mpainted to the edge"
 	m.terms[700].screen = strings.Join(rows, "\n")
@@ -739,39 +585,12 @@ func TestPaddingIsNotPaintedWithTheRowsLeftovers(t *testing.T) {
 }
 
 func TestAPasteAtTheNavigatorSaysWhereItWent(t *testing.T) {
-	// Nowhere, that is. A paste with no shell focused and no filter open
-	// lands on nothing, and the foot says so rather than letting cmd+v
-	// read as broken.
+	// Nowhere, that is. A paste with no filter open lands on nothing, and
+	// the foot says so rather than letting a paste read as broken.
 	m := repoModel()
 	next, _ := m.Update(tea.PasteMsg{Content: "some text"})
-	if f := footer(next.(model)); !strings.Contains(f, "nothing is focused") {
+	if f := footer(next.(model)); !strings.Contains(f, "nothing here to paste") {
 		t.Errorf("footer = %q, want the paste explained", f)
-	}
-}
-
-func TestCmdVReachesTheShellAsAPaste(t *testing.T) {
-	// The terminal handed the chord through instead of pasting; scrn reads
-	// the clipboard and the content crosses as the paste it was meant to
-	// be — bracketed for the programs that asked, exactly as a translated
-	// cmd+v would have arrived.
-	old := readClipboard
-	readClipboard = func() string { return "from the clipboard" }
-	t.Cleanup(func() { readClipboard = old })
-
-	m := watchingTail(t)
-	m, asked := pipeServer(t, m)
-
-	next, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModSuper})
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("no clipboard read was scheduled")
-	}
-	next, _ = m.Update(cmd())
-	_ = next
-
-	got := askedFor(t, asked)
-	if got.Kind != kindInput || !strings.Contains(got.Run, "set-buffer") {
-		t.Fatalf("ask = %+v, want the clipboard crossing as a buffer", got)
 	}
 }
 
@@ -787,7 +606,7 @@ func previewedShell(t *testing.T) model {
 	for i := range rows {
 		rows[i] = "srow"
 	}
-	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n"), sb: 40}}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, screen: strings.Join(rows, "\n")}}
 	m.rebuild()
 	for i, r := range m.rows {
 		if r.kind == rowProc && r.holds(700) {
@@ -795,184 +614,4 @@ func previewedShell(t *testing.T) model {
 		}
 	}
 	return m
-}
-
-func TestPrefixVOpensTheReaderEvenOnTheAlternateScreen(t *testing.T) {
-	// The wheel cannot start reading over a pager, but the chord can: the
-	// pager's screen is the document, which is exactly what a selection
-	// out of git log wants.
-	m := watchingTail(t)
-	m.terms[700].alt = true
-	m, _ = pipeServer(t, m)
-
-	m = chord(m, "v")
-	if m.scroll == nil || m.scroll.pid != 700 || m.scroll.doc == nil {
-		t.Fatalf("scroll = %+v, want the reader open over the screen", m.scroll)
-	}
-	if m.scroll.anchor != -1 {
-		t.Error("nothing should be marked until v says so")
-	}
-}
-
-func TestVMarksAndYCopiesToTheClipboard(t *testing.T) {
-	copied := ""
-	old := writeClipboard
-	writeClipboard = func(text string) error { copied = text; return nil }
-	t.Cleanup(func() { writeClipboard = old })
-
-	m := readingBack(t) // h-1 oldest … h-40 newest, three lines up
-	next, _ := m.Update(typed("v"))
-	m = next.(model)
-	if m.scroll.anchor < 0 {
-		t.Fatal("v should have marked the bottom visible line")
-	}
-	next, _ = m.Update(typed("k")) // extend one line up
-	m = next.(model)
-
-	next, cmd := m.Update(typed("y"))
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("y should have scheduled the copy")
-	}
-	next, _ = m.Update(cmd())
-	m = next.(model)
-
-	if !strings.Contains(copied, "\n") || copied == "" {
-		t.Fatalf("copied = %q, want the two marked lines", copied)
-	}
-	if m.scroll != nil {
-		t.Error("the yank is the end of the reading")
-	}
-	if !strings.Contains(footer(m), "copied 2 lines") {
-		t.Errorf("footer = %q, want the yank reported", footer(m))
-	}
-}
-
-func TestEscClearsTheMarkBeforeTheReading(t *testing.T) {
-	m := readingBack(t)
-	next, _ := m.Update(typed("v"))
-	m = next.(model)
-
-	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	m = next.(model)
-	if m.scroll == nil || m.scroll.anchor != -1 {
-		t.Fatalf("scroll = %+v, want the mark gone and the reading kept", m.scroll)
-	}
-	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if next.(model).scroll != nil {
-		t.Error("the second esc should end the reading")
-	}
-}
-
-func TestASelectionHoldsTheReaderAtTheLiveTail(t *testing.T) {
-	// Rolling past the bottom is back to now — but not out from under a
-	// selection being made.
-	m := readingBack(t)
-	next, _ := m.Update(typed("v"))
-	m = next.(model)
-	for range 10 {
-		next, _ = m.Update(typed("j"))
-		m = next.(model)
-	}
-	if m.scroll == nil || m.scroll.above != 0 {
-		t.Fatalf("scroll = %+v, want the reader held at the tail", m.scroll)
-	}
-}
-
-func TestYWithoutAMarkExplainsItself(t *testing.T) {
-	m := readingBack(t)
-	next, _ := m.Update(typed("y"))
-	m = next.(model)
-	if m.scroll == nil {
-		t.Fatal("an unmarked y should not end the reading")
-	}
-	if !strings.Contains(footer(m), "v marks") {
-		t.Errorf("footer = %q, want the hint", footer(m))
-	}
-}
-
-func TestAListeningProgramGetsTheMouseRaw(t *testing.T) {
-	// The one reason scrn holds the mouse at all: the focused program
-	// asked for it. Every event crosses as it happens — press, drag,
-	// release — with nothing deferred and nothing interpreted.
-	m := previewedShell(t)
-	m, asked := pipeServer(t, m)
-	m.setFocus(700)
-	m.terms[700].mouse = true
-
-	if m.mouseMode() != tea.MouseModeCellMotion {
-		t.Fatal("a listening program should have scrn holding the mouse")
-	}
-	x, y := navWidth+1+2, 2
-	next, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
-	next, _ = next.(model).Update(tea.MouseMotionMsg{X: x + 4, Y: y, Button: tea.MouseLeft})
-	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: x + 4, Y: y, Button: tea.MouseLeft})
-	_ = next
-	for i := 0; i < 3; i++ {
-		if got := askedFor(t, asked); got.Kind != kindInput {
-			t.Fatalf("ask %d = %+v, want the event forwarded raw", i, got)
-		}
-	}
-}
-
-func TestTheMouseIsTheTerminalsWhenNobodyListens(t *testing.T) {
-	// Tracking is all-or-nothing for the window, and holding it costs the
-	// terminal's own selection. With nothing asking for the mouse, scrn
-	// lets go, and drag, double-click and copy are native again.
-	m := previewedShell(t)
-	if m.mouseMode() != tea.MouseModeNone {
-		t.Error("unfocused, the mouse belongs to the terminal")
-	}
-	m.setFocus(700) // a shell at a prompt asks for nothing
-	if m.mouseMode() != tea.MouseModeNone {
-		t.Error("a quiet shell focused, the mouse still belongs to the terminal")
-	}
-}
-
-func TestTheNavigatorIgnoresTheMouseEvenWhenItIsHeld(t *testing.T) {
-	// The navigator is keyboard-only, whoever holds the mouse: while a
-	// listening program has scrn tracking, a click left of the divider
-	// lands on nothing — the same nothing it lands on when tracking is
-	// off and the terminal owns the click.
-	m := previewedShell(t)
-	m, _ = pipeServer(t, m)
-	m.setFocus(700)
-	m.terms[700].mouse = true
-	was := m.cursor
-
-	next, _ := m.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
-	got := next.(model)
-	if got.cursor != was || got.focus != 700 {
-		t.Errorf("cursor %d→%d focus %d, want a navigator click to change nothing",
-			was, got.cursor, got.focus)
-	}
-}
-
-func TestAYankDoesNotCarryThePanesPadding(t *testing.T) {
-	// Screen rows arrive padded to the pane's width so the cursor can be
-	// cut into any cell. The padding is scrn's, and a yank is the program's
-	// text: nobody pastes twelve spaces after "hello".
-	copied := ""
-	old := writeClipboard
-	writeClipboard = func(text string) error { copied = text; return nil }
-	t.Cleanup(func() { writeClipboard = old })
-
-	m := readingBack(t)
-	m.scroll.doc = []string{"hello       ", "world  \x1b[0m   "}
-	m.scroll.cur, m.scroll.above, m.scroll.anchor = 1, 0, -1
-
-	for _, key := range []string{"v", "k"} {
-		next, _ := m.Update(typed(key))
-		m = next.(model)
-	}
-	next, cmd := m.Update(typed("y"))
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("y should have scheduled the copy")
-	}
-	_, _ = m.Update(cmd())
-
-	if copied != "hello\nworld" {
-		t.Errorf("copied = %q, want the text without the pane's padding", copied)
-	}
 }

@@ -131,7 +131,7 @@ func runShellAt(dir, command string) error {
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
-	b, err := createWindow(tmuxCommand, dir, command, "", 0, 0, "")
+	b, err := createWindow(tmuxCommand, dir, command, "")
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func runPlanAt(dir string) error {
 		return errors.New("everything " + p.Name + " needs is running")
 	}
 	for _, e := range missing {
-		if _, err := createWindow(tmuxCommand, p.Path, e.Run, e.Name, 0, 0, ""); err != nil {
+		if _, err := createWindow(tmuxCommand, p.Path, e.Run, e.Name); err != nil {
 			return err
 		}
 	}

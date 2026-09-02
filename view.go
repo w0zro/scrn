@@ -36,31 +36,10 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 // and nothing else. A terminal made to give up its first and last rows to a
 // header and a footer is a terminal drawing something other than what it was
 // told it had room for.
-//
-// The title the attached process asked of the terminal window rides out on
-// the view too. A program in the pane addresses it to the terminal it
-// believes it is in, which is scrn; scrn is inside a real one, and the view
-// is how it hands the title on.
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
-	v.MouseMode = m.mouseMode()
-	v.WindowTitle = m.windowTitle
 	return v
-}
-
-// mouseMode is whether scrn asks the terminal for the mouse at all — and
-// mostly it does not. Tracking is all-or-nothing for the whole window, and
-// holding it costs the terminal's own selection: the drag, the double-click,
-// the copy-on-select, the links. So scrn holds the mouse only while the
-// focused program asked for it — vim, htop — and forwards every event raw;
-// the rest of the time the mouse is the terminal's, native everywhere, and
-// the wheel still moves things as the terminal's alternate scroll arrows.
-func (m model) mouseMode() tea.MouseMode {
-	if t := m.focused(); t != nil && t.mouse {
-		return tea.MouseModeCellMotion
-	}
-	return tea.MouseModeNone
 }
 
 func (m model) layout() string {
@@ -151,20 +130,13 @@ func padTo(lines []string, n int) []string {
 	return lines[:n]
 }
 
-// hintLines is what scrn says at the foot of its column. The last line is
-// the mode chip — where the keys are, worn the way vim wears INSERT — and
-// it is the only thing there most of the time: the foot is beside the list
-// all day, and busyness there is paid for on every frame. What has to be
-// said — a confirmation, a report, the filter being typed — is said above
-// the chip. The keys themselves live behind ?.
+// hintLines is what scrn says at the foot of its column, and most of the
+// time that is nothing: the foot is beside the list all day, and busyness
+// there is paid for on every frame. What has to be said — a confirmation, a
+// report, the filter being typed — is said there. The keys themselves live
+// behind ?, and the mode the keys are in is tmux's status line's to show.
 func (m model) hintLines(width int) []string {
-	md := m.mode()
-	look := modeLooks[md]
-	bar := look.chip.Render(" " + md + " ")
-	if fill := width - lipgloss.Width(bar); fill > 0 {
-		bar += look.bar.Render(strings.Repeat(" ", fill))
-	}
-	return append(m.footLines(width), bar)
+	return m.footLines(width)
 }
 
 // footLines is the messaging above the chip, empty when there is nothing to
@@ -208,20 +180,6 @@ func (m model) footLines(width int) []string {
 		}
 		return lines
 
-	case m.scroll != nil && m.scroll.doc != nil:
-		word := "scrollback · " + strconv.Itoa(m.scroll.above) + " up"
-		if m.scroll.anchor >= 0 {
-			lo, hi := m.scroll.selection(m.scroll.cur)
-			word = plural(hi-lo+1, "line", "lines") + " marked · y copies"
-		}
-		lines := hintBlock(word, width, warnStyle)
-		if m.status != "" {
-			// A report mid-reading — an unmarked y's hint — takes the line
-			// above, the way it does while typing.
-			lines = append(hintBlock(m.status, width, itemStyle), lines...)
-		}
-		return lines
-
 	case m.status != "":
 		style := itemStyle
 		if m.statusErr {
@@ -229,7 +187,7 @@ func (m model) footLines(width int) []string {
 		}
 		return hintBlock(m.status, width, style)
 
-	case m.filter != "" && m.focused() == nil:
+	case m.filter != "":
 		return hintBlock("filter "+m.filter, width, selStyle)
 	}
 	return nil
@@ -251,17 +209,16 @@ func (m model) keysModal(rows int) []string {
 		{"space · -", "fold · unfold all"},
 		{".", "all · running"},
 		{"gg · G", "top · bottom"},
-		{"^spc n", "out to the navigator"},
-		{"^spc j k", "next · previous shell"},
-		{"^spc /", "find from anywhere"},
-		{"^spc s a r A", "shell · agent · run · continue, here"},
-		{"^spc v", "read the pane · v marks · y copies"},
-		{"^spc ^spc", "back to the last process"},
-		{"^spc enter", "the next waiting agent"},
-		{"^spc q", "quit, even from a shell"},
-		{"^spc ?", "these keys"},
 		{"R", "end the server, shells and all"},
-		{"q", "quit"},
+		{"q", "leave; the shells keep running"},
+		{"^spc n", "here, from any shell"},
+		{"^spc j k", "next · previous shell"},
+		{"^spc ^spc", "the last shell"},
+		{"^spc enter", "the next waiting agent"},
+		{"^spc s a r A", "shell · agent · run · continue, here"},
+		{"^spc v", "read back; v marks, y copies"},
+		{"^spc /", "find from anywhere"},
+		{"^spc q", "leave from anywhere"},
 	}
 	// Four rows around the list: the borders, and a blank inside each — the
 	// blanks going first when the window cannot spare them.
@@ -607,8 +564,9 @@ func (m model) detailWidth() int { return m.width - m.paneLeft() }
 // pane beside the navigator.
 func (m model) showDetail() bool { return m.detailWidth() >= paneMin }
 
-// paneLines renders the pane beside the navigator: the shell it should be
-// showing, or, when there is none, what is known about the selected row.
+// paneLines renders the pane beside the navigator: a preview of the shell
+// under the cursor, or, when there is none, what is known about the selected
+// row.
 func (m model) paneLines(width, rows int) []string {
 	if m.resume != nil {
 		return m.resumeLines(width, rows)
@@ -618,15 +576,10 @@ func (m model) paneLines(width, rows int) []string {
 		return m.detailLines(width, rows)
 	}
 
-	if s := m.scroll; s != nil && s.doc != nil && s.pid == t.pid {
-		return scrollWindow(s, width, rows)
-	}
-
 	// A row that folded a run into one line has more to say than its shell's
 	// screen: what the run is, its ports, what its agent is doing. The pane
-	// splits — those facts in a banner across the top, the live screen under
-	// them — so standing on the row shows both. The keys do not change with
-	// the look: the screen below is still a preview.
+	// splits — those facts in a banner across the top, the screen under
+	// them — so standing on the row shows both.
 	banner := m.runBanner(width, rows)
 	var screen []string
 	if len(banner) > 0 {
@@ -635,32 +588,16 @@ func (m model) paneLines(width, rows int) []string {
 		screen = t.lines(rows)
 	}
 
-	// A screen can arrive wider than this pane: the shell is sized by the
-	// windows watching it, and this window may not be one of them. A row
-	// wider than the pane would wrap and take the layout with it, so each is
-	// cut to fit; rows at the pane's width — the usual case — pass whole.
+	// The screen arrives as wide as the shell's window, which is not this
+	// pane's width; a row wider than the pane would wrap and take the layout
+	// with it, so each is cut to fit. The preview wears the quiet gray in
+	// place of the program's own colors: it is a glance, and the shell
+	// itself is a keystroke away, drawn whole by tmux. The banner keeps its
+	// colors — it is scrn's report about the row, not the screen.
 	for i, row := range screen {
-		screen[i] = ansi.Truncate(row, width, "")
+		screen[i] = previewStyle.Render(ansi.Strip(ansi.Truncate(row, width, "")))
 	}
-
-	// A preview wears the quiet gray in place of the program's own colors,
-	// the way an unfocused window is grayed everywhere else: a glance at the
-	// pane answers whether the keys are going there. The banner keeps its
-	// colors either way — it is scrn's report about the row, not the screen.
-	if m.focused() != t {
-		for i, row := range screen {
-			screen[i] = previewStyle.Render(ansi.Strip(row))
-		}
-		return append(banner, screen...)
-	}
-
-	lines := append(banner, screen...)
-	// The cursor is only drawn where the keystrokes are going. On an unfocused
-	// shell it would say the typing lands there, which it does not.
-	if t.curY >= 0 && t.curY < len(lines) {
-		lines[t.curY] = withCursor(lines[t.curY], t.curX, width)
-	}
-	return lines
+	return append(banner, screen...)
 }
 
 // resumeLines is the picker: a place's suspended conversations, newest
@@ -767,12 +704,8 @@ func resumeDetail(c conversation, width, rows int) []string {
 // is showing but not what it is, and every other row gets its facts. The
 // banner takes at most a third of the pane: it is there to say what the row
 // is, and the screen below to show what it is doing, and of the two it is
-// the screen that is live. Focused, there is no banner — the pane is the
-// shell then, whole.
+// the screen that is live.
 func (m model) runBanner(width, rows int) []string {
-	if m.focused() != nil {
-		return nil
-	}
 	r, ok := m.selected()
 	if !ok || r.kind != rowProc {
 		return nil
@@ -805,46 +738,6 @@ func screenTail(t *remoteTerm, rows int) []string {
 		lines = lines[len(lines)-rows:]
 	}
 	return lines
-}
-
-// scrollWindow is the transcript as the reader has it: the rows that fit the
-// pane, stopping above lines short of the live tail. No cursor is drawn —
-// typing lands nowhere while reading — and rows older than a narrowing
-// resize can be wider than the pane, so each is cut to it. A selection
-// wears reverse video, plain: marked lines are on their way to the
-// clipboard, and the clipboard gets text, not styling.
-func scrollWindow(s *scrollView, width, rows int) []string {
-	top := max(len(s.doc)-rows-s.above, 0)
-	end := min(top+rows, len(s.doc))
-	lo, hi := s.cur, s.cur
-	if s.anchor >= 0 {
-		lo, hi = s.selection(s.cur)
-	}
-	out := make([]string, 0, rows)
-	for i, row := range s.doc[top:end] {
-		line := ansi.Truncate(row, width, "")
-		if at := top + i; at >= lo && at <= hi {
-			line = cursorStyle.Render(ansi.Strip(line))
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
-// withCursor marks the cell the shell's cursor is on. The line already carries
-// the shell's own styling, so it is cut around the cell rather than indexed
-// into: a byte offset would land in the middle of an escape sequence. The cut
-// leans on the protocol's shape — every row arrives as wide as the pane — so
-// column x is always a cell the row actually has.
-func withCursor(line string, x, width int) string {
-	if x < 0 || x >= width {
-		return line
-	}
-	under := ansi.Cut(line, x, x+1)
-	if strings.TrimSpace(under) == "" {
-		under = " "
-	}
-	return ansi.Cut(line, 0, x) + cursorStyle.Render(ansi.Strip(under)) + ansi.Cut(line, x+1, width)
 }
 
 // detailLines renders everything known about the selected row.

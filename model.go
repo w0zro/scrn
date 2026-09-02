@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // navWidth is the column the navigator occupies, divider excluded. The
@@ -175,12 +174,10 @@ type model struct {
 	filter string
 	typing bool
 
-	// Where the look began: the subject under the cursor, and the shell the
-	// keys were in if they were in one. Abandoning the filter with esc puts
-	// both back — acting on a result does not, because acting is the point
-	// of having looked.
-	filterFrom      string
-	filterFromFocus int
+	// filterFrom is where the look began: the subject under the cursor.
+	// Abandoning the filter with esc puts it back — acting on a result does
+	// not, because acting is the point of having looked.
+	filterFrom string
 
 	// showAll toggles the navigator between every repository and only those
 	// with a process running in them. It starts off: the repositories with
@@ -203,10 +200,6 @@ type model struct {
 
 	// pendingG is a g waiting for the g that makes it mean the top.
 	pendingG bool
-
-	// scroll is the focused pane's transcript being read back through, and
-	// nil while the pane is live.
-	scroll *scrollView
 
 	// resume is the picker over a place's suspended conversations, and nil
 	// while it is closed. Open, it has the pane and the keys.
@@ -242,10 +235,6 @@ type model struct {
 	// having to visit them.
 	agents map[int]agent
 
-	// pendingPrefix says ctrl+space has been pressed and the next key names
-	// what is wanted of scrn; anything unbound cancels it.
-	pendingPrefix bool
-
 	// worked is every agent pid that has been seen working. Waiting means a
 	// finished turn — busy once, idle now — and an instance idle since it
 	// was started has not finished anything and is not owed an answer.
@@ -254,10 +243,8 @@ type model struct {
 	// terms are the shells the server is holding, keyed by the pid running
 	// each one. A repository can hold as many as you open; they tell themselves
 	// apart in the navigator because each is its own process in that
-	// repository's tree.
-	//
-	// The client owns none of them. It learns about them from the server, which
-	// is what lets them still be here when a window that opened one has gone.
+	// repository's tree. The navigator owns none of them: tmux holds them,
+	// draws them, and takes the keys to them.
 	terms map[int]*remoteTerm
 
 	// server is the connection to the tmux server holding the shells, and
@@ -283,31 +270,14 @@ type model struct {
 	// leaves the cursor on the row that shell belongs to.
 	wantCursor int
 
-	// focus is the pid of the terminal taking keystrokes, or 0 when the
-	// navigator has them. A focused terminal shows in the pane whatever the
-	// cursor is on, so that typing never goes somewhere you cannot see.
-	focus int
-
-	// lastFocus is the shell the keys were in before this one, which is what
-	// ctrl+space ctrl+space steps back to.
-	lastFocus int
-
-	// windowTitle is what the window's tab should say: the last title a
-	// focused shell asked for. It rides out on every view, because a title is
-	// a standing fact about the window rather than a one-time ask.
-	windowTitle string
-
-	// termFG and termBG are the real terminal's colors, held for the server:
-	// they can answer before the session is up, and the server needs them to
-	// answer a pane asking what color the terminal is.
-	termFG, termBG string
-
-	// previewing is the shell this window watches only because the pane is
-	// showing it — the held shell under the cursor, as opposed to the one
-	// being typed into. Tracked so that leaving the row can detach it: a
-	// shell merely glanced at should not keep this window's pane in its size
-	// arbitration.
+	// previewing is the shell whose screen the pane is showing — the held
+	// shell under the cursor. Tracked so that leaving the row stops the
+	// captures.
 	previewing int
+
+	// dressed is the name and mark each shell's window last wore, so the
+	// status line is only told what changed.
+	dressed map[int]string
 
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
@@ -321,6 +291,7 @@ func newModel() model {
 		dying:     map[int]dyingProc{},
 		terms:     map[int]*remoteTerm{},
 		worked:    map[int]bool{},
+		dressed:   map[int]string{},
 		// Init sends the first scan, and Init cannot write here to say so.
 		scanning: true,
 	}
@@ -330,11 +301,8 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(scanProjects, scanProcs, scanAgents, connectServer(),
 		tick(procPoll), agentTick(),
 		// The styles depend on the terminal's background, which lipgloss no
-		// longer guesses at: scrn asks, and rebuilds them on the answer. The
-		// foreground is asked for the server's sake — it answers panes that
-		// ask what color the terminal is.
-		func() tea.Msg { return tea.RequestBackgroundColor() },
-		func() tea.Msg { return tea.RequestForegroundColor() })
+		// longer guesses at: scrn asks, and rebuilds them on the answer.
+		func() tea.Msg { return tea.RequestBackgroundColor() })
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -403,14 +371,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
-		// A transcript being read was cut to a pane that no longer exists.
-		// Nothing rewraps; the reading ends and can be begun again.
-		m.scroll = nil
-		// The shells are drawing into the pane, so they are the ones that have
-		// been resized, whatever the window did.
-		for pid := range m.terms {
-			m.server.resize(pid, m.detailWidth(), m.paneHeight())
-		}
 
 	case projectsMsg:
 		m.projects, m.groups, m.subs, m.err = msg.projects, msg.groups, msg.subs, msg.err
@@ -447,10 +407,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.retryConnect()
 		}
 		m.server, m.serverErr = msg.session, ""
-		// The colors can have answered before the session was up; a session
-		// that arrives second is told what the first answer said.
-		m.server.theme(m.termFG, m.termBG)
-		// A fresh connection holds no watches, whatever this window was
+		// A fresh connection holds no watches, whatever this navigator was
 		// previewing over the last one; the preview is asked for again once
 		// the server says what it holds.
 		m.previewing = 0
@@ -470,8 +427,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// session went with it, or something ended the server outright. The
 		// bridge keeps watching for a new one on its own; here the window
 		// only stops showing shells that are no longer held.
-		m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
-		m.scroll = nil // the transcript went with the server holding it
+		m.terms = map[int]*remoteTerm{}
 		if msg.err != nil {
 			m.status, m.statusErr = msg.err.Error(), true
 		}
@@ -484,9 +440,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// A shell asked for by name is one of several a project needed, and
 		// none of them is more the one you meant than the others. Only a shell
-		// opened on its own takes the keys and the cursor.
+		// opened on its own takes the client to it, and the cursor with it.
 		if msg.name == "" {
-			m.setFocus(msg.pid)
+			m.server.show(msg.pid)
 			m.wantCursor = msg.pid
 		}
 		return m, tea.Batch(nextEvent(m.server), m.scanNow())
@@ -505,9 +461,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			held[s.PID] = &remoteTerm{pid: s.PID, dir: s.Dir, name: s.Name}
 		}
 		m.terms = held
-		if _, ok := m.terms[m.focus]; !ok {
-			m.focus = 0
-		}
 		m.rebuild()
 		// The server may have just said what it holds while the cursor was
 		// already standing on one of those shells; the pane should not wait
@@ -523,53 +476,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			t = &remoteTerm{pid: msg.pid}
 			m.terms[msg.pid] = t
 		}
-		t.screen, t.curX, t.curY = msg.screen, msg.curX, msg.curY
-		t.title = msg.title
-		t.sb, t.mouse, t.alt = msg.sb, msg.mouse, msg.alt
-
-		// Only the shell being looked at speaks for the window. Another one
-		// finishing a build should not retitle a tab showing something else.
-		if m.focus == msg.pid && t.title != "" {
-			m.windowTitle = t.title
-		}
-		return m, nextEvent(m.server)
-
-	case historyMsg:
-		s := m.scroll
-		t, ok := m.terms[msg.pid]
-		if s == nil || s.pid != msg.pid || !ok {
-			// Asked for and no longer wanted; the reading has already ended.
-			return m, nextEvent(m.server)
-		}
-		// The transcript plus the screen as it stands is the whole document.
-		// The screen is frozen into it on purpose: output only appends, so a
-		// snapshot is a true prefix of the live transcript — never wrong,
-		// merely not growing — and it holds still under the reader.
-		s.doc = strings.Split(t.screen, "\n")
-		if msg.history != "" {
-			// The document grew a prefix; the cursor and the mark keep
-			// their lines by shifting with it.
-			grown := strings.Split(msg.history, "\n")
-			s.doc = append(grown, s.doc...)
-			s.cur += len(grown)
-			if s.anchor >= 0 {
-				s.anchor += len(grown)
-			}
-		}
-		if max := m.scrollMax(); s.above > max {
-			s.above = max
-		}
-		m.clampCur()
+		t.screen = msg.screen
 		return m, nextEvent(m.server)
 
 	case termGoneMsg:
 		delete(m.terms, msg.pid)
-		if m.focus == msg.pid {
-			m.focus = 0
-		}
-		if m.scroll != nil && m.scroll.pid == msg.pid {
-			m.scroll = nil
-		}
+		delete(m.dressed, msg.pid)
 		m.rebuild()
 		// Asking again is what notices a server that has just become
 		// replaceable: the shell keeping an out-of-date one alive was this.
@@ -603,13 +515,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case detailMsg:
 		m.details[msg.key] = msg.fields
-
-	case copiedMsg:
-		if msg.err != nil {
-			m.status, m.statusErr = "could not copy: "+msg.err.Error(), true
-		} else {
-			m.status, m.statusErr = "copied "+plural(msg.n, "line", "lines"), false
-		}
 
 	case convosMsg:
 		// Only the picker that asked wants this; one opened on another place
@@ -681,56 +586,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case tea.MouseMsg:
-		// The keys modal leaves on any keystroke; a click is no different.
-		if m.showHelp {
-			m.showHelp = false
-			return m, nil
-		}
-		// An armed confirmation is about the next key alone; the mouse must
-		// not move the subject out from under it.
-		if m.pendingKill != nil || m.pendingReplace {
-			return m, nil
-		}
-
-		// The pane's mouse arrives only while scrn is holding the mouse at
-		// all, which it does for one reason: the focused program asked for
-		// it. Every event crosses raw — press, drag, release, wheel — the
-		// terminal's own convention. The one thing kept back is the wheel
-		// while the reader is open, because the reader is scrn's.
-		if !m.showDetail() {
-			return m, nil
-		}
-		ev := mouseEvent(msg, m.paneLeft(), 0)
-		if ev == nil {
-			return m, nil
-		}
-		if m.scroll != nil {
-			if delta := wheelDelta(msg); delta != 0 {
-				m.scrollBy(delta)
-			}
-			return m, nil
-		}
-		if t := m.focused(); t != nil && t.mouse {
-			m.server.mouse(t.pid, ev)
-		}
-		return m, nil
-
 	case tea.BackgroundColorMsg:
-		// The answer to Init's ask: now the styles can pick their side, and
-		// the server can answer panes asking what color the terminal is.
+		// The answer to Init's ask: now the styles can pick their side.
 		applyBackground(msg.IsDark())
-		if msg.Color != nil {
-			m.termBG = msg.String()
-			m.server.theme(m.termFG, m.termBG)
-		}
-		return m, nil
-
-	case tea.ForegroundColorMsg:
-		if msg.Color != nil {
-			m.termFG = msg.String()
-			m.server.theme(m.termFG, m.termBG)
-		}
 		return m, nil
 
 	case tea.PasteMsg:
@@ -740,22 +598,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = false
 			return m, nil
 		}
-		// Reading the transcript swallows it: the reader is looking, and
-		// typing lands nowhere.
-		if m.scroll != nil {
-			return m, nil
-		}
 		// Into the picker it is more of the query, the way it is for the
 		// filter: pasting a phrase from a transcript is a fine way to look.
 		if m.resume != nil {
 			m.setResumeQuery(m.resume.query + msg.Content)
-			return m, nil
-		}
-		// Pasted text goes to a focused shell as a paste rather than as the
-		// keystrokes it would have taken to type, so a program that asked for
-		// bracketed paste is told where it starts and stops.
-		if t := m.focused(); t != nil {
-			m.server.paste(t.pid, msg.Content)
 			return m, nil
 		}
 		// Into the filter it is just more of the query.
@@ -766,7 +612,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// At the navigator, pasted text lands nowhere — and saying so beats
 		// a paste that silently vanishes and reads as broken.
-		m.status, m.statusErr = "nothing is focused to paste into", false
+		m.status, m.statusErr = "nothing here to paste into", false
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -794,91 +640,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// ctrl+space is scrn's prefix, and it is taken everywhere — over the
-		// navigator, the filter, a focused shell — because its point is to
-		// reach scrn from wherever the keys are currently going. The chords
-		// keep their letters' meanings: another ctrl+space toggles between
-		// this shell and the one viewed before it, enter goes to the next
-		// agent waiting on its user, / finds, j and k step through the
-		// shells scrn holds, s a r act where the keys are, n steps out to
-		// the navigator, q quits, ? shows the keys. Anything unbound cancels
-		// it and is swallowed, the way a half-finished gg swallows.
-		if m.pendingPrefix {
-			m.pendingPrefix = false
-			if isPrefix(msg) {
-				return m, m.toggleFocus()
-			}
-			switch msg.String() {
-			case "?":
-				m.showHelp = true
-			case "enter":
-				return m, m.jumpWaiting()
-			case "/":
-				return m, m.openFilter()
-			case "j":
-				return m, m.attachStep(1)
-			case "k":
-				return m, m.attachStep(-1)
-			case "s":
-				return m, m.startHere("")
-			case "a":
-				return m, m.startHere(startAgent())
-			case "A":
-				return m, m.resumeHere()
-			case "v":
-				// Into the reader on purpose — the pager's screen included,
-				// where the wheel cannot start it. v marks, y copies.
-				return m, m.openReader()
-			case "r":
-				return m, m.runHere()
-			case "n":
-				// To the navigator from wherever the keys were — a shell,
-				// the transcript, the filter mid-word. All the way out: the
-				// letter is the destination, not the leaving.
-				m.scroll = nil
-				m.resume = nil
-				m.typing = false
-				m.setFocus(0)
-				return m, m.detailCmd()
-			case "q":
-				// Leaving is q's word alone, and the prefix carries it out
-				// of a focused shell the letter would otherwise type into.
-				return m, tea.Quit
-			}
-			return m, nil
-		}
-		if isPrefix(msg) {
-			m.pendingPrefix = true
-			return m, nil
-		}
-
-		// cmd+v handed through by the terminal is the paste it meant. It is
-		// restated as one — the clipboard read off the render path — and the
-		// paste lands wherever typing goes, exactly as a translated cmd+v
-		// would have.
-		if isPasteChord(msg) {
-			return m, pasteFromClipboard()
-		}
-
 		// The resume picker takes every key while it is open: it is a look
 		// through what could be continued, and its keys are the filter's.
 		if m.resume != nil {
 			return m, m.resumeKey(msg)
-		}
-
-		// Reading the transcript takes every key: the reader is looking, not
-		// typing, so none of them are the shell's. What is not a motion is
-		// swallowed, the way a half-finished gg swallows.
-		if m.scroll != nil {
-			return m, m.scrollKey(msg)
-		}
-
-		// A focused shell takes every keystroke: ctrl+c, ctrl+o, all of it
-		// belongs to whatever is running in the shell, not to scrn. The one
-		// way out is the prefix, which was taken above.
-		if t := m.focused(); t != nil {
-			m.server.key(t.pid, keyEvent(msg))
-			return m, nil
 		}
 
 		// The filter takes every key while it is being typed, so a repository
@@ -896,7 +661,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// The bridge notices the server going and says so; clearing
 				// here as well just spares the window a beat of stale rows.
 				m.server.replace()
-				m.terms, m.focus, m.lastFocus = map[int]*remoteTerm{}, 0, 0
+				m.terms = map[int]*remoteTerm{}
 				m.status, m.statusErr = "ending the server and its shells", false
 				m.rebuild()
 				return m, nil
@@ -949,10 +714,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "G":
 			return m, m.jump(len(m.rows) - 1)
-		case "down", "j", "tab":
+		case "down", "j":
 			return m, m.move(1)
-		case "up", "k", "shift+tab":
+		case "up", "k":
 			return m, m.move(-1)
+		case "tab":
+			// The next agent waiting on you, and again around them in
+			// turn: the summons the chord ctrl-space enter delivers from
+			// any shell, at the list.
+			return m, m.jumpWaiting()
 		case "space":
 			m.toggleCollapse()
 			return m, nil
@@ -981,30 +751,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q", "ctrl+c":
-			return m, tea.Quit
+			// Leaving the window, not the shells: the client detaches and
+			// the navigator keeps its place in the home window for the
+			// next `scrn`.
+			m.server.leave()
+			return m, nil
 		}
 	}
 	return m, nil
-}
-
-// The modes the keys can be in, named for what they are aimed at. The foot
-// wears the current one as a chip, the way vim says INSERT.
-const (
-	modeNavigate = "navigate"
-	modeProc     = "proc"
-	modePrefix   = "prefix"
-)
-
-// mode is where the keys are going right now: held by the prefix, into a
-// process — a focused shell, or its transcript being read — or at the list.
-func (m model) mode() string {
-	switch {
-	case m.pendingPrefix:
-		return modePrefix
-	case m.focused() != nil, m.scroll != nil:
-		return modeProc
-	}
-	return modeNavigate
 }
 
 // filterKey handles a keystroke while something is being looked up.
@@ -1035,15 +789,10 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.move(1)
 
 	case "esc":
-		// Abandoning the look is not acting on anything, so it puts things
-		// back as they were: the keys in the shell they came from, or the
-		// cursor on the row it left.
+		// Abandoning the look is not acting on anything, so it puts the
+		// cursor back on the row it left.
 		m.typing = false
 		m.setFilter("")
-		if t := m.terms[m.filterFromFocus]; t != nil {
-			m.attachTo(t)
-			return nil
-		}
 		m.selectKey(m.filterFrom)
 		return m.detailCmd()
 	case "backspace":
@@ -1056,6 +805,10 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		// everywhere else a line is typed. The typing itself goes on.
 		m.setFilter("")
 		return m.detailCmd()
+	case "tab":
+		// The summons reaches through the look: the waiting agent lives in
+		// the whole list, and going to it is the end of looking.
+		return m.jumpWaiting()
 	case "space":
 		m.setFilter(m.filter + " ")
 		return m.detailCmd()
@@ -1197,40 +950,27 @@ func (m *model) jump(i int) tea.Cmd {
 }
 
 // jumpWaiting goes to the next agent waiting on its user, in row order from
-// where the keys are, wrapping. Going to an agent scrn holds means stepping
-// into its shell; one it can only watch gets the cursor instead, which is as
+// the cursor, wrapping. Going to an agent scrn holds means taking the client
+// to its window; one it can only watch gets the cursor instead, which is as
 // far as enter could take it either.
 func (m *model) jumpWaiting() tea.Cmd {
 	// From the filter, the jump is the end of looking: the rows while typing
 	// are the query's answers — places alone until a query lands — and the
-	// waiting agent lives in the whole list, which the chord means to reach
-	// from anywhere.
+	// waiting agent lives in the whole list.
 	if m.typing {
 		m.typing = false
 		m.setFilter("")
 	}
-	at := m.cursor
-	if t := m.focused(); t != nil {
-		for i, r := range m.rows {
-			if r.kind == rowProc && m.owningTerm(r.node.PID) == t {
-				at = i
-				break
-			}
-		}
-	}
 	for step := 1; step <= len(m.rows); step++ {
-		i := (at + step) % len(m.rows)
+		i := (m.cursor + step) % len(m.rows)
 		r := m.rows[i]
 		if m.awaiting(r) == nil {
 			continue
 		}
 		if t := m.owningTerm(r.node.PID); t != nil {
-			m.attachTo(t)
+			m.show(t)
 			return nil
 		}
-		m.scroll = nil
-		m.typing = false // the cursor is the answer now, not the query
-		m.setFocus(0)
 		m.cursor = i
 		m.scrollToCursor()
 		return m.detailCmd()
@@ -1239,39 +979,12 @@ func (m *model) jumpWaiting() tea.Cmd {
 	return nil
 }
 
-// toggleFocus steps between the shell being viewed and the one viewed before
-// it: from inside a shell it is the other of the pair, from the navigator it
-// is back into the one just left.
-func (m *model) toggleFocus() tea.Cmd {
-	t := m.terms[m.lastFocus]
-	if t == nil {
-		m.status, m.statusErr = "no shell to step back into", false
-		return nil
-	}
-	m.attachTo(t)
-	return nil
-}
-
-// setFocus moves the keys, remembering the shell they leave so the toggle
-// can step back to it.
-func (m *model) setFocus(pid int) {
-	if pid != 0 {
-		// The pane is the shell's now, wherever the keys came from; a picker
-		// left open would be standing behind a screen it no longer draws.
-		m.resume = nil
-	}
-	if m.focus != 0 && m.focus != pid {
-		m.lastFocus = m.focus
-	}
-	m.focus = pid
-}
-
-// attachTo steps into a shell from anywhere: the keys go to the shell, the
-// cursor to its row, and a filter that led here is finished, like enter's.
-func (m *model) attachTo(t *remoteTerm) {
-	m.scroll = nil
+// show takes the client to a shell's window from anywhere: the cursor goes
+// to its row, a filter that led here is finished, like enter's, and tmux
+// draws the shell from there.
+func (m *model) show(t *remoteTerm) {
 	m.typing = false
-	m.setFocus(t.pid)
+	m.resume = nil
 	m.setFilter("")
 	for i, r := range m.rows {
 		if r.kind == rowProc && m.owningTerm(r.node.PID) == t {
@@ -1280,90 +993,23 @@ func (m *model) attachTo(t *remoteTerm) {
 			break
 		}
 	}
-	m.server.attach(t.pid, m.detailWidth(), m.paneHeight())
+	m.server.show(t.pid)
 }
 
 // openFilter starts typing a filter. The list becomes every project straight
 // away, before a single character is typed: half of looking one up is
-// remembering which ones there are. As a chord it can arrive from inside a
-// shell or a transcript, which it leaves the way jumpWaiting does.
+// remembering which ones there are.
 func (m *model) openFilter() tea.Cmd {
-	m.filterFromFocus = m.focus
 	m.filterFrom = ""
 	if r, ok := m.selected(); ok {
 		m.filterFrom = detailKey(r)
 	}
-	m.setFocus(0)
-	m.scroll = nil
 	m.resume = nil // one look at a time; the filter is the look now
 	m.typing = true
 	m.rebuild()
 	m.cursor = 0
 	m.scrollToCursor()
 	return m.detailCmd()
-}
-
-// attachStep attaches to the next or previous process that can be attached
-// to, in row order, wrapping at the ends. From inside a shell it is how you
-// move to the neighboring one without a trip through the navigator; from the
-// navigator it steps from the cursor. Attaching is acting on what was found,
-// so a filter that led here is finished, the way enter's is.
-func (m *model) attachStep(delta int) tea.Cmd {
-	at := m.cursor
-	if t := m.focused(); t != nil {
-		for i, r := range m.rows {
-			if r.kind == rowProc && m.owningTerm(r.node.PID) == t {
-				at = i
-				break
-			}
-		}
-	}
-	for step := 1; step <= len(m.rows); step++ {
-		i := (at + delta*step + len(m.rows)*step) % len(m.rows)
-		r := m.rows[i]
-		if r.kind != rowProc {
-			continue
-		}
-		t := m.owningTerm(r.node.PID)
-		if t == nil || t.pid == m.focus {
-			continue
-		}
-		m.attachTo(t)
-		return nil
-	}
-	m.status, m.statusErr = "nothing else to attach to", false
-	return nil
-}
-
-// startHere opens a shell — or handed a command, an agent — where the keys
-// are: beside the focused shell when one is taking them, else at the selected
-// row, which is what the bare letter does.
-func (m *model) startHere(command string) tea.Cmd {
-	t := m.focused()
-	if t == nil {
-		return m.start(command)
-	}
-	if m.server == nil {
-		m.status, m.statusErr = "no server to hold it: "+m.serverErr, true
-		return nil
-	}
-	m.server.open(t.dir, command, "", m.detailWidth(), m.paneHeight())
-	return nil
-}
-
-// runHere runs the plan of the place the keys are in: the focused shell's
-// place when one is taking them, else the selected row's.
-func (m *model) runHere() tea.Cmd {
-	t := m.focused()
-	if t == nil {
-		return m.run()
-	}
-	p, ok := m.placeAt(t.dir)
-	if !ok {
-		m.status, m.statusErr = "no project holds "+t.dir, true
-		return nil
-	}
-	return m.runPlace(p)
 }
 
 // placeAt is the place a directory belongs to — the innermost repository or
@@ -1403,24 +1049,13 @@ func (m *model) move(delta int) tea.Cmd {
 	return m.detailCmd()
 }
 
-// focused returns the terminal taking keystrokes, if one is.
-func (m model) focused() *remoteTerm {
-	if m.focus == 0 {
-		return nil
-	}
-	return m.terms[m.focus]
-}
-
-// paneTerm is the shell the pane should be showing: the focused one, or the
-// one belonging to the row under the cursor.
+// paneTerm is the shell the pane should be previewing: the one belonging to
+// the row under the cursor.
 //
 // A folded run is rarely a shell itself — the row is named for what the shell
 // started — so the run is walked for the shell scrn holds in it. That shell's
 // pane is where the thing the row is named for is drawing.
 func (m model) paneTerm() *remoteTerm {
-	if t := m.focused(); t != nil {
-		return t
-	}
 	r, ok := m.selected()
 	if !ok || r.kind != rowProc {
 		return nil
@@ -1480,7 +1115,7 @@ func (m *model) start(command string) tea.Cmd {
 		m.status, m.statusErr = "no server to hold it: "+m.serverErr, true
 		return nil
 	}
-	m.server.open(m.shellDir(r), command, "", m.detailWidth(), m.paneHeight())
+	m.server.open(m.shellDir(r), command, "")
 	return nil
 }
 
@@ -1494,9 +1129,10 @@ func (m model) shellDir(r navRow) string {
 	return r.project.Path
 }
 
-// openShell opens a shell on a repository row, or steps into one already open
-// on the row under the cursor. Enter on a repository always opens another, so
-// a repository can hold as many shells as the work needs.
+// openShell opens a shell on a repository row, or takes the client to the
+// window of one already open on the row under the cursor. Enter on a
+// repository always opens another, so a repository can hold as many shells
+// as the work needs.
 func (m *model) openShell() tea.Cmd {
 	r, ok := m.selected()
 	if !ok {
@@ -1511,14 +1147,7 @@ func (m *model) openShell() tea.Cmd {
 			m.status, m.statusErr = "scrn did not start "+procLabel(r.node), false
 			return nil
 		}
-		m.setFocus(t.pid)
-		// Stepping into something is acting on it, so a search that led here
-		// is finished. Nothing has to be waited for: the project already holds
-		// the shell being entered, so it stays listed without the filter.
-		m.setFilter("")
-		// The screen comes from the server, which is what makes a shell from
-		// an earlier window come back with what it had drawn still on it.
-		m.server.attach(t.pid, m.detailWidth(), m.paneHeight())
+		m.show(t)
 		return nil
 	}
 	return m.start("")
@@ -1616,7 +1245,7 @@ func (m *model) runPlace(p Project) tea.Cmd {
 	}
 
 	for _, e := range missing {
-		m.server.open(p.Path, e.Run, e.Name, m.detailWidth(), m.paneHeight())
+		m.server.open(p.Path, e.Run, e.Name)
 	}
 	// Several things are starting and none of them is the one you meant, so
 	// the cursor stays on the project rather than following any of them.
@@ -1888,222 +1517,13 @@ func (m model) bodyHeight() int {
 	return 0
 }
 
-// paneHeight is the room the attached process has, which is the whole window:
-// scrn's own rows are in its column, not across the top and bottom.
+// paneHeight is the room the preview has, which is the whole window: scrn's
+// own rows are in its column, not across the top and bottom.
 func (m model) paneHeight() int {
 	if m.height > 0 {
 		return m.height
 	}
 	return 1
-}
-
-// scrollView is a pane's transcript being read rather than followed: the
-// lines that had scrolled away plus the screen as it stood when the reading
-// began, and how far back up the reader has gone.
-type scrollView struct {
-	pid   int
-	doc   []string // nil until the transcript arrives
-	above int      // lines between the bottom of the viewport and the live tail
-
-	// cur is the reader's own cursor: the line the motions move and the
-	// mark is set at, drawn reversed. The viewport follows it.
-	cur int
-
-	// anchor is the line v marked, and -1 while nothing is selected. The
-	// selection runs from it to the cursor, and y carries the span to the
-	// system clipboard.
-	anchor int
-}
-
-// wheelLines is how many lines one wheel notch moves the transcript, the same
-// distance the notch would have scrolled anywhere else.
-const wheelLines = 3
-
-// wheelDelta is how far a mouse event asks the transcript to move: up for
-// positive, and nothing for anything that is not a turn of the wheel.
-func wheelDelta(msg tea.MouseMsg) int {
-	wheel, ok := msg.(tea.MouseWheelMsg)
-	if !ok {
-		return 0
-	}
-	switch wheel.Button {
-	case tea.MouseWheelUp:
-		return wheelLines
-	case tea.MouseWheelDown:
-		return -wheelLines
-	}
-	return 0
-}
-
-// scrollBy moves the reading position, up for positive. Falling below the
-// live tail ends the reading: rolling past the bottom is how a wheel says
-// back to now.
-func (m *model) scrollBy(delta int) {
-	s := m.scroll
-	if s == nil || delta == 0 {
-		return
-	}
-	s.above += delta
-	if s.above <= 0 {
-		// Rolling past the bottom is back to now — unless a selection is
-		// being made, which holds the reader at the live tail instead.
-		if s.anchor >= 0 {
-			s.above = 0
-			m.clampCur()
-			return
-		}
-		m.scroll = nil
-		return
-	}
-	if max := m.scrollMax(); s.doc != nil && s.above > max {
-		s.above = max
-	}
-	m.clampCur()
-}
-
-// scrollMax is as far up as the transcript goes: the lines that do not fit
-// the pane.
-func (m *model) scrollMax() int {
-	if n := len(m.scroll.doc) - m.paneHeight(); n > 0 {
-		return n
-	}
-	return 0
-}
-
-// openReader starts reading the pane's shell deliberately — the chord's way
-// in, where the wheel's way needs a primary screen with lines above it. It
-// works on the alternate screen too: the pager's screen becomes the
-// document, which is exactly the page a selection wants.
-func (m *model) openReader() tea.Cmd {
-	t := m.paneTerm()
-	if t == nil {
-		m.status, m.statusErr = "nothing in the pane to read", false
-		return nil
-	}
-	m.typing = false
-	doc := strings.Split(t.screen, "\n")
-	m.scroll = &scrollView{pid: t.pid, doc: doc, cur: len(doc) - 1, anchor: -1}
-	if !t.alt {
-		// The transcript above joins the document when it arrives; the
-		// alternate screen has none, and is whole already.
-		m.server.history(t.pid)
-	}
-	return nil
-}
-
-// selection is the span between the mark and the cursor, inclusive, in
-// document order.
-func (s *scrollView) selection(cur int) (int, int) {
-	lo, hi := s.anchor, cur
-	if lo > hi {
-		lo, hi = hi, lo
-	}
-	return lo, hi
-}
-
-// curBy moves the reader's cursor, the viewport following. Moving down off
-// the last line is back to live — unless a selection is being made, which
-// pins the reader instead.
-func (m *model) curBy(delta int) {
-	s := m.scroll
-	if s == nil || len(s.doc) == 0 || delta == 0 {
-		return
-	}
-	if delta > 0 && s.cur >= len(s.doc)-1 && s.above <= 0 && s.anchor < 0 {
-		m.scroll = nil
-		return
-	}
-	s.cur = min(max(s.cur+delta, 0), len(s.doc)-1)
-	m.followCur()
-}
-
-// followCur slides the viewport the least amount that keeps the cursor on
-// screen, the discipline the navigator's own scrolling keeps.
-func (m *model) followCur() {
-	s := m.scroll
-	page := m.paneHeight()
-	bottom := len(s.doc) - 1 - s.above
-	if s.cur > bottom {
-		s.above = len(s.doc) - 1 - s.cur
-	}
-	if top := bottom - page + 1; s.cur < top {
-		s.above = min(len(s.doc)-page-s.cur, m.scrollMax())
-	}
-	if s.above < 0 {
-		s.above = 0
-	}
-}
-
-// clampCur pulls the cursor back into the viewport after the viewport moved
-// on its own — the wheel, a page — so the cursor is always a line on screen.
-func (m *model) clampCur() {
-	s := m.scroll
-	if s == nil || len(s.doc) == 0 {
-		return
-	}
-	bottom := max(len(s.doc)-1-s.above, 0)
-	top := max(bottom-m.paneHeight()+1, 0)
-	s.cur = min(max(s.cur, top), bottom)
-}
-
-// scrollKey is a keystroke while the transcript is being read: vim's motions
-// moving the reader's own cursor, the mark and the yank at it, and the ways
-// out.
-func (m *model) scrollKey(msg tea.KeyPressMsg) tea.Cmd {
-	s := m.scroll
-	page := m.paneHeight()
-	switch msg.String() {
-	case "esc":
-		// Layered, the way esc always is: first the selection, then the
-		// reading.
-		if s.anchor >= 0 {
-			s.anchor = -1
-			return nil
-		}
-		m.scroll = nil
-	case "q":
-		m.scroll = nil
-	case "v":
-		// v marks the cursor's line; moving extends the selection to
-		// wherever the cursor goes. Pressed again, it marks afresh.
-		s.anchor = s.cur
-	case "y":
-		if s.anchor < 0 {
-			m.status, m.statusErr = "v marks before y copies", false
-			return nil
-		}
-		lo, hi := s.selection(s.cur)
-		lines := make([]string, 0, hi-lo+1)
-		for _, row := range s.doc[lo : hi+1] {
-			// The screen's rows are padded to the pane's width so the
-			// cursor can be cut into any cell; the padding is scrn's, not
-			// the program's, and it does not go to the clipboard.
-			lines = append(lines, strings.TrimRight(ansi.Strip(row), " "))
-		}
-		m.scroll = nil // the yank is the end of the reading
-		text := strings.Join(lines, "\n")
-		return func() tea.Msg { return copiedMsg{n: len(lines), err: writeClipboard(text)} }
-	case "up", "k":
-		m.curBy(-1)
-	case "down", "j":
-		m.curBy(1)
-	case "pgup", "ctrl+b":
-		m.curBy(-page)
-	case "pgdown", "ctrl+f":
-		m.curBy(page)
-	case "ctrl+u":
-		m.curBy(-page / 2)
-	case "ctrl+d":
-		m.curBy(page / 2)
-	case "g":
-		m.curBy(-len(s.doc))
-	case "G":
-		// To the last line — the live tail — with the reading kept: the
-		// bottom is where a mark on fresh output starts. Leaving stays
-		// q's and esc's word.
-		m.curBy(len(s.doc))
-	}
-	return nil
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back
@@ -2761,26 +2181,22 @@ func (m model) awaiting(r navRow) agent {
 	return a
 }
 
-// syncPreview keeps the server sending the screen the pane is showing. A
-// window is attached to what it entered; the glance — the held shell under
-// the cursor — has to be asked for too, or a shell this window never stepped
-// into previews blank. What the pane stops showing is detached again.
+// syncPreview keeps the server sending the screen the pane is showing: the
+// held shell under the cursor. What the pane stops showing is let go.
 func (m *model) syncPreview() {
 	want := 0
-	if m.focus == 0 {
-		if t := m.paneTerm(); t != nil {
-			want = t.pid
-		}
+	if t := m.paneTerm(); t != nil {
+		want = t.pid
 	}
 	if want == m.previewing {
 		return
 	}
-	if m.previewing != 0 && m.previewing != m.focus {
+	if m.previewing != 0 {
 		m.server.detach(m.previewing)
 	}
 	m.previewing = want
 	if want != 0 {
-		m.server.attach(want, m.detailWidth(), m.paneHeight())
+		m.server.attach(want)
 	}
 }
 
