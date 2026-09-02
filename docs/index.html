@@ -6,9 +6,9 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#e7e3d8">
 <title>scrn — a terminal UI for working on projects</title>
-<meta name="description" content="A terminal UI. Shells live in a private tmux server, so they keep running after the window closes. macOS and Linux.">
+<meta name="description" content="A terminal UI for the projects you have open: their shells, dev servers and agents in one list, and which of them is waiting on you. macOS and Linux.">
 <meta property="og:title" content="scrn">
-<meta property="og:description" content="A terminal UI. Shells live in a private tmux server, so they keep running after the window closes.">
+<meta property="og:description" content="A terminal UI for the projects you have open: their shells, dev servers and agents in one list, and which of them is waiting on you. macOS and Linux.">
 <meta property="og:url" content="https://scrn.w0zro.com">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/png" href="/favicon.png">
@@ -33,7 +33,7 @@
   <div class="hero-grid">
     <div class="hero-copy">
       <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
-      <p class="sub">A terminal UI. Shells live in a private tmux server, so they keep running after the window closes. macOS and Linux.</p>
+      <p class="sub">A terminal UI for the projects you have open: their shells, dev servers and agents in one list, and which of them is waiting on you. macOS and Linux. Close the window; nothing stops.</p>
     </div>
     <div class="hero-demo">
       <div class="scr" id="demo" role="img" aria-label="scrn running: a navigator listing the repositories acme/web, acme/api and scrn with the processes under each, beside a pane showing the shell the cursor is on. The keys move the cursor, step into a shell, and jump to the Claude session waiting for an answer.">
@@ -60,23 +60,23 @@
 <pre><span class="t-ttl">scrn</span>                      <span class="t-num">①</span>
 
  acme
-   web <span class="t-run">⠧</span>                   <span class="t-num">②</span>
+   web
 <span class="t-sel">▸  ├─ npm run dev</span>         <span class="t-num">③</span>
-   <span class="t-dim">└─</span> claude
-   api <span class="t-dim">○</span>
-   <span class="t-dim">└─</span> claude
+   <span class="t-dim">└─</span> claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
+   api
+   <span class="t-dim">└─</span> claude <span class="c-urgent">◆</span>
  scrn
  <span class="t-dim">└─</span> go test ./...
 
- <span class="t-hint">s shell  a agent  r run</span>   <span class="t-num">④</span></pre>
+ <span class="chip chip-navigate"> navigate </span>               <span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
   <div class="figure-notes">
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
-    <div class="note"><span class="marker">②</span><p>A turning marker: Claude is working. A still one: it is waiting on you.</p></div>
-    <div class="note"><span class="marker">③</span><p>Keys act on the selected row. x kills a process; on a repository, everything in it. Always confirmed first.</p></div>
-    <div class="note"><span class="marker">④</span><p>r runs the project's plan — the processes named in .scrn, a Procfile, or package.json.</p></div>
+    <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
+    <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .scrn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
+    <div class="note"><span class="marker">④</span><p>The foot says where the keys are going: navigate at the list, proc inside a shell.</p></div>
   </div>
 </section>
 
@@ -87,6 +87,7 @@
     <div class="keyrow"><span>/</span><span>find a project · a process</span></div>
     <div class="keyrow"><span>enter</span><span>open the row</span></div>
     <div class="keyrow"><span>^spc enter</span><span>waiting agent</span></div>
+    <div class="keyrow"><span>? / q</span><span>all the keys / quit</span></div>
   </div>
   <div>
     <div class="keyhead">ACT</div>
