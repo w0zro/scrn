@@ -98,7 +98,7 @@ func TestShowingAShellJoinsSwapsOrParks(t *testing.T) {
 	}
 	for _, c := range cases {
 		run, moved := homeWith(c.shown)
-		if err := showPane(run, "%0", c.target); err != nil {
+		if err := showPane(run, "%0", c.target, 28); err != nil {
 			t.Fatal(err)
 		}
 		if len(*moved) != 1 || (*moved)[0] != c.want {
@@ -110,7 +110,7 @@ func TestShowingAShellJoinsSwapsOrParks(t *testing.T) {
 func TestShowingTheShellAlreadyShownMovesNothing(t *testing.T) {
 	for _, shown := range []string{"", "%3"} {
 		run, moved := homeWith(shown)
-		if err := showPane(run, "%0", shown); err != nil {
+		if err := showPane(run, "%0", shown, 28); err != nil {
 			t.Fatal(err)
 		}
 		if len(*moved) != 0 {

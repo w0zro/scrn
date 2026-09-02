@@ -138,6 +138,7 @@ type session struct {
 	panes   map[int]*pane  // by the pid of the shell in the pane
 	byPane  map[string]int // pane id → that pid
 	nav     string         // the navigator's own pane, "%0"
+	column  int            // the navigator's width, read once: the goroutines never touch the global
 	want    *placement     // the arrangement asked for and not yet made
 	placing bool           // an arrangement is being made
 	probing bool
@@ -154,6 +155,7 @@ func newSession() *session {
 		run:    tmuxCommand,
 		panes:  map[int]*pane{},
 		byPane: map[string]int{},
+		column: navWidth,
 		probe:  probeEvery,
 	}
 }
@@ -582,7 +584,7 @@ func (s *session) arrange(p placement) error {
 	if p.pid != 0 && target == "" {
 		return nil // gone since it was asked for; the list will say so
 	}
-	if err := showPane(s.run, nav, target); err != nil {
+	if err := showPane(s.run, nav, target, s.column); err != nil {
 		return err
 	}
 	if p.focus && target != "" {
@@ -605,8 +607,9 @@ func (s *session) arrange(p placement) error {
 // stays that size whatever the client does — so a program in it sees no
 // change in its terminal, and has nothing to repaint, as the cursor moves
 // over its row and off again. A shell's first showing is the one resize:
-// its window was made at the client's size.
-func showPane(run runner, nav, target string) error {
+// its window was made at the client's size. column is the navigator's
+// width, which the slot is the rest of the window past.
+func showPane(run runner, nav, target string, column int) error {
 	out, err := run("list-panes", "-t", nav, "-F", "#{pane_id}\t#{@scrn_nav}\t#{window_width}\t#{window_height}")
 	if err != nil {
 		return err
@@ -623,8 +626,8 @@ func showPane(run runner, nav, target string) error {
 		}
 		w, werr := strconv.Atoi(f[2])
 		h, herr := strconv.Atoi(f[3])
-		if werr == nil && herr == nil && w > navWidth+1 && h > 0 {
-			slot = []string{"-x", strconv.Itoa(w - navWidth - 1), "-y", strconv.Itoa(h)}
+		if werr == nil && herr == nil && w > column+1 && h > 0 {
+			slot = []string{"-x", strconv.Itoa(w - column - 1), "-y", strconv.Itoa(h)}
 		}
 	}
 	// park sizes the window a pane has just gone back to: the pane names
