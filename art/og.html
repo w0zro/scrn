@@ -1,0 +1,103 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>scrn — og:image source</title>
+<!--
+  The source of docs/og.png. 1200x630, the site's own palette and type.
+  Render (fonts come off the network, as on the site):
+
+    chrome --headless --hide-scrollbars --force-device-scale-factor=2 \
+           --virtual-time-budget=10000 --window-size=1200,630 \
+           --screenshot=og-2x.png art/og.html
+    magick og-2x.png -resize 1200x630 -strip docs/og.png
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap">
+<style>
+  :root {
+    --desk: #e7e3d8;
+    --paper: #f2efe8;
+    --ink: #1b1a16;
+    --body: #33301f;
+    --muted: #7a745f;
+    --rule: #cfc8b4;
+    --chip: #e9e4d4;
+    --accent: #5A3FD9;
+    --serif: 'IBM Plex Serif', Georgia, serif;
+    --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1200px; height: 630px; background: var(--desk); overflow: hidden; }
+
+  /* the site's sheet: paper between two ink rules, running the full height */
+  .sheet {
+    position: absolute; inset: 0 56px;
+    background: var(--paper); color: var(--ink);
+    border-left: 1px solid var(--ink); border-right: 1px solid var(--ink);
+    display: flex; flex-direction: column;
+  }
+
+  .nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 22px 56px; border-bottom: 1px solid var(--ink);
+  }
+  .brand { font: 600 24px var(--mono); }
+  .site { font: 500 17px var(--mono); color: var(--muted); }
+
+  .hero {
+    flex: 1; display: flex; align-items: center; gap: 50px; padding: 0 56px 26px;
+  }
+  .mark { flex: none; }
+  h1 {
+    font: 400 58px/1.13 var(--serif);
+    letter-spacing: -0.011em;
+    text-wrap: balance;
+  }
+  h1 .accent { color: var(--accent); }
+  .sub {
+    margin-top: 18px;
+    font: 400 20px/1.5 var(--serif);
+    color: var(--body);
+  }
+
+  .foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 56px; border-top: 1px solid var(--ink); background: var(--chip);
+  }
+  .cmd { font: 400 18px var(--mono); color: var(--body); }
+  .cmd .prompt { color: var(--accent); margin-right: 12px; }
+  .plat { font: 500 15px var(--mono); color: var(--muted); }
+</style>
+
+<div class="sheet">
+  <div class="nav">
+    <span class="brand">scrn</span>
+    <span class="site">scrn.w0zro.com</span>
+  </div>
+
+  <div class="hero">
+    <!-- B · the app itself: navigator strip, selected row, pane, cursor, a running dot -->
+    <svg class="mark" width="172" height="172" viewBox="0 0 96 96" aria-label="scrn">
+      <rect x="0.5" y="0.5" width="95" height="95" rx="20" fill="#141310" stroke="#2a2620"/>
+      <line x1="34" y1="9" x2="34" y2="87" stroke="#2f2a22" stroke-width="2"/>
+      <rect x="14" y="22" width="12" height="5" rx="2.5" fill="#5a5448"/>
+      <path d="M 13 40 L 21 45.5 L 13 51 Z" fill="#B9A7FF"/>
+      <rect x="14" y="62" width="12" height="5" rx="2.5" fill="#5a5448"/>
+      <rect x="44" y="22" width="34" height="5" rx="2.5" fill="#3a352c"/>
+      <rect x="44" y="36" width="26" height="5" rx="2.5" fill="#3a352c"/>
+      <rect x="44" y="50" width="30" height="5" rx="2.5" fill="#3a352c"/>
+      <rect x="44" y="64" width="11" height="12" fill="#B9A7FF"/>
+      <circle cx="76" cy="70" r="4.5" fill="#6fdd8b"/>
+    </svg>
+
+    <div>
+      <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
+      <p class="sub">Shells, dev servers and agents in one list — and which is waiting on you.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="cmd"><span class="prompt">$</span>curl -fsSL https://scrn.w0zro.com/install.sh | sh</span>
+    <span class="plat">macOS · Linux</span>
+  </div>
+</div>
