@@ -94,25 +94,53 @@ func markHome(win, pane string) {
 		"set", "-p", "-t", pane, "@scrn_nav", "1")
 }
 
+// isNavCommand reports whether a pane's start command is the navigator's:
+// this build's, or an older build's, which ran the same word. tmux reports
+// a command with spaces in it quoted.
+func isNavCommand(cmd string) bool {
+	return strings.HasSuffix(strings.Trim(strings.TrimSpace(cmd), `"`), " nav")
+}
+
 // ensureHome finds the navigator, or makes it when it has gone: a new pane
-// down the left of a home window that lost it, or a new home window.
+// down the left of a home window that lost it, or a new home window. A
+// navigator is known by its pane's mark, or — a server an older build
+// started, whose navigator wears only the window's mark — by what the pane
+// runs, and is marked then. A second navigator is scrn's own leftover,
+// holding no work, and goes.
 func ensureHome() (home, error) {
-	out, err := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@scrn_nav}\t#{@scrn_home}")
+	out, err := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@scrn_nav}\t#{@scrn_home}\t#{pane_start_command}")
 	if err != nil {
 		return home{}, err
 	}
 	homeWin := ""
+	var navs []home
+	marked := -1
 	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) != 4 {
+		if len(f) != 5 {
 			continue
-		}
-		if f[2] == "1" {
-			return home{win: f[0], pane: f[1]}, nil
 		}
 		if f[3] == "1" {
 			homeWin = f[0]
 		}
+		if f[2] == "1" || isNavCommand(f[4]) {
+			if f[2] == "1" && marked < 0 {
+				marked = len(navs)
+			}
+			navs = append(navs, home{win: f[0], pane: f[1]})
+		}
+	}
+	if len(navs) > 0 {
+		keep := max(marked, 0)
+		for i, n := range navs {
+			if i != keep {
+				_, _ = tmuxCommand("kill-pane", "-t", n.pane)
+			}
+		}
+		if marked < 0 {
+			markHome(navs[keep].win, navs[keep].pane)
+		}
+		return navs[keep], nil
 	}
 	if homeWin != "" {
 		// The window is there with a shell in it and no navigator: the

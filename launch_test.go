@@ -39,6 +39,69 @@ func TestTheHomeWindowIsMadeOnceAndFoundAfter(t *testing.T) {
 	}
 }
 
+func TestAnOlderBuildsNavigatorIsAdoptedNotDoubled(t *testing.T) {
+	// A server an older build started has a home window whose navigator
+	// pane wears only the window's mark. It is known by what it runs, and
+	// marked, rather than a second navigator being split in beside it.
+	tmuxOnSocket(t)
+	old := homeCommand
+	homeCommand = func() string { return "sh -c 'sleep 30' nav" }
+	t.Cleanup(func() { homeCommand = old })
+	out, err := tmuxCommand("new-session", "-d", "-s", tmuxSession, "-n", homeName,
+		"-P", "-F", "#{window_id}\t#{pane_id}", homeCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Split(out, "\t")
+	if _, err := tmuxCommand("set", "-w", "-t", f[0], "@scrn_home", "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	h, err := ensureHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.pane != f[1] {
+		t.Errorf("home = %+v, want the navigator already there, %s", h, f[1])
+	}
+	out, _ = tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{pane_id} #{@scrn_nav}")
+	if out != f[1]+" 1" {
+		t.Errorf("panes = %q, want the one navigator, marked", out)
+	}
+}
+
+func TestASecondNavigatorIsALeftoverAndGoes(t *testing.T) {
+	tmuxOnSocket(t)
+	old := homeCommand
+	homeCommand = func() string { return "sh -c 'sleep 30' nav" }
+	t.Cleanup(func() { homeCommand = old })
+	out, err := tmuxCommand("new-session", "-d", "-s", tmuxSession, "-n", homeName,
+		"-P", "-F", "#{window_id}\t#{pane_id}", homeCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Split(out, "\t")
+	stray := strings.TrimSpace(f[1])
+	// The marked navigator split in beside the older one, as happened.
+	out, err = tmuxCommand("split-window", "-h", "-b", "-d", "-P", "-F", "#{pane_id}", "-t", f[0], homeCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	markHome(f[0], out)
+
+	h, err := ensureHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.pane != out {
+		t.Errorf("home = %+v, want the marked navigator %s", h, out)
+	}
+	panes, _ := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{pane_id}")
+	if strings.Contains(panes, stray) || panes != out {
+		t.Errorf("panes = %q, want only the marked navigator; the stray %s should be gone", panes, stray)
+	}
+}
+
 func TestTheNavigatorGoesBackOnTheLeftOfAHomeWindowThatLostIt(t *testing.T) {
 	tmuxOnSocket(t)
 	old := homeCommand
