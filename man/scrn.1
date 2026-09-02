@@ -61,12 +61,20 @@ listening means nothing is held, which is an empty list, not an error.
 .B ?
 shows this list inside scrn, in a popup over the whole window \(em from
 the navigator, or with the prefix from any shell; the next key puts it
-away. The status line at the foot of the terminal
-is tmux's: scrn's name, a tab per shell with its mark, the shown one lit,
-and
-.B prefix
-while a chord hangs. Anything scrn has to say \(em a report, an error, a
-confirmation \(em appears at the foot of the navigator's column.
+away. The status line at the foot of the terminal is tmux's. It begins
+with the mode the keys are in:
+.B NAV
+or
+.B SHELL
+for the pane that has them,
+.B PREFIX
+while a chord hangs,
+.B COPY
+in copy mode, the query while one is typed, and
+.B CONFIRM
+while a kill waits on its second key. Then a tab per shell with its
+mark, the shown one lit. Anything scrn has to say \(em a report, an
+error, a confirmation \(em takes the tabs' place until the next key.
 .SS In the navigator
 .TP
 .B "j k"

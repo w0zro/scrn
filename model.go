@@ -213,6 +213,11 @@ type model struct {
 	status    string
 	statusErr bool
 
+	// blurred says the keys are in another pane. The cursor row is drawn
+	// quieter then: a lit cursor in a pane the keys have left would say
+	// the next letter goes to the list.
+	blurred bool
+
 	// ticks counts refresh cycles, so slower work can run every Nth one.
 	ticks int
 
@@ -290,6 +295,10 @@ type model struct {
 	// strip the status line last read, so tmux is only told what changed.
 	dressed map[int]string
 	strip   string
+
+	// said is the mode and message the status line last read, for the
+	// same reason.
+	said statusText
 
 	// details caches inspections by subject key, so revisiting a row is
 	// instant and moving quickly through the list does not queue up work.
@@ -378,8 +387,28 @@ func (m *model) scanPoll() tea.Cmd {
 	return m.scanNow()
 }
 
+// Update handles one message and then tells the status line what the
+// navigator now has to say, whatever the message was: nearly anything can
+// change it — a key, a report, a scan — and it is written once, from here,
+// only when it changed.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	next.dressStatus()
+	return next, cmd
+}
+
+func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.FocusMsg:
+		m.blurred = false
+
+	case tea.BlurMsg:
+		// The keys have gone to a shell. What was pending here was about
+		// the next key, and the next key is not coming: a kill left armed
+		// would fire on the first letter typed back into the list.
+		m.blurred = true
+		m.pendingKill, m.pendingReplace, m.pendingG = nil, false, false
+
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.keepColumn()
@@ -424,7 +453,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// made; the server says what it holds, and the pane follows from
 		// there.
 		m.previewing, m.synced = 0, false
-		m.strip = ""
+		m.strip, m.said = "", statusText{}
 		// Ask what is already running: shells from a window that has since
 		// been closed are still there, and this is where they come back.
 		m.server.list()
@@ -1625,11 +1654,10 @@ func (m *model) pruneDying() {
 func (m model) bodyHeight() int {
 	// Two rows at the top — the masthead and the blank beneath it — though
 	// the blank, being spacing, is the first thing a short window gives up.
-	hint := len(m.trimmedHint(m.height))
-	if h := m.height - 2 - hint; h > 0 {
+	if h := m.height - 2; h > 0 {
 		return h
 	}
-	if h := m.height - 1 - hint; h > 0 {
+	if h := m.height - 1; h > 0 {
 		return h
 	}
 	return 0
@@ -1796,6 +1824,62 @@ func (m *model) dressWindows() {
 		m.strip = strip
 		m.server.strip(strip)
 	}
+}
+
+// dressStatus writes the navigator's part of the status line — the mode
+// its keys are in and what it has to say — when either changed.
+func (m *model) dressStatus() {
+	t := m.statusLine()
+	if t != m.said {
+		m.said = t
+		m.server.say(t)
+	}
+}
+
+// statusLine is what the navigator has the status line read, in tmux's
+// styling. The mode is the navigator's only when the keys are in something
+// other than the list itself — a query being typed, a filter standing, a
+// confirmation waiting on its second key — and tmux names the rest. The
+// message is the last report, or the prompt a confirmation carries with
+// it: while one is on screen it is the only thing the next keystroke is
+// about. Most of the time both are empty, and the line is the strip.
+func (m model) statusLine() statusText {
+	var t statusText
+	switch {
+	case m.pendingReplace:
+		t.mode = tmuxStyled(darkAttention, true, " CONFIRM ")
+		t.msg = tmuxStyled(darkAttention, true, " end the server, and "+
+			plural(len(m.terms), "shell", "shells")+"? · R confirms")
+		return t
+
+	case m.pendingKill != nil:
+		t.mode = tmuxStyled(darkAttention, true, " CONFIRM ")
+		t.msg = tmuxStyled(darkAttention, true, " kill "+m.pendingKill.subject+"? · x confirms")
+		return t
+
+	case m.resume != nil:
+		// The picker wears the filter's face: it is the same kind of
+		// typing, aimed at conversations instead of places.
+		t.mode = tmuxStyled(darkFg, false, " CONTINUE /"+m.resume.query+"█ ")
+
+	case m.typing:
+		t.mode = tmuxStyled(darkFg, false, " /"+m.filter+"█ ")
+
+	case m.filter != "":
+		t.mode = tmuxStyled(darkAccent, true, " /"+m.filter+" ")
+	}
+
+	// What was just reported stays beside the query being typed: acting
+	// from the search is the point of it, and an action that says nothing
+	// looks like one that did nothing.
+	if m.status != "" {
+		color := darkFg
+		if m.statusErr {
+			color = darkDanger
+		}
+		t.msg = tmuxStyled(color, false, " "+m.status)
+	}
+	return t
 }
 
 // windowLabelWidth is as much of a shell's label as the status line gets.

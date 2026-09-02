@@ -88,30 +88,52 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"# resize, so the window's growth is the shell's.",
 		"set -g main-pane-width "+strconv.Itoa(navWidth),
 		`set-hook -g window-resized 'if -F "#{@scrn_home}" "select-layout main-vertical"'`,
-		`set -g pane-border-style "fg=#30363D"`,
-		`set -g pane-active-border-style "fg=#30363D"`,
+		`set -g pane-border-style "fg=`+darkBorder+`"`,
+		`set -g pane-active-border-style "fg=`+darkBorder+`"`,
 		"set -g pane-border-indicators off",
 		"set -g popup-border-lines rounded",
-		`set -g popup-border-style "fg=#30363D"`,
+		`set -g popup-border-style "fg=`+darkBorder+`"`,
 		"",
-		"# The status line: scrn's name, every shell with its mark — the strip",
-		"# is the navigator's to say, in its order — and the prefix while a",
-		"# chord hangs. The window list tmux would draw is turned off: the",
-		"# windows are where shells wait, not something to read.",
+		"# The status line: the mode the keys are in — the prefix while a",
+		"# chord hangs, copy mode, the navigator's own when it has one to",
+		"# name, else which pane the keys are in — then what the navigator",
+		"# says, or, when it says nothing, every shell with its mark: the strip",
+		"# is the navigator's to write, in its order. The window list tmux",
+		"# would draw is turned off: the windows are where shells wait, not",
+		"# something to read.",
 		"set -g status on",
 		"set -g status-position bottom",
 		"set -g status-interval 1",
 		"set -g status-justify left",
 		"set -g status-left-length 400",
-		`set -g status-style "bg=default,fg=#8B949E"`,
-		`set -g status-left "#[fg=#B9A7FF,bold] scrn #[default]#{@scrn_tabs}"`,
-		`set -g status-right "#{?client_prefix,#[fg=#D29922#,bold] prefix ,}"`,
+		`set -g status-style "bg=default,fg=`+darkLabel+`"`,
+		`set -g status-left "`+statusLeft()+`"`,
+		`set -g status-right ""`,
 		`set -g window-status-separator ""`,
 		`set -g window-status-format ""`,
 		`set -g window-status-current-format ""`,
-		`set -g message-style "bg=default,fg=#D29922,bold"`,
-		`set -g message-command-style "bg=default,fg=#D29922"`,
-		`set -g mode-style "bg=#15294A,fg=#E6E6E6"`,
+		`set -g message-style "bg=default,fg=`+darkAttention+`,bold"`,
+		`set -g message-command-style "bg=default,fg=`+darkAttention+`"`,
+		`set -g mode-style "bg=`+darkAccentWash+`,fg=`+darkFg+`"`,
 	)
 	return b.String()
+}
+
+// statusLeft is the status line's format: the mode, then the message or
+// the strip. tmux knows most of the modes itself — the prefix, copy mode,
+// which pane the keys are in — and the navigator names its own in
+// @scrn_mode, which counts only while the keys are with it: a filter
+// half-typed is not the mode of a shell. What the navigator has to say is
+// in @scrn_msg, and takes the strip's place while it stands.
+func statusLeft() string {
+	// A chip is one word in one color. It stands inside a conditional,
+	// where a comma would split the alternatives, so the style's is escaped.
+	chip := func(fg, word string) string {
+		return "#[fg=" + fg + "#,bold] " + word + " #[default]"
+	}
+	mode := "#{?client_prefix," + chip(darkAttention, "PREFIX") +
+		",#{?pane_in_mode," + chip(darkFg, "COPY") +
+		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(darkBrand, "NAV") + "}," +
+		chip(darkAccent, "SHELL") + "}}}"
+	return mode + "#{?@scrn_msg,#{@scrn_msg},#{@scrn_tabs}}"
 }

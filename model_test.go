@@ -117,7 +117,7 @@ func bodyRows(m model) []string {
 // bracket them in that column and are not part of the list.
 func navColumn(m model) []string {
 	rows := bodyRows(m)
-	end := len(rows) - len(m.trimmedHint(m.height))
+	end := len(rows)
 	if end < 1 {
 		return nil
 	}
@@ -775,18 +775,27 @@ func keysOf(model) string {
 	return strings.Join(strings.Fields(stripANSI(strings.Join(keysPage(), "\n"))), " ")
 }
 
-// footer is scrn's own block at the foot of its column, flattened to one
-// string so a test can ask whether something is in it.
+// footer is what the navigator has the status line read — its mode and
+// its message — flattened to one plain string so a test can ask whether
+// something is in it.
 func footer(m model) string {
-	lines := strings.Split(m.View().Content, "\n")
-	n := min(len(m.hintLines(m.hintWidth())), len(lines))
+	t := m.statusLine()
+	return strings.Join(strings.Fields(stripTmux(t.mode)+" "+stripTmux(t.msg)), " ")
+}
 
-	out := make([]string, 0, n)
-	for _, ln := range lines[len(lines)-n:] {
-		nav, _ := splitRow(stripANSI(ln))
-		out = append(out, strings.Join(strings.Fields(nav), " "))
+// stripTmux takes tmux's styling out of a status line's text.
+func stripTmux(s string) string {
+	for {
+		i := strings.Index(s, "#[")
+		if i < 0 {
+			return strings.ReplaceAll(s, "##", "#")
+		}
+		j := strings.Index(s[i:], "]")
+		if j < 0 {
+			return s
+		}
+		s = s[:i] + s[i+j+1:]
 	}
-	return strings.Join(out, " ")
 }
 
 func TestXAsksBeforeKilling(t *testing.T) {
@@ -1651,6 +1660,8 @@ const (
 	kindDress = "dress" // a pane named for the title
 	kindStrip = "strip" // the status line's tab strip said whole
 	kindHelp  = "help"  // the keys popup asked for
+	kindMode  = "mode"  // the status line's mode chip said
+	kindMsg   = "msg"   // the status line's message said
 )
 
 // pipeServer gives a model a session whose asks land on the returned
@@ -1755,6 +1766,10 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 				asked <- message{Kind: kindDress, PID: target(args), Name: args[len(args)-1]}
 			case has(args, "@scrn_tabs"):
 				asked <- message{Kind: kindStrip, Name: args[len(args)-1]}
+			case has(args, "@scrn_mode"):
+				asked <- message{Kind: kindMode, Name: args[len(args)-1]}
+			case has(args, "@scrn_msg"):
+				asked <- message{Kind: kindMsg, Name: args[len(args)-1]}
 			case has(args, "@scrn_name") && opening != nil:
 				// A pane's name lands right after its open, making the ask
 				// whole.
@@ -1825,14 +1840,22 @@ func askedForKind(t *testing.T, asked chan message, kind string) message {
 }
 
 // askedFor waits for the server to be asked something, or fails the test.
+// askedFor is the next ask that is about the shells. The status line's
+// asks — the mode, the message — ride along with any update and are not
+// what a test asking "what did that key do" is about.
 func askedFor(t *testing.T, asked chan message) message {
 	t.Helper()
-	select {
-	case got := <-asked:
-		return got
-	case <-time.After(time.Second):
-		t.Fatal("the server was asked for nothing")
-		return message{}
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case got := <-asked:
+			if got.Kind != kindMode && got.Kind != kindMsg {
+				return got
+			}
+		case <-deadline:
+			t.Fatal("the server was asked for nothing")
+			return message{}
+		}
 	}
 }
 
@@ -1919,21 +1942,7 @@ func TestAgentDetailIsAskedForOnlyOnAnAgentRow(t *testing.T) {
 	}
 }
 
-func TestTheKeysNeverOutgrowTheirColumn(t *testing.T) {
-	// A line that overflows the column would push the divider out of true.
-	for _, w := range []int{40, 60, 80, 100, 140} {
-		m := sized(w, 24)
-		for i, ln := range m.hintLines(m.hintWidth()) {
-			if got := lipgloss.Width(ln); got > m.hintWidth() {
-				t.Errorf("width %d: key line %d is %d columns, want at most %d: %q",
-					w, i, got, m.hintWidth(), stripANSI(ln))
-			}
-		}
-	}
-}
-
-func TestTheKeysNeverCrowdOutTheList(t *testing.T) {
-	// However short the window, the list keeps a row of its own.
+func TestTheListKeepsARowHoweverShortTheWindow(t *testing.T) {
 	for _, h := range []int{3, 4, 6, 8, 12, 24} {
 		m := withProcList(80, h, []Project{{Name: "alpha"}, {Name: "beta"}}, nil)
 		if got := len(strings.Split(m.View().Content, "\n")); got != h {
@@ -3551,6 +3560,76 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 			t.Errorf("dressed again with nothing changed: %+v", again)
 		}
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTheStatusLineIsToldTheModeOnceWhenItChanges(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m, asked := pipeServer(t, m)
+
+	// Opening the filter puts the query, empty, in the mode's place. The
+	// mode and the message are said together; both are taken.
+	next, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = next.(model)
+	if got := askedForKind(t, asked, kindMode); stripTmux(got.Name) != " /█ " {
+		t.Fatalf("mode = %q, want the empty query being typed", stripTmux(got.Name))
+	}
+	askedForKind(t, asked, kindMsg)
+
+	// A refresh that changes nothing says nothing.
+	next, _ = m.Update(agentsMsg{agents: m.agents})
+	m = next.(model)
+	select {
+	case again := <-asked:
+		if again.Kind == kindMode || again.Kind == kindMsg {
+			t.Errorf("the status line was told again with nothing changed: %+v", again)
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Typing changes it; the letter is said.
+	next, _ = m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	m = next.(model)
+	if got := askedForKind(t, asked, kindMode); stripTmux(got.Name) != " /t█ " {
+		t.Errorf("mode = %q, want the letter typed", stripTmux(got.Name))
+	}
+}
+
+func TestTheKeysLeavingForAShellDisarmsTheKillAndDimsTheCursor(t *testing.T) {
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/tmp"}}
+	m = press(m, "down")
+	m = press(m, "x")
+	if m.pendingKill == nil {
+		t.Fatal("x should arm a kill")
+	}
+	row, _ := m.selected()
+	if got := m.rowStyle(row, true); got.GetForeground() != selStyle.GetForeground() {
+		t.Error("with the keys here the cursor row should be lit")
+	}
+
+	// The keys go to a shell: the kill's second key is not coming, so the
+	// kill is not waiting for it; and the cursor stops claiming the keys.
+	next, _ := m.Update(tea.BlurMsg{})
+	m = next.(model)
+	if m.pendingKill != nil {
+		t.Error("a kill left armed across a blur would fire on the first letter typed back")
+	}
+	if f := footer(m); strings.Contains(f, "kill") {
+		t.Errorf("footer = %q, want the prompt gone with the kill", f)
+	}
+	if got := m.rowStyle(row, true); got.GetForeground() == selStyle.GetForeground() {
+		t.Error("with the keys in a shell the cursor row should be quiet")
+	}
+
+	next, _ = m.Update(tea.FocusMsg{})
+	m = next.(model)
+	if got := m.rowStyle(row, true); got.GetForeground() != selStyle.GetForeground() {
+		t.Error("with the keys back the cursor row should be lit again")
 	}
 }
 

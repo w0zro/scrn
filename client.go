@@ -135,12 +135,12 @@ type session struct {
 
 	mu      sync.Mutex
 	ctl     *ctlClient
-	panes   map[int]*pane  // by the pid of the shell in the pane
-	byPane  map[string]int // pane id → that pid
-	nav     string         // the navigator's own pane, "%0"
-	column  int            // the navigator's width, read once: the goroutines never touch the global
-	want    *placement     // the arrangement asked for and not yet made
-	placing bool           // an arrangement is being made
+	panes   map[int]*pane      // by the pid of the shell in the pane
+	byPane  map[string]int     // pane id → that pid
+	nav     string             // the navigator's own pane, "%0"
+	column  int                // the navigator's width, read once: the goroutines never touch the global
+	placing latest[placement]  // the arrangement asked for, made one at a time
+	saying  latest[statusText] // what the status line is to read, said one at a time
 	probing bool
 	closed  bool
 
@@ -536,29 +536,54 @@ func (s *session) preview(pid int) {
 // crossed — and they are made in the order asked, so the pane ends up
 // holding the shell the cursor stopped on.
 func (s *session) place(p placement) {
-	s.mu.Lock()
-	s.want = &p
-	if s.placing {
-		s.mu.Unlock()
+	s.placing.ask(p, func(p placement) {
+		if err := s.arrange(p); err != nil {
+			s.events <- serverErrorMsg{err: err}
+		}
+	})
+}
+
+// latest holds the asks for one kind of work that is done one at a time
+// and only ever needs its newest ask: one is done at a time, and an ask
+// arriving while one is being done replaces any ask still waiting.
+type latest[T any] struct {
+	mu   sync.Mutex
+	want *T   // the ask not yet done
+	busy bool // an ask is being done
+}
+
+// idle says whether every ask has been done.
+func (l *latest[T]) idle() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.busy
+}
+
+// ask queues v, superseding any ask still waiting, and sees to it that do
+// is run — on its own goroutine, once per ask that was not superseded, in
+// the order asked.
+func (l *latest[T]) ask(v T, do func(T)) {
+	l.mu.Lock()
+	l.want = &v
+	if l.busy {
+		l.mu.Unlock()
 		return
 	}
-	s.placing = true
-	s.mu.Unlock()
+	l.busy = true
+	l.mu.Unlock()
 
 	go func() {
 		for {
-			s.mu.Lock()
-			next := s.want
-			s.want = nil
+			l.mu.Lock()
+			next := l.want
+			l.want = nil
 			if next == nil {
-				s.placing = false
-				s.mu.Unlock()
+				l.busy = false
+				l.mu.Unlock()
 				return
 			}
-			s.mu.Unlock()
-			if err := s.arrange(*next); err != nil {
-				s.events <- serverErrorMsg{err: err}
-			}
+			l.mu.Unlock()
+			do(*next)
 		}
 	}()
 }
@@ -729,7 +754,29 @@ func (s *session) strip(text string) {
 	if s == nil {
 		return
 	}
-	go func() { _, _ = s.run("set", "-g", "@scrn_tabs", text) }()
+	go func() { _, _ = s.run("set", "-g", "@scrn_tabs", text, ";", "refresh-client", "-S") }()
+}
+
+// statusText is what the navigator has the status line read: the mode
+// its keys are in, when it has one to name, and what it has to say.
+type statusText struct {
+	mode, msg string
+}
+
+// say hands tmux the navigator's part of the status line. Said one at a
+// time and superseded while waiting, so a query being typed lands in the
+// order it was typed and the line ends up reading the last of it; and the
+// line is refreshed at once rather than on its next tick, because a mode
+// that lags the keys is a mode that lies.
+func (s *session) say(t statusText) {
+	if s == nil {
+		return
+	}
+	s.saying.ask(t, func(t statusText) {
+		_, _ = s.run("set", "-g", "@scrn_mode", t.mode, ";",
+			"set", "-g", "@scrn_msg", t.msg, ";",
+			"refresh-client", "-S")
+	})
 }
 
 func (s *session) pane(pid int) *pane {

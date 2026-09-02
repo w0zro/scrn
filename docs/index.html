@@ -83,7 +83,7 @@
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
     <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .scrn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
-    <div class="note"><span class="marker">④</span><p>The status line is tmux's: a tab per shell, named for its place and what runs there, marked like its row, the shown one lit.</p></div>
+    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, then a tab per shell, named for its place and what runs there, marked like its row, the shown one lit.</p></div>
   </div>
 </section>
 
@@ -181,21 +181,26 @@
     return lines;
   }
 
-  // The status line is tmux's: scrn's name, a tab per shell named for its
-  // place and what runs there and marked like its row, and the prefix
-  // while a chord hangs. The shown shell's tab is lit.
+  // The status line is tmux's: the mode the keys are in — the navigator,
+  // a shell, the prefix while a chord hangs — then a tab per shell named
+  // for its place and what runs there and marked like its row. The shown
+  // shell's tab is lit.
   const TABS = [
     { label: 'web: npm run dev' },
     { label: 'web: claude ⋯' },
     { label: 'scrn: claude ◆', urgent: true },
   ];
+  const MODE_CHIP = {
+    navigate: span('c-brand b', ' NAV '),
+    proc: span('c-sel b', ' SHELL '),
+    prefix: span('c-attn b', ' PREFIX '),
+  };
   function statusLine(current, mode) {
-    let line = span('c-brand b', ' scrn ') + ' ';
+    let line = MODE_CHIP[mode] + ' ';
     TABS.forEach((tab, i) => {
       const cls = i === current ? 'c-sel b' : (tab.urgent ? 'c-urgent' : 'c-label');
       line += span(cls, ' ' + tab.label + ' ');
     });
-    if (mode === 'prefix') line += '  ' + span('c-attn b', ' prefix ');
     return line;
   }
 

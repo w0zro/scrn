@@ -2,6 +2,7 @@ package main
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -42,22 +43,49 @@ func newPalette(dark bool) palette {
 		return pick(lipgloss.Color(light), lipgloss.Color(dark))
 	}
 	return palette{
-		brand:  c("#5A3FD9", "#B9A7FF"),
-		fg:     c("#1F2328", "#E6E6E6"),
+		brand:  c("#5A3FD9", darkBrand),
+		fg:     c("#1F2328", darkFg),
 		muted:  c("#98A0A8", "#5C6570"),
-		label:  c("#6A737D", "#8B949E"),
-		border: c("#D8DEE4", "#30363D"),
-		accent: c("#0550AE", "#79C0FF"),
+		label:  c("#6A737D", darkLabel),
+		border: c("#D8DEE4", darkBorder),
+		accent: c("#0550AE", darkAccent),
 
 		success:   c("#1A7F37", "#3FB950"),
-		attention: c("#9A6700", "#D29922"),
+		attention: c("#9A6700", darkAttention),
 		urgent:    c("#BF3989", "#F778BA"),
-		danger:    c("#CF222E", "#F85149"),
+		danger:    c("#CF222E", darkDanger),
 
-		accentWash:    c("#DDF4FF", "#15294A"),
+		accentWash:    c("#DDF4FF", darkAccentWash),
 		successWash:   c("#DAFBE1", "#12351F"),
 		attentionWash: c("#FFF8C5", "#372E12"),
 	}
+}
+
+// The dark answers tmux draws with. The status line, the borders and the
+// popups are tmux's, and tmux is configured once for every terminal rather
+// than asked which background it found, so they wear the dark palette
+// whatever the navigator learns. Named here so a color changes in one
+// place; the tmux configuration reads these.
+const (
+	darkBrand      = "#B9A7FF"
+	darkFg         = "#E6E6E6"
+	darkLabel      = "#8B949E"
+	darkBorder     = "#30363D"
+	darkAccent     = "#79C0FF"
+	darkAttention  = "#D29922"
+	darkDanger     = "#F85149"
+	darkAccentWash = "#15294A"
+)
+
+// tmuxStyled wraps text for tmux's status line: its color and weight in
+// tmux's own style syntax, reset after. A # is tmux's to expand in a
+// format, so the text's are doubled.
+func tmuxStyled(fg string, bold bool, text string) string {
+	style := "#[fg=" + fg
+	if bold {
+		style += ",bold"
+	}
+	return style + "]" + strings.ReplaceAll(text, "#", "##") + "#[default]"
 }
 
 // The glyphs. A filled mark is something lit — an answer waiting, a plan

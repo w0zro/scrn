@@ -24,9 +24,13 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"set -g automatic-rename off",
 		"set -g main-pane-width 33",
 		`set-hook -g window-resized 'if -F "#{@scrn_home}" "select-layout main-vertical"'`,
-		`set -g status-left "#[fg=#B9A7FF,bold] scrn #[default]#{@scrn_tabs}"`,
+		`set -g status-left "` + statusLeft() + `"`,
+		// The status line's format reads the mode — tmux's own, then the
+		// navigator's — and the navigator's message or its strip.
+		"#{?client_prefix,", "#{?pane_in_mode,", "#{?@scrn_nav,",
+		"#{?@scrn_mode,#{@scrn_mode},", "#{?@scrn_msg,#{@scrn_msg},#{@scrn_tabs}}",
 	} {
-		if !strings.Contains(conf, want+"\n") {
+		if !strings.Contains(conf, want) {
 			t.Errorf("the configuration lacks %q", want)
 		}
 	}

@@ -160,10 +160,7 @@ func TestArrangementsCoalesceToTheLastAsked(t *testing.T) {
 	close(release)
 	deadline := time.After(time.Second)
 	for {
-		s.mu.Lock()
-		done := !s.placing
-		s.mu.Unlock()
-		if done {
+		if s.placing.idle() {
 			break
 		}
 		select {

@@ -44,6 +44,9 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
+	// Told when the keys leave for a shell and come back, so the cursor
+	// can say whose the next letter is.
+	v.ReportFocus = true
 	return v
 }
 
@@ -68,10 +71,10 @@ func (m model) layout() string {
 	return strings.Join(lines, "\n")
 }
 
-// leftColumn is scrn's own column: its name, the navigator, and its keys held
-// down at the bottom.
+// leftColumn is scrn's own column: its name and the navigator. What scrn
+// has to say is said on tmux's status line, not here; the column is the
+// list.
 func (m model) leftColumn(rows int) []string {
-	hint := m.trimmedHint(rows)
 	body := m.bodyHeight()
 
 	// The name wears the gutter every row wears and takes a blank row after
@@ -80,7 +83,7 @@ func (m model) leftColumn(rows int) []string {
 	// makes the same call, so the list and the layout agree.
 	lines := make([]string, 0, rows)
 	lines = append(lines, " "+titleStyle.Render("scrn"))
-	if rows-2-len(hint) > 0 {
+	if rows-2 > 0 {
 		lines = append(lines, "")
 	}
 
@@ -88,37 +91,7 @@ func (m model) leftColumn(rows int) []string {
 	if len(nav) > body {
 		nav = nav[:body]
 	}
-	lines = append(lines, nav...)
-
-	// Blank rows push the keys to the bottom rather than leaving them under
-	// the last project.
-	for len(lines) < rows-len(hint) {
-		lines = append(lines, "")
-	}
-	return append(lines, hint...)
-}
-
-// trimmedHint is what scrn has to say at the foot of its column, cut to what
-// the window can spare for it. Whatever is being said, the list keeps a row:
-// a confirmation that wrapped over a short window would otherwise take the
-// whole column, leaving nothing to say what is being confirmed about.
-func (m model) trimmedHint(rows int) []string {
-	hint := m.hintLines(m.hintWidth())
-	if max := rows - 2; max > 0 && len(hint) > max {
-		// The chip holds the bottom whatever else has to go, so the cut
-		// takes the oldest lines from the top.
-		hint = hint[len(hint)-max:]
-	}
-	return hint
-}
-
-// hintWidth is the room scrn's keys have: its own column, or the whole window
-// when there is no pane beside it.
-func (m model) hintWidth() int {
-	if m.showDetail() {
-		return navWidth
-	}
-	return m.width
+	return append(lines, nav...)
 }
 
 // padTo lengthens lines to exactly n.
@@ -127,82 +100,6 @@ func padTo(lines []string, n int) []string {
 		lines = append(lines, "")
 	}
 	return lines[:n]
-}
-
-// hintLines is what scrn says at the foot of its column, and most of the
-// time that is nothing: the foot is beside the list all day, and busyness
-// there is paid for on every frame. What has to be said — a confirmation, a
-// report, the filter being typed — is said there. The keys themselves live
-// behind ?, and the mode the keys are in is tmux's status line's to show.
-func (m model) hintLines(width int) []string {
-	return m.footLines(width)
-}
-
-// footLines is the messaging above the chip, empty when there is nothing to
-// say. A pending confirmation carries its answer with it: while it is on
-// screen it is the only thing the next keystroke is about.
-func (m model) footLines(width int) []string {
-	switch {
-	case m.pendingReplace:
-		return hintBlock("end the server, and "+
-			plural(len(m.terms), "shell", "shells")+"? · R confirms", width, warnStyle)
-
-	case m.pendingKill != nil:
-		return hintBlock("kill "+m.pendingKill.subject+"? · x confirms", width, warnStyle)
-
-	case m.resume != nil:
-		// The picker's look wears the filter's face: it is the same kind of
-		// typing, aimed at conversations instead of places. What was just
-		// reported — a missing server — takes the line above it.
-		lines := hintBlock("/"+m.resume.query+"█", width, itemStyle)
-		if m.status != "" {
-			style := itemStyle
-			if m.statusErr {
-				style = errStyle
-			}
-			lines = append(hintBlock(m.status, width, style), lines...)
-		}
-		return lines
-
-	case m.typing:
-		// The prompt stays, because the typing has not stopped. What was just
-		// reported takes the line above it: acting from the search is the
-		// point of it, and an action that says nothing looks like one that
-		// did nothing.
-		lines := hintBlock("/"+m.filter+"█", width, itemStyle)
-		if m.status != "" {
-			style := itemStyle
-			if m.statusErr {
-				style = errStyle
-			}
-			lines = append(hintBlock(m.status, width, style), lines...)
-		}
-		return lines
-
-	case m.status != "":
-		style := itemStyle
-		if m.statusErr {
-			style = errStyle
-		}
-		return hintBlock(m.status, width, style)
-
-	case m.filter != "":
-		return hintBlock("filter "+m.filter, width, selStyle)
-	}
-	return nil
-}
-
-// hintBlock wraps a line of scrn's own words to the column it has.
-func hintBlock(s string, width int, style lipgloss.Style) []string {
-	chunks := wrapValue(s, width-1)
-	if len(chunks) == 0 {
-		return nil
-	}
-	lines := make([]string, 0, len(chunks))
-	for _, c := range chunks {
-		lines = append(lines, " "+style.Render(c))
-	}
-	return lines
 }
 
 // navLines renders the visible window of the navigator: repositories, each
@@ -447,6 +344,11 @@ func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 		return faintStyle
 	}
 	if selected {
+		// With the keys in a shell the cursor marks the place without
+		// claiming them: found at a glance, not lit.
+		if m.blurred {
+			return offSelStyle
+		}
 		return selStyle
 	}
 	return itemStyle
