@@ -208,3 +208,45 @@ func TestATitleNobodySetIsNoTitle(t *testing.T) {
 		t.Errorf("title = %q, want none: the host's name is nobody's ask", msg.title)
 	}
 }
+
+func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
+	// Two windows open their first shells at once: both find no session,
+	// both try to make one, and tmux refuses the second as a duplicate. The
+	// second's shell opens in the session the first made.
+	s := newSession()
+	s.closed = true
+	var asked [][]string
+	s.run = func(args ...string) (string, error) {
+		asked = append(asked, args)
+		switch args[0] {
+		case "has-session":
+			return "", errNoServer
+		case "start-server":
+			return "", errors.New("duplicate session: scrn")
+		case "new-window":
+			return "%1 @1 700", nil
+		case "list-panes":
+			return "%1\t@1\t700\t/tmp\t\t/tmp", nil
+		}
+		return "", nil
+	}
+
+	s.open("/tmp", "", "", 60, 12)
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-s.events:
+			if msg, ok := ev.(termOpenedMsg); ok {
+				if msg.pid != 700 {
+					t.Errorf("pid = %d, want the shell the new-window opened", msg.pid)
+				}
+				return
+			}
+			if msg, ok := ev.(serverErrorMsg); ok {
+				t.Fatalf("the duplicate should have been retried, not reported: %v", msg.err)
+			}
+		case <-deadline:
+			t.Fatalf("no shell opened; asked %v", asked)
+		}
+	}
+}

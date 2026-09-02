@@ -705,8 +705,9 @@ func (s *session) open(dir, run, name string, w, h int) {
 			cmd = run + "; exec " + shellCommand()
 		}
 
-		args := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
+		another := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
 			"-F", paneBirth, "-c", dir}
+		args := another
 		if _, err := s.run("has-session", "-t", tmuxSession); err != nil {
 			// The first shell brings the server up around it. The options
 			// ride in the same invocation: the transcript cap has to stand
@@ -731,10 +732,17 @@ func (s *session) open(dir, run, name string, w, h int) {
 				"-P", "-F", paneBirth, "-c", dir)
 		}
 		if cmd != "" {
+			another = append(another, cmd)
 			args = append(args, cmd)
 		}
 
 		out, err := s.run(args...)
+		if err != nil && strings.Contains(err.Error(), "duplicate session") {
+			// Two windows opened their first shells in the same instant,
+			// each found no session, and one of them made it. The other's
+			// shell still opens — as every shell after the first does.
+			out, err = s.run(another...)
+		}
 		if err != nil {
 			s.events <- serverErrorMsg{err: err}
 			return
