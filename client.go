@@ -678,6 +678,13 @@ func (s *session) open(dir, run, name string, w, h int) {
 			// ride in the same invocation: the transcript cap has to stand
 			// before the first pane exists to keep any, and the terminal's
 			// colors before the first program asks what color it is.
+			//
+			// The socket's directory is scrn's to make: tmux creates the
+			// socket but not the directory around it, and on a machine that
+			// has never run scrn there is no ~/.local/state/scrn to put it
+			// in. A directory that cannot be made is left for the creation
+			// to complain about, in tmux's words.
+			_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
 			args = []string{"start-server", ";",
 				"set", "-g", "history-limit", strconv.Itoa(scrollbackLines), ";",
 				"set", "-g", "window-size", "smallest", ";",

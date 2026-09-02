@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -48,24 +49,31 @@ func tmuxCommand(args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "tmux", append([]string{"-S", socketPath()}, args...)...)
 	cmd.Dir = "/"
 	cmd.WaitDelay = 2 * time.Second
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	msg := firstLine(stderr.String())
 	if err != nil {
 		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			if msg := firstLine(string(ee.Stderr)); msg != "" {
-				// A server that is not running is an answer, not a failure:
-				// nothing held means nothing to ask about. tmux says it one
-				// way for a socket nothing ever claimed and another for one
-				// it found stale.
-				if strings.HasPrefix(msg, "no server running") ||
-					strings.HasSuffix(msg, "(No such file or directory)") ||
-					strings.HasSuffix(msg, "(Connection refused)") {
-					return "", errNoServer
-				}
-				return "", errors.New(msg)
+		if errors.As(err, &ee) && msg != "" {
+			// A server that is not running is an answer, not a failure:
+			// nothing held means nothing to ask about. tmux says it one
+			// way for a socket nothing ever claimed and another for one
+			// it found stale.
+			if strings.HasPrefix(msg, "no server running") ||
+				strings.HasSuffix(msg, "(No such file or directory)") ||
+				strings.HasSuffix(msg, "(Connection refused)") {
+				return "", errNoServer
 			}
+			return "", errors.New(msg)
 		}
 		return "", err
+	}
+	if len(out) == 0 && msg != "" {
+		// tmux can fail and still exit zero — a socket it could not create
+		// is one such — and says so only on stderr. A command that answered
+		// nothing and complained was refused, whatever the status says.
+		return "", errors.New(msg)
 	}
 	return strings.TrimRight(string(out), "\n"), nil
 }

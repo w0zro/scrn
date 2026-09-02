@@ -207,3 +207,15 @@ func TestARefusedCommandIsReportedByItsReason(t *testing.T) {
 		}
 	}
 }
+
+func TestAFailureTmuxOnlyMentionsIsStillAFailure(t *testing.T) {
+	// tmux exits zero after failing to create a socket, and says so only on
+	// stderr. Silence on stdout beside a complaint is a refusal.
+	tmuxOnSocket(t)
+	t.Setenv("SCRN_SOCKET", filepath.Join(filepath.Dir(os.Getenv("SCRN_SOCKET")), "missing", "t.sock"))
+
+	_, err := tmuxCommand("start-server")
+	if err == nil || !strings.Contains(err.Error(), "error creating") {
+		t.Fatalf("err = %v, want tmux's own complaint about the socket", err)
+	}
+}
