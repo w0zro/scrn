@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#e7e3d8">
 <title>Guide — scrn</title>
-<meta name="description" content="Installing and using scrn: the navigator, shells and windows, agents, plans, killing, configuration, and the tmux server.">
+<meta name="description" content="Installing and using scrn: the navigator, shells, agents, plans, killing, configuration, and the tmux server.">
 <meta property="og:title" content="Guide — scrn">
 <meta property="og:description" content="Installing and using scrn: the navigator, shells, agents, plans, killing, configuration, and the server.">
 <meta property="og:url" content="https://scrn.w0zro.com/guide">
@@ -82,7 +82,7 @@
   <div class="kicker">§ 2</div>
   <h2>First run</h2>
   <div class="cmd lead"><code>scrn</code></div>
-  <p>There is nothing to set up. <code class="chip">scrn</code> brings up a tmux server of its own, attaches the terminal to it, and opens the navigator in the session's first window; the status line at the foot is tmux's, with scrn's name and a tab per shell. scrn looks for repositories under <code class="chip">~/projects</code>; the <a class="accent" href="#configuration">config</a> points it elsewhere.</p>
+  <p>There is nothing to set up. <code class="chip">scrn</code> brings up a tmux server of its own, attaches the terminal to it, and opens the navigator down the left of the session's first window; the shell under its cursor is the pane beside it. The status line at the foot is tmux's, with scrn's name and a tab per shell. scrn looks for repositories under <code class="chip">~/projects</code>; the <a class="accent" href="#configuration">config</a> points it elsewhere.</p>
   <p class="mb8">The list opens showing what is running, so on a quiet machine it may say <code class="chip">nothing running</code>. Two keys from there:</p>
   <div class="def">
     <div class="def-row"><span class="term w60">.</span><span class="desc">show every repository, running or not</span></div>
@@ -107,7 +107,7 @@
     <div class="def-row"><span class="term w60">-</span><span class="desc">fold or unfold everything; unfolded rows also show pids</span></div>
     <div class="def-row"><span class="term w60">.</span><span class="desc">toggle between everything and only what's running</span></div>
   </div>
-  <p>Dim rows are processes that were started outside scrn, on some other terminal. They are listed and killable, but there is no window to go to. The pane beside the list previews the shell under the cursor, in gray; the shell itself is a keystroke away.</p>
+  <p>Dim rows are processes that were started outside scrn, on some other terminal. They are listed and killable, but there is no shell to go to. The pane beside the list is the shell under the cursor, live; on a row with no shell, the navigator has the window and the pane says what is known about the row.</p>
   <p><b>/</b> finds places and processes: a query lists the processes whose command answers it, under the places they run, pruned to the branches that answer. <b>enter</b> steps into a found shell, and <b>ctrl-x</b> asks to kill what the cursor is on, without leaving the look. An empty query lists places alone.</p>
   <p>Matching is fuzzy: each word of the query appears in order, not contiguously — <code class="chip">tsl</code> finds tressle-api, <code class="chip">mono api</code> finds the api inside mono — and the letters that matched are lit in the rows.</p>
 </section>
@@ -115,8 +115,9 @@
 <section id="shells">
   <div class="kicker">§ 4</div>
   <h2>Shells</h2>
-  <p><b>s</b> opens a shell at the selected place, in a tmux window of its own, and takes you there. <b>enter</b> on a shell's row goes to its window. From then on every keystroke is the shell's: the window is tmux's, and it behaves the way a tmux window behaves. scrn keeps one key: <b>ctrl-space</b>, the prefix — tmux's own, bound by scrn's configuration — which reaches scrn from any window. <b>ctrl-space n</b> is back to the navigator; <b>ctrl-space j</b> and <b>k</b> are the next and previous window, <b>ctrl-space ctrl-space</b> the window before this one, <b>ctrl-space q</b> leaves, and <b>?</b> in the navigator lists the rest. Every key tmux would otherwise bind is unbound.</p>
-  <p>The status line at the foot is tmux's: scrn's name, a tab per shell named for its place and what is running there, and <b>prefix</b> while a chord hangs. Anything the navigator has to say — a report, an error, a confirmation — appears at the foot of its column.</p>
+  <p><b>s</b> opens a shell at the selected place, beside the navigator, and puts the keys in it. <b>enter</b> on a shell's row does the same for that shell. From then on every keystroke is the shell's: the pane is tmux's, and it behaves the way a tmux pane behaves, with the navigator still down the left. scrn keeps one key: <b>ctrl-space</b>, the prefix — tmux's own, bound by scrn's configuration — which reaches scrn from any shell. <b>ctrl-space n</b> is back to the navigator; <b>ctrl-space j</b> and <b>k</b> are the next and previous shell, <b>ctrl-space ctrl-space</b> switches between the navigator and the shell, <b>ctrl-space q</b> leaves, and <b>?</b> in the navigator lists the rest. Every key tmux would otherwise bind is unbound.</p>
+  <p>The pane beside the navigator is the shell under its cursor: move the cursor to another shell's row and that shell moves in, the last one out to a tmux window of its own, where it keeps running. <b>J</b> and <b>K</b> step through the shells in the list's order, keys and all. On a row with no shell the navigator has the whole window.</p>
+  <p>The status line at the foot is tmux's: scrn's name, a tab per shell named for its place and what is running there, the shown one lit, and <b>prefix</b> while a chord hangs. Anything the navigator has to say — a report, an error, a confirmation — appears at the foot of its column.</p>
   <p>Shells keep running when the terminal closes. <b>q</b> in the navigator, or <b>ctrl-space q</b> anywhere, detaches; quit the terminal, come back, run <code class="chip">scrn</code>, and everything is where it was.</p>
   <p><b>ctrl-space v</b> reads back through what has scrolled away: tmux's copy mode, with vi keys. <b>v</b> marks, <b>y</b> copies the marked text to the system clipboard, <b>q</b> leaves. Each shell keeps 10,000 lines of transcript by default — <code class="chip">scrollback</code> in the config raises it.</p>
   <p>The mouse is the terminal's: scrn does not ask tmux to take it, so dragging, double-clicking and copying are the terminal's own, everywhere. A program that copies for itself — vim's clipboard yank, anything speaking OSC 52 — reaches the system clipboard through tmux.</p>
@@ -132,8 +133,8 @@
     <div class="def-row"><span class="term w60 warn">●</span><span class="desc">finished its turn, waiting for what you ask next</span></div>
     <div class="def-row"><span class="term w60 muted">○</span><span class="desc">idle since it started</span></div>
   </div>
-  <p>The mark tells you, from across the list, which projects need attention — the ◆ most of all, since answering it resumes work already underway. The same mark sits on the agent's window in the status line (⋯ while it works), so it reads from any shell. The detail pane for a Claude row names what a blocked instance is waiting on, the last thing asked of it, and what it says it is doing.</p>
-  <p><b>ctrl-space enter</b> goes to the next agent waiting on you, from any window, by the marks on the windows. Pressing it again continues around the waiting ones in turn; <b>tab</b> does the same at the list.</p>
+  <p>The mark tells you, from across the list, which projects need attention — the ◆ most of all, since answering it resumes work already underway. The same mark sits on the agent's tab in the status line (⋯ while it works), so it reads from any shell. The detail pane for a Claude row names what a blocked instance is waiting on, the last thing asked of it, and what it says it is doing.</p>
+  <p><b>ctrl-space enter</b> goes to the next agent waiting on you, from any shell. Pressing it again continues around the waiting ones in turn; <b>tab</b> does the same at the list.</p>
   <p>A conversation doesn't end when its instance exits; it's suspended, and the transcript is enough to pick it back up. <b>A</b> on a place lists what's suspended there — sub-projects included — newest first: when each conversation last moved, its branch, and the last thing you asked of it. Letters narrow the list the way the filter does, <b>enter</b> continues the one under the cursor in a shell opened where the conversation was had, and <b>esc</b> closes the list. A conversation an instance is still carrying isn't offered. Every kind that keeps conversations answers the picker, and each is continued by the kind that had it.</p>
   <p>Other kinds show as plain processes, unmarked. Ollama runs the first model it lists, unless <code class="chip">agentRuns</code> names one.</p>
 </section>
@@ -191,8 +192,8 @@
 <section id="server">
   <div class="kicker">§ 9</div>
   <h2>The server</h2>
-  <p>The shells live in a tmux server of scrn's own, one per user for all projects, on a socket at <code class="chip">~/.local/state/scrn/tmux-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). Every <code class="chip">scrn</code> writes the server's configuration — the prefix and its chords, the status line, the transcript cap — to <code class="chip">~/.local/state/scrn/tmux.conf</code>, brings the server up under it or sources it into one already running, and attaches. No .tmux.conf reaches it. The session's first window is the home window, running the navigator; close it and <b>ctrl-space n</b> makes it again.</p>
-  <p>The chords run <code>scrn</code> itself with a word — home, shell, agent, run, jump — each a short command against the server. They are not for typing.</p>
+  <p>The shells live in a tmux server of scrn's own, one per user for all projects, on a socket at <code class="chip">~/.local/state/scrn/tmux-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). Every <code class="chip">scrn</code> writes the server's configuration — the prefix and its chords, the status line, the transcript cap — to <code class="chip">~/.local/state/scrn/tmux.conf</code>, brings the server up under it or sources it into one already running, and attaches. No .tmux.conf reaches it. The session's first window is the home window: the navigator in the pane down its left, at the config's <code class="chip">navWidth</code> through every resize, and the shell under its cursor beside it; the shells not shown wait in windows of their own. Close the navigator and <b>ctrl-space n</b> makes it again, on the left.</p>
+  <p>The chords run <code>scrn</code> itself with a word — home, shell, agent, run, jump, next, prev — each a short command against the server. They are not for typing.</p>
   <p>Upgrading scrn does not touch the server: install the new binary, and the next <code class="chip">scrn</code> sources the new configuration into the same server. <b>R</b> ends the server and every shell it holds, after asking; it is the way to a fresh server when one is wanted, for a raised <code class="chip">scrollback</code> or on the day something wedges. Anything tmux can do to the server, you can do to it — <code class="chip">tmux -S ~/.local/state/scrn/tmux-&lt;uid&gt;.sock attach</code> is what <code>scrn</code> does.</p>
   <p><code class="chip">scrn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No server listening is an empty list, not an error.</p>
 </section>

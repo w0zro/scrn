@@ -14,15 +14,17 @@ scrn \- a terminal UI for working on projects at the command line
 .SH DESCRIPTION
 .B scrn
 shows every git repository under your project roots, what is running in
-each, and the shells you open there. The shells are windows in a
+each, and the shells you open there. The shells are panes in a
 .BR tmux (1)
 server of scrn's own, and
 .B scrn
 is a tmux client: it brings that server up under its own configuration,
-attaches the terminal to it, and runs the navigator in the session's home
-window. tmux draws the shells and takes the keys to them; the navigator is
-where they are listed, found, started and killed. Close the terminal, come
-back, and everything is where it was.
+attaches the terminal to it, and runs the navigator down the left of the
+session's home window. The shell under the navigator's cursor is the pane
+beside it, drawn by tmux, which takes the keys to it; the rest wait in
+windows of their own. The navigator is where the shells are listed,
+found, started and killed. Close the terminal, come back, and everything
+is where it was.
 .PP
 There is nothing to set up beyond having tmux installed. The
 configuration is scrn's, written at every launch into the state directory
@@ -46,9 +48,9 @@ innermost place they belong to and named by what you would call them \(em
 not
 .BR node .
 Dim rows are processes started outside scrn: listed and killable, but
-with no window to go to. The pane beside the list previews the shell under
-the cursor, in gray: the shell itself is a keystroke away, drawn whole by
-tmux.
+with no shell to go to. The pane beside the list is the shell under the
+cursor, live; on a row with no shell the navigator has the window, and
+the pane says what is known about the row.
 .PP
 .B scrn ls
 is the same server's state for a reader that is not a person: the held
@@ -58,7 +60,8 @@ listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
 shows this list inside scrn. The status line at the foot of the terminal
-is tmux's: scrn's name, every shell's window with its mark, and
+is tmux's: scrn's name, a tab per shell with its mark, the shown one lit,
+and
 .B prefix
 while a chord hangs. Anything scrn has to say \(em a report, an error, a
 confirmation \(em appears at the foot of the navigator's column.
@@ -70,8 +73,13 @@ move; the arrows move too
 .B "gg G"
 jump to the top and the bottom
 .TP
+.B "J K"
+show the next and previous shell, in the list's order, with the keys in
+it
+.TP
 .B s
-open a shell at the selected place, in a window of its own, and go to it
+open a shell at the selected place, beside the navigator, with the keys
+in it
 .TP
 .B a
 start an agent there \(em Claude Code, unless the config's
@@ -87,7 +95,7 @@ run the plan's entries that are not already running, each in a window of
 its own
 .TP
 .B enter
-go to the selected shell's window
+the keys to the selected shell, beside the list
 .TP
 .B tab
 go to the next agent waiting on you; again continues around them
@@ -160,12 +168,12 @@ clears the query, and
 .B esc
 abandons the look, putting the cursor back on the row it left.
 .SS In a shell
-Every keystroke is the shell's; the window is tmux's, and it behaves the
-way a tmux window behaves. scrn keeps one key:
+Every keystroke is the shell's; the pane is tmux's, and it behaves the
+way a tmux pane behaves, with the navigator beside it. scrn keeps one key:
 .TP
 .B ctrl\-space
 the prefix \(em tmux's own, bound by scrn's configuration; it reaches scrn
-from any window
+from any shell
 .PP
 The mouse is the terminal's: scrn does not ask tmux to take it, so
 dragging, double\-clicking and copying are the terminal's own, everywhere.
@@ -178,17 +186,16 @@ and keeps its letter's meaning; every key tmux would otherwise bind is
 unbound.
 .TP
 .B n
-to the navigator, from any window
+to the navigator, from any shell
 .TP
 .B "j k"
-the next and previous window
+the next and previous shell, in the navigator's order
 .TP
 .B ctrl\-space
-again \(em back to the window before this one
+again \(em between the navigator and the shell
 .TP
 .B enter
-the next agent waiting on you, by the marks on the windows; again
-continues around them
+the next agent waiting on you; again continues around them
 .TP
 .B /
 the navigator, looking
@@ -210,7 +217,7 @@ copies to the clipboard,
 leaves
 .TP
 .B q
-leave, from any window
+leave, from anywhere
 .TP
 .B R
 end the server and every shell it holds, after asking
@@ -226,14 +233,14 @@ starts an agent in a shell like any other. scrn knows agents as kinds
 \(em claude and ollama today \(em and each shows only what its tool
 advertises. Claude Code advertises everything; scrn reads the session
 files it leaves behind, and marks each instance in the navigator and on
-its window in the status line: a spinner in the list and \[u22EF] on the
-window while it works, a diamond (\[u25C6]) when it is blocked mid\-turn on
+its tab in the status line: a spinner in the list and \[u22EF] on the
+tab while it works, a diamond (\[u25C6]) when it is blocked mid\-turn on
 a permission prompt or a question, a filled dot (\[u25CF]) when it has
 finished its turn, a hollow dot (\[u25CB]) when it has been idle since it
 started. The diamond is the one worth crossing the room for: answering it
 resumes work already underway.
 .B ctrl\-space enter
-goes to the next agent waiting on you, from any window; pressed again it
+goes to the next agent waiting on you, from any shell; pressed again it
 continues around the waiting ones in turn.
 .PP
 A conversation does not end when its instance exits; it is suspended,
@@ -248,7 +255,7 @@ and
 .B down
 move,
 .B enter
-continues the one under the cursor \(em a window opens where the
+continues the one under the cursor \(em a shell opens where the
 conversation was had, running
 .BR "claude --resume" ,
 and from there it is a live instance like any other \(em and
@@ -337,11 +344,17 @@ all projects, on a socket private to scrn. Every
 writes the server's configuration \(em the prefix and its chords, the
 status line, the transcript cap, the rest \(em into the state directory,
 brings the server up under it or sources it into one already running, and
-attaches. The session's first window is the home window, running
+attaches. The session's first window is the home window: the navigator,
 .BR "scrn nav" ,
-the navigator; closing it is fine, and
+in the pane down its left, and the shell under the navigator's cursor in
+the pane beside it. Moving the cursor to another shell's row moves that
+shell in and the last one out to a window of its own, so the shells not
+shown wait in windows; on a row with no shell the navigator has the whole
+window. The navigator's pane is as wide as the config's
+.BR navWidth ,
+through every resize. Closing the navigator is fine, and
 .B ctrl\-space n
-makes it again.
+makes it again, on the left.
 .PP
 The chords run
 .B scrn
@@ -350,7 +363,9 @@ itself with a word \(em
 .BR shell ,
 .BR agent ,
 .BR run ,
-.B jump
+.BR jump ,
+.BR next ,
+.B prev
 \(em each a short command against the server. They are not for typing.
 .PP
 The server lives exactly as long as it holds something: the home window
@@ -394,7 +409,8 @@ where the server's socket and configuration live, instead of
 .I ~/.local/state
 .TP
 .B SHELL
-the shell opened in each window
+the shell opened for
+.B s
 .TP
 .B NO_COLOR
 set, the navigator draws without color, as

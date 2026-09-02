@@ -2,9 +2,10 @@
 
 A terminal UI for working on projects at the command line. scrn is a tmux
 client: `scrn` brings up a tmux server of its own under its own
-configuration, attaches the terminal, and runs the navigator in the home
-window. tmux draws the shells; the navigator lists, finds, starts and kills
-what runs in every project.
+configuration, attaches the terminal, and runs the navigator down the left
+of the home window. The shell under the navigator's cursor is the tmux pane
+beside it; the navigator lists, finds, starts and kills what runs in every
+project.
 
 ## Install
 

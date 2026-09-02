@@ -300,8 +300,6 @@ a:hover { color: var(--accent); }
 .scr .cell { display: inline-block; overflow: hidden; vertical-align: bottom; }
 .scr .scr-div { width: 1px; justify-self: center; background: #30363D; }
 .scr .scr-status { grid-column: 1 / -1; margin-top: 4px; white-space: pre; overflow: hidden; }
-.scr.whole { grid-template-columns: minmax(0, 1fr) 0 0; }
-.scr.whole .scr-div, .scr.whole .scr-pane { display: none; }
 .scr .b { font-weight: 600; }
 
 .c-brand  { color: #B9A7FF; font-weight: 600; }
@@ -315,7 +313,6 @@ a:hover { color: var(--accent); }
 .c-attn   { color: #D29922; }
 .c-urgent { color: #F778BA; font-weight: 600; }
 .c-note   { color: #5C6570; font-style: italic; }
-.c-prev   { color: #5C6570; }
 .c-cur    { background: #E6E6E6; color: var(--term); }
 
 /* the mode chip and the field it rides on, one per mode */
