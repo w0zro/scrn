@@ -2,7 +2,9 @@ package main
 
 import (
 	"maps"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -50,6 +52,28 @@ type agent interface {
 	// deeper sources than the scan does, so it runs off the render path, for
 	// the selected row only.
 	describe() []field
+}
+
+// runs reports whether a process is an instance of an agent: the kind's own
+// command, or an interpreter running a script that is named for it. Claude
+// Code installed through npm is a node running claude-code/cli.js, and a
+// row that says node is still a claude — what the session file advertises
+// is believed when the process table can agree with it either way.
+func runs(a agent, n *ProcNode) bool {
+	name := a.command()
+	if n.Command == name {
+		return true
+	}
+	fields := strings.Fields(n.Argv)
+	if len(fields) < 2 || !interpreters[filepath.Base(fields[0])] {
+		return false
+	}
+	for seg := range strings.SplitSeq(filepath.ToSlash(fields[1]), "/") {
+		if seg == name || strings.HasPrefix(seg, name+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 // agentKind is one kind of agent scrn knows: how to spot its processes, what

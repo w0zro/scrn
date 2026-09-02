@@ -2727,15 +2727,15 @@ func (r navRow) holds(pid int) bool {
 }
 
 // agentFor returns the agent instance a row is running, if it is one. The
-// command name is checked as well as what the agent advertises, because what
-// it advertises can outlive its process and a reused pid would otherwise be
+// process is checked as well as what the agent advertises, because what it
+// advertises can outlive its process and a reused pid would otherwise be
 // dressed up as an agent.
 func (m model) agentFor(r navRow) agent {
 	if r.kind != rowProc {
 		return nil
 	}
 	a, ok := m.agents[r.node.PID]
-	if !ok || a.command() != r.node.Command {
+	if !ok || !runs(a, r.node) {
 		return nil
 	}
 	return a

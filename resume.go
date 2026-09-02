@@ -97,7 +97,7 @@ func (m model) liveConversations() map[string]bool {
 	live := map[string]bool{}
 	for pid, a := range m.agents {
 		n := m.nodes[pid]
-		if n == nil || n.Command != a.command() {
+		if n == nil || !runs(a, n) {
 			continue
 		}
 		if id := a.id(); id != "" {

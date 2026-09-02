@@ -107,3 +107,27 @@ func TestTheFirstOllamaModelIsRead(t *testing.T) {
 		t.Errorf("model = %q, want nothing from no answer", got)
 	}
 }
+
+func TestAnInterpreterRunningTheAgentIsTheAgent(t *testing.T) {
+	// Claude Code installed through npm is a node running claude-code's
+	// cli.js. The row says node; the session file says claude; the process
+	// table can agree with it by what the node was given to run.
+	a := claudeSession{PID: 700, SessionID: "s"}
+	cases := []struct {
+		name    string
+		proc    Proc
+		isAgent bool
+	}{
+		{"the binary", Proc{Command: "claude", Argv: "claude"}, true},
+		{"npm's node", Proc{Command: "node", Argv: "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js"}, true},
+		{"a bin shim", Proc{Command: "node", Argv: "/usr/bin/node /home/me/.local/bin/claude --resume x"}, true},
+		{"another node", Proc{Command: "node", Argv: "node server.js"}, false},
+		{"a reused pid", Proc{Command: "vim", Argv: "vim claude.go"}, false},
+		{"a bare node", Proc{Command: "node", Argv: "node"}, false},
+	}
+	for _, c := range cases {
+		if got := runs(a, &ProcNode{Proc: c.proc}); got != c.isAgent {
+			t.Errorf("%s: runs = %v, want %v", c.name, got, c.isAgent)
+		}
+	}
+}
