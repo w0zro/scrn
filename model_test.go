@@ -2594,6 +2594,40 @@ func TestThePopupIsCutToAShortClient(t *testing.T) {
 	}
 }
 
+func TestTheNavigatorHoldsItsColumnWhileAShellIsShown(t *testing.T) {
+	// The pane's size reaches the navigator late. A size the width of the
+	// whole window arriving while a shell is shown beside the list is the
+	// size from before the shell joined: drawn at it, the frame overflows
+	// the column and tmux wraps the overflow into the list for a frame.
+	m := withProcList(navWidth, 24,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})
+	m.terms = map[int]*remoteTerm{700: {pid: 700}}
+	m, _ = pipeServer(t, m)
+	m = press(m, "down") // the shell's row: shown beside the list
+
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 254, Height: 62})
+	m = next.(model)
+	if m.width != navWidth {
+		t.Errorf("width = %d with a shell shown, want the column, %d", m.width, navWidth)
+	}
+
+	m = press(m, "up") // a row with no shell: the navigator has the window
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 254, Height: 62})
+	m = next.(model)
+	if m.width != 254 {
+		t.Errorf("width = %d with nothing shown, want the window's 254", m.width)
+	}
+
+	// Landing on the shell's row narrows the navigator at once, before
+	// the join it asked for can happen, so no frame is drawn wide into
+	// a pane about to be a column.
+	m = press(m, "down")
+	if m.width != navWidth {
+		t.Errorf("width = %d on landing on a shell's row, want the column at once", m.width)
+	}
+}
+
 func TestEscapeWithNothingOpenDoesNothing(t *testing.T) {
 	m := manyProjects(90, 14)
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {

@@ -382,6 +382,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.keepColumn()
 		m.scrollToCursor()
 
 	case projectsMsg:
@@ -489,6 +490,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.synced = true
 			if shown != 0 {
 				m.previewing, m.wantCursor = shown, shown
+				m.keepColumn()
 			}
 		}
 		m.rebuild()
@@ -1018,7 +1020,23 @@ func (m *model) show(t *remoteTerm) {
 		}
 	}
 	m.previewing, m.previewKey = t.pid, m.cursorKey()
+	m.keepColumn()
 	m.server.show(t.pid)
+}
+
+// keepColumn holds the navigator to its column while a shell is shown
+// beside it. The pane's size reaches the navigator late, as a message
+// behind the resize: a frame drawn between a shell joining and that
+// message is drawn at the whole window's width into a pane a column
+// wide, and tmux writes the overflow wrapped into the column — the
+// details, shifted, where the list should be, for a frame. The navigator
+// knows when a shell is shown, so it does not wait to be told it is
+// narrow: it narrows itself as it asks for the shell, and a size wider
+// than its column while one is shown is a size from before the join.
+func (m *model) keepColumn() {
+	if m.previewing != 0 {
+		m.width = min(m.width, navWidth)
+	}
 }
 
 // showPID shows a shell that may not have a row yet — one just opened,
@@ -1026,6 +1044,7 @@ func (m *model) show(t *remoteTerm) {
 // follows as soon as its row lands.
 func (m *model) showPID(pid int) {
 	m.previewing, m.previewKey = pid, m.cursorKey()
+	m.keepColumn()
 	m.wantCursor = pid
 	m.server.show(pid)
 }
@@ -2395,6 +2414,7 @@ func (m *model) syncPreview() {
 		return
 	}
 	m.previewing = want
+	m.keepColumn()
 	m.server.preview(want)
 	m.dressWindows()
 }
