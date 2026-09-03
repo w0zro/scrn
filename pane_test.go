@@ -136,12 +136,53 @@ func TestFooterAdvertisesTheAgentKey(t *testing.T) {
 	}
 }
 
-func TestAnythingInsideAShellScrnHoldsIsBright(t *testing.T) {
+func TestTheProcessAShellRunsIsBrightAndWhatItStartedIsDim(t *testing.T) {
+	// The shell's row is the claude it is running; the rg and sed the
+	// claude started are reached through the same shell, and say so by
+	// receding.
 	m := insideShell(t, 500)
 
 	for _, r := range m.rows {
-		if dimmed(m, r, false) {
-			t.Errorf("row %q is dim, but enter reaches it through the shell", stripANSI(m.renderRow(r, false)))
+		if r.kind != rowProc {
+			continue
+		}
+		dim := dimmed(m, r, false)
+		switch r.node.Command {
+		case "claude":
+			if dim {
+				t.Errorf("row %q is dim, but it is the shell scrn holds", stripANSI(m.renderRow(r, false)))
+			}
+		case "rg", "sed":
+			if !dim {
+				t.Errorf("row %q is bright, but enter only reaches the shell above it", stripANSI(m.renderRow(r, false)))
+			}
+		default:
+			t.Errorf("unexpected row %q", r.node.Command)
+		}
+	}
+}
+
+func TestWhatAShellStartedBesideSomethingElseIsBright(t *testing.T) {
+	// A shell with two children is a row of its own, and each child is
+	// what enter on it reaches: the shell, running that.
+	m := withProcList(90, 14,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{
+			{PID: 500, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: 501, PPID: 500, Command: "claude", Dir: "/tmp"},
+			{PID: 502, PPID: 500, Command: "vim", Dir: "/tmp"},
+			{PID: 503, PPID: 501, Command: "rg", Dir: "/tmp"},
+		})
+	m.terms = map[int]*remoteTerm{500: {pid: 500, dir: "/tmp"}}
+	m.rebuild()
+
+	want := map[string]bool{"zsh": false, "claude": false, "vim": false, "rg": true}
+	for _, r := range m.rows {
+		if r.kind != rowProc {
+			continue
+		}
+		if got := dimmed(m, r, false); got != want[r.node.Command] {
+			t.Errorf("%s dim = %v, want %v", r.node.Command, got, want[r.node.Command])
 		}
 	}
 }

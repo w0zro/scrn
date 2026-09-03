@@ -1261,15 +1261,27 @@ func (m model) paneTerm() *remoteTerm {
 	return nil
 }
 
-// attachable reports whether enter takes you somewhere. A repository opens a
-// shell in itself, and anything running inside a shell scrn holds can be
-// reached by attaching to that shell. Only a process on a terminal scrn does
-// not own is out of reach, and no amount of asking will change that.
+// attachable reports whether enter takes you to the row. A repository opens
+// a shell there, and a process is reached through the shell scrn holds
+// around it — which reaches the process only when the shell is running it:
+// the row that stands for the shell, or one the shell started. What those
+// started in turn — the tool a claude is running, the shells it runs them
+// in — enter lands beside, in the same shell as their parent, so their rows
+// are drawn dim: somebody else's process, not offered and then refused.
 func (m model) attachable(r navRow) bool {
 	if r.kind != rowProc {
 		return true
 	}
-	return m.owningTerm(r.node.PID) != nil
+	for _, n := range r.run {
+		if _, ok := m.terms[n.PID]; ok {
+			return true
+		}
+	}
+	if len(r.run) == 0 {
+		return false
+	}
+	_, ok := m.terms[m.parent[r.run[0].PID]]
+	return ok
 }
 
 // owningTerm is the shell scrn holds that a process is running inside: itself,
