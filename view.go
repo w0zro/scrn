@@ -36,11 +36,11 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 // a shell is shown, this view is exactly the navigator's column, as wide as
 // its pane. With no shell to show the navigator has the whole window, and
 // the right becomes its own pane — what is known about the row, or the
-// picker. conn's name and keys sit at the top and bottom of the left column
-// rather than spanning the window either way, so the right is the shell and
-// nothing else. A terminal made to give up its first and last rows to a
-// header and a footer is a terminal drawing something other than what it
-// was told it had room for.
+// picker. conn's name and its keys are on tmux's status line at the foot,
+// not in a header of the column's own, so the column is the list from its
+// first row and the right is the shell and nothing else. A terminal made
+// to give up its first row to a header is a terminal drawing something
+// other than what it was told it had room for.
 func (m model) View() tea.View {
 	v := tea.NewView(m.layout())
 	v.AltScreen = true
@@ -71,27 +71,16 @@ func (m model) layout() string {
 	return strings.Join(lines, "\n")
 }
 
-// leftColumn is conn's own column: its name and the navigator. What conn
-// has to say is said on tmux's status line, not here; the column is the
-// list.
+// leftColumn is conn's own column: the navigator, from the first row. Its
+// name and what it has to say are said on tmux's status line, not here;
+// the column is the list.
 func (m model) leftColumn(rows int) []string {
 	body := m.bodyHeight()
-
-	// The name wears the gutter every row wears and takes a blank row after
-	// it: a masthead, not the first item of the list. The blank is spacing,
-	// and spacing is the first thing a short window gives up — bodyHeight
-	// makes the same call, so the list and the layout agree.
-	lines := make([]string, 0, rows)
-	lines = append(lines, " "+titleStyle.Render("conn"))
-	if rows-2 > 0 {
-		lines = append(lines, "")
-	}
-
 	nav := m.navLines(body)
 	if len(nav) > body {
 		nav = nav[:body]
 	}
-	return append(lines, nav...)
+	return nav
 }
 
 // padTo lengthens lines to exactly n.

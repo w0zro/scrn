@@ -106,10 +106,10 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"set -g popup-border-lines rounded",
 		`set -g popup-border-style "fg=`+tp.bg2+`"`,
 		"",
-		"# The status line: the mode the keys are in — the prefix while a",
-		"# chord hangs, copy mode, the navigator's own when it has one to",
-		"# name, else which pane the keys are in — then what the navigator",
-		"# says. The window list tmux would draw is turned off: the windows",
+		"# The status line: conn's name, then the mode the keys are in — the",
+		"# prefix while a chord hangs, copy mode, the navigator's own when it",
+		"# has one to name, else which pane the keys are in — then what the",
+		"# navigator says. The window list tmux would draw is turned off: the windows",
 		"# are where shells wait, and the navigator is the list of them.",
 		"set -g status on",
 		"set -g status-position bottom",
@@ -129,8 +129,9 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 	return b.String()
 }
 
-// statusLeft is the status line's format: the mode, then the message.
-// tmux knows most of the modes itself — the prefix, copy mode, which pane
+// statusLeft is the status line's format: conn's name, the mode, then the
+// message. The name is first and always there — the line is where conn
+// says its own, now that the column is the list alone. tmux knows most of the modes itself — the prefix, copy mode, which pane
 // the keys are in — and the navigator names its own in @conn_mode, which
 // counts only while the keys are with it: a filter half-typed is not the
 // mode of a shell. What the navigator has to say is in @conn_msg. Each
@@ -147,5 +148,5 @@ func statusLeft() string {
 		",#{?pane_in_mode," + chip(tp.cyan, "COPY") +
 		",#{?@conn_nav,#{?@conn_mode,#{@conn_mode}," + chip(tp.fg, "NAV") + "}," +
 		chip(tp.green, "PROC") + "}}}"
-	return mode + "#{@conn_msg}"
+	return brandChip() + mode + "#{@conn_msg}"
 }

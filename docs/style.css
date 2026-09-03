@@ -112,7 +112,6 @@ a:hover { color: var(--accent); }
 .figure-left { padding: 40px 48px 36px; border-right: 1px solid var(--rule); }
 .tui { background: var(--term); padding: 20px 22px; border-radius: var(--figure-radius); }
 .tui pre { margin: 0; font: 400 13.5px/1.65 var(--mono); color: var(--term-text); }
-.t-ttl { color: var(--accent-dark); font-weight: 600; }
 .t-num { color: var(--accent-dark); }
 .t-sel { color: #F778BA; font-weight: 600; }
 .t-run { color: #D29922; }
@@ -302,7 +301,6 @@ a:hover { color: var(--accent); }
 .scr .scr-status { grid-column: 1 / -1; margin-top: 4px; white-space: pre; overflow: hidden; }
 .scr .b { font-weight: 600; }
 
-.c-brand  { color: #B9A7FF; font-weight: 600; }
 .c-fg     { color: #E6E6E6; }
 .c-dim    { color: #5C6570; }
 .c-label  { color: #8B949E; }
@@ -314,10 +312,12 @@ a:hover { color: var(--accent); }
 .c-urgent { color: #F778BA; font-weight: 600; }
 .c-note   { color: #5C6570; font-style: italic; }
 .c-place  { color: #B2DAFB; }
-/* The status line: a mode chip in its color on a ground two steps off the
-   terminal's, the rest of the line washed one step off — one wash for
-   every mode, the chip alone carrying the color, the way tmux draws it.
-   The navigator is in ink: home is not a state. */
+/* The status line: conn's name on a purple ground, then a mode chip in
+   its color on a ground two steps off the terminal's, butted against it,
+   the rest of the line washed one step off — one wash for every mode,
+   the chips alone carrying the color, the way tmux draws it. The
+   navigator is in ink: home is not a state. */
+.chip-brand { color: #1A1E24; background: #B9A7FF; font-weight: 600; }
 .chip-navigate { color: var(--term-text); background: #2B2F35; font-weight: 600; }
 .chip-proc { color: #3FB950; background: #2B2F35; font-weight: 600; }
 .chip-prefix { color: #D29922; background: #2B2F35; font-weight: 600; }

@@ -64,9 +64,7 @@
 <section class="figure">
   <div class="figure-left">
     <div class="tui" aria-label="the conn navigator: repositories with their processes nested under them">
-<pre><span class="t-ttl">conn</span>                      <span class="t-num">①</span>
-
-  <span class="c-place">acme</span>
+<pre>  <span class="c-place">acme</span>                    <span class="t-num">①</span>
     <span class="c-place">web</span>
      <span class="t-sel">▸ npm run dev</span>         <span class="t-num">③</span>
        claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
@@ -75,7 +73,7 @@
 
   <span class="c-place">conn</span>
      go test ./...
-<span class="chip-navigate"> NAV </span><span class="wash-navigate">                                         </span><span class="t-num">④</span></pre>
+<span class="chip-brand"> CONN </span><span class="chip-navigate"> NAV </span><span class="wash-navigate">                                   </span><span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
@@ -83,7 +81,7 @@
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
     <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .conn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
-    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, in that mode's color, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
+    <div class="note"><span class="marker">④</span><p>The status line is tmux's: conn's name, in purple, then the mode the keys are in, in that mode's color, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
   </div>
 </section>
 
@@ -177,17 +175,17 @@
   }
 
   function navLines(cursor) {
-    const lines = [' ' + span('c-brand', 'conn'), ''];
+    const lines = [];
     for (let i = 0; i < TREE.length; i++) lines.push(navRow(i, cursor));
     while (lines.length < ROWS) lines.push('');
     return lines;
   }
 
-  // The status line is tmux's: the mode the keys are in — the navigator,
-  // a shell, the prefix while a chord hangs.
+  // The status line is tmux's: conn's name, which stays, then the mode the
+  // keys are in — the navigator, a shell, the prefix while a chord hangs.
   const MODE_WORD = { navigate: 'NAV', proc: 'PROC', prefix: 'PREFIX' };
   function statusLine(mode) {
-    return span('chip-' + mode, ' ' + MODE_WORD[mode] + ' ');
+    return span('chip-brand', ' CONN ') + span('chip-' + mode, ' ' + MODE_WORD[mode] + ' ');
   }
 
   // The pane. A label and its value line up under the widest label in their

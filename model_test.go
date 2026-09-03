@@ -113,17 +113,11 @@ func bodyRows(m model) []string {
 	return out
 }
 
-// navColumn returns the non-blank navigator rows under conn's own name,
-// which heads that column and is not part of the list.
+// navColumn returns the non-blank navigator rows. The column is the list
+// from its first row: conn's own name is on the status line, not over it.
 func navColumn(m model) []string {
-	rows := bodyRows(m)
-	end := len(rows)
-	if end < 1 {
-		return nil
-	}
-
 	var out []string
-	for _, row := range rows[1:end] {
+	for _, row := range bodyRows(m) {
 		nav, _ := splitRow(row)
 		if nav = strings.TrimRight(nav, " "); strings.TrimSpace(nav) != "" {
 			out = append(out, nav)
@@ -163,16 +157,19 @@ func lineAt(ls []string, i int) string {
 
 // --- layout ---------------------------------------------------------------
 
-func TestViewPutsConnInTopLeft(t *testing.T) {
-	lines := strings.Split(sized(80, 24).View().Content, "\n")
+func TestViewPutsTheListInTheTopLeft(t *testing.T) {
+	// conn's name is on the status line, not over the column: the first
+	// row of the window is the first row of the list.
+	m := withProcList(80, 24, []Project{{Name: "alpha", Path: "/p/alpha"}}, nil)
+	lines := strings.Split(m.View().Content, "\n")
 	if got := len(lines); got != 24 {
 		t.Fatalf("view height = %d lines, want 24", got)
 	}
-	if !strings.HasPrefix(stripANSI(lines[0]), " conn") {
-		t.Errorf("first line = %q, want the masthead in the gutter every row wears", lines[0])
+	if nav, _ := splitRow(stripANSI(lines[0])); strings.TrimRight(nav, " ") != " ▸ alpha" {
+		t.Errorf("first line = %q, want the list's first row, with no masthead over it", lines[0])
 	}
-	if nav, _ := splitRow(stripANSI(lines[1])); strings.TrimSpace(nav) != "" {
-		t.Errorf("second line = %q, want the blank row under the masthead", lines[1])
+	if strings.Contains(stripANSI(m.View().Content), " conn\n") {
+		t.Error("the column still carries conn's name")
 	}
 }
 
@@ -494,7 +491,7 @@ func manyRepos(n, h int) model {
 }
 
 func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
-	m := manyRepos(10, 5) // 3 body rows, under the masthead and its blank
+	m := manyRepos(10, 3) // 3 body rows: the column is the list
 	for range 3 {
 		m = press(m, "down")
 	}
@@ -506,7 +503,7 @@ func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
 }
 
 func TestScrollKeepsCursorVisibleAfterWrap(t *testing.T) {
-	m := press(manyRepos(10, 5), "up") // wraps to the last row
+	m := press(manyRepos(10, 3), "up") // wraps to the last row
 
 	col := navColumn(m)
 	if !strings.HasPrefix(col[len(col)-1], " ▸ j") {
@@ -515,7 +512,7 @@ func TestScrollKeepsCursorVisibleAfterWrap(t *testing.T) {
 }
 
 func TestScrollStopsAtTheLastRow(t *testing.T) {
-	m := manyRepos(10, 5)
+	m := manyRepos(10, 3)
 	for range 9 {
 		m = press(m, "down")
 	}

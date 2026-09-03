@@ -25,8 +25,11 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"set -g main-pane-width 33",
 		`set-hook -g window-resized 'if -F "#{@conn_home}" "select-layout main-vertical"'`,
 		`set -g status-left "` + statusLeft() + `"`,
-		// The status line's format reads the mode — tmux's own, then the
-		// navigator's — and the navigator's message.
+		// The status line begins with conn's name, in its purple, before
+		// any mode: it is the one chip that stays.
+		`set -g status-left "#[fg=` + tp.bg1 + `,bg=` + tp.purple + `,bold] CONN #{?client_prefix,`,
+		// Then the mode — tmux's own, then the navigator's — and the
+		// navigator's message.
 		"#{?client_prefix,", "#{?pane_in_mode,", "#{?@conn_nav,",
 		"#{?@conn_mode,#{@conn_mode},", "#{@conn_msg}",
 		// Each mode is a chip on a dark ground of its color with the rest of

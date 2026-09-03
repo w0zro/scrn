@@ -26,7 +26,7 @@ const (
 	slotRed    = "1"  // blocked on an ask, dying, failed, destructive
 	slotGreen  = "2"  // alive and well; finished and waiting on you
 	slotSelf   = "4"  // conn itself, where it shows up as a process
-	slotCursor = "5"  // here: the cursor, and conn's own name — the terminal's cursor color
+	slotCursor = "5"  // here: the cursor — the terminal's cursor color
 	slotCyan   = "6"  // found: the letters a query matched
 	slotGray   = "8"  // quiet: idle rows, labels, conn's own asides
 	slotAmber  = "9"  // working, and an answer owed
@@ -35,11 +35,11 @@ const (
 
 // The styles are package-wide because everything drawing reads them.
 var (
-	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle lipgloss.Style
-	faintStyle, labelStyle, errStyle, busyStyle           lipgloss.Style
-	attnStyle, blockedStyle, headingStyle                 lipgloss.Style
-	offSelStyle, noteStyle, matchStyle, selfStyle         lipgloss.Style
-	placeStyle                                            lipgloss.Style
+	hintStyle, ruleStyle, itemStyle, selStyle     lipgloss.Style
+	faintStyle, labelStyle, errStyle, busyStyle   lipgloss.Style
+	attnStyle, blockedStyle, headingStyle         lipgloss.Style
+	offSelStyle, noteStyle, matchStyle, selfStyle lipgloss.Style
+	placeStyle                                    lipgloss.Style
 )
 
 func init() { applyStyles() }
@@ -49,9 +49,9 @@ func applyStyles() {
 	slot := func(s string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(s)) }
 	ink := lipgloss.NewStyle()
 
-	// The masthead and the cursor row are the two bold things on screen,
-	// and the two in the cursor's color: conn's name, and where you are.
-	titleStyle = slot(slotCursor).Bold(true)
+	// The cursor row is the one bold thing in the list, in the cursor's
+	// color: where you are. conn's own name is not in the column at all;
+	// it is on the status line, in tmux's colors.
 	selStyle = slot(slotCursor).Bold(true)
 	// selfStyle tags a process that is conn itself, in a color nothing
 	// else wears: not the cursor's, not a state's.
@@ -134,16 +134,19 @@ type tmuxPalette struct {
 	bg1, bg2                string // one and two steps off the ground: the wash, the chip
 	fg, gray                string
 	green, amber, red, cyan string
+	purple                  string // the ground under conn's own name, and nothing else
 }
 
 var tmuxDark = tmuxPalette{
 	bg1: "#1A1E24", bg2: "#2B2F35", fg: "#DBE0E8", gray: "#8F98A3",
 	green: "#54DCAA", amber: "#F8BD5F", red: "#FE9864", cyan: "#6AE5EC",
+	purple: "#B9A7FF",
 }
 
 var tmuxLight = tmuxPalette{
 	bg1: "#E7ECF2", bg2: "#CED3D9", fg: "#292E35", gray: "#616A76",
 	green: "#007553", amber: "#976700", red: "#A24500", cyan: "#0D7A7F",
+	purple: "#5E48C2",
 }
 
 // tp is the palette tmux draws with: dark unless the config says light.
@@ -157,6 +160,15 @@ func applyTheme(theme string) {
 	} else {
 		tp = tmuxDark
 	}
+}
+
+// brandChip is conn's name at the head of the status line: CONN, bold on
+// a purple ground in the wash's ink, the mode's chip butted against it.
+// It is the one thing on the line that is not a state — it says whose
+// line this is, and it stays while everything after it changes; the
+// inverted ground is what tells it from the modes beside it.
+func brandChip() string {
+	return "#[fg=" + tp.bg1 + ",bg=" + tp.purple + ",bold] CONN "
 }
 
 // statusChip is a mode on the status line: the word, bold in its color on

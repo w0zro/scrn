@@ -1701,18 +1701,12 @@ func (m *model) pruneDying() {
 	}
 }
 
-// bodyHeight is the number of navigator rows that fit under conn's name,
-// which is what the cursor scrolls within.
+// bodyHeight is the number of navigator rows that fit in the column, which
+// is what the cursor scrolls within.
 func (m model) bodyHeight() int {
-	// Two rows at the top — the masthead and the blank beneath it — though
-	// the blank, being spacing, is the first thing a short window gives up.
-	if h := m.height - 2; h > 0 {
-		return h
-	}
-	if h := m.height - 1; h > 0 {
-		return h
-	}
-	return 0
+	// The column is the list and nothing over it: every row is the
+	// list's.
+	return max(m.height, 0)
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back
