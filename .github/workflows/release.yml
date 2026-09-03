@@ -5,7 +5,9 @@
 # `goreleaser release --snapshot --clean`.
 #
 # The tests run on macOS because that is where conn is developed; the push
-# workflow has already run them on Linux by the time any tag is cut.
+# workflow has already run them on Linux by the time any tag is cut. They
+# hold their shells in a real tmux, which the runner does not carry, and
+# under CI a missing tmux is a failure rather than a skip.
 name: release
 
 on:
@@ -26,6 +28,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Neighbors
+        run: brew install tmux
 
       - name: Test
         run: go test -race ./...

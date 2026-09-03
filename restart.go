@@ -81,7 +81,9 @@ func askTerminal(in io.Reader, out io.Writer) func(held int) bool {
 		if held == 1 {
 			noun = "shell"
 		}
-		fmt.Fprintf(out, "end the server, and the %d %s it holds? (y/n) ", held, noun)
+		// A question that could not be put is answered by the empty line
+		// that follows: no, and the server stands.
+		_, _ = fmt.Fprintf(out, "end the server, and the %d %s it holds? (y/n) ", held, noun)
 		line, _ := bufio.NewReader(in).ReadString('\n')
 		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "y", "yes":
