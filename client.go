@@ -140,8 +140,10 @@ type session struct {
 	column  int                // the navigator's width, read once: the goroutines never touch the global
 	placing latest[placement]  // the arrangement asked for, made one at a time
 	saying  latest[statusText] // what the status line is to read, said one at a time
+	listing sync.Mutex         // one list is read and told at a time, so the newer is heard last
 	probing bool
 	closed  bool
+	stopped chan struct{} // closed by close, so a watcher stops in its tracks
 
 	// probe is how long the watch waits between looks for a server; the
 	// tests set a pace that suits a test.
@@ -150,12 +152,13 @@ type session struct {
 
 func newSession() *session {
 	return &session{
-		events: make(chan tea.Msg, 64),
-		run:    tmuxCommand,
-		panes:  map[int]*pane{},
-		byPane: map[string]int{},
-		column: navWidth,
-		probe:  probeEvery,
+		events:  make(chan tea.Msg, 64),
+		run:     tmuxCommand,
+		panes:   map[int]*pane{},
+		byPane:  map[string]int{},
+		column:  navWidth,
+		probe:   probeEvery,
+		stopped: make(chan struct{}),
 	}
 }
 
@@ -195,8 +198,13 @@ func (s *session) watchForServer() {
 	s.mu.Unlock()
 
 	go func() {
+		tick := time.NewTicker(s.probe)
+		defer tick.Stop()
 		for {
-			time.Sleep(s.probe)
+			select {
+			case <-tick.C:
+			case <-s.stopped:
+			}
 			// Whether the probe is over is decided in the same breath as
 			// the probing flag is put down. A control client that hangs up
 			// between the two — attached to a session that went in the
@@ -226,6 +234,9 @@ func (s *session) watchForServer() {
 // stops probing, and will not attach again.
 func (s *session) close() {
 	s.mu.Lock()
+	if !s.closed {
+		close(s.stopped)
+	}
 	s.closed = true
 	ctl := s.ctl
 	s.ctl = nil
@@ -336,6 +347,12 @@ func (p *pane) info() sessionInfo {
 // whether a session was there to read. Shells that left are named going:
 // the model clears its rows by the pid, not by the list.
 func (s *session) refreshList() bool {
+	// Held from the read to the telling: two reads in flight, each told
+	// after its own unlock, could reach the model in the other's order,
+	// and the model takes the list it hears last as the truth.
+	s.listing.Lock()
+	defer s.listing.Unlock()
+
 	out, err := s.run("list-panes", "-a", "-F", listFormat)
 	if err != nil && !errors.Is(err, errNoServer) {
 		// A list that could not be read says nothing about the shells: a
