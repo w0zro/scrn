@@ -78,66 +78,65 @@ func main() {
 		case "page":
 			runKeys()
 			return
-		case "home", "shell", "agent", "run", "jump", "next", "prev", "keys":
+		// Anything else is refused rather than shrugged off: a mistyped
+		// argument that silently opened the window would look like it worked.
+		default:
+			chord, ok := chords[os.Args[1]]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "scrn: unknown argument %q\n\n%s", os.Args[1], usage)
+				os.Exit(2)
+			}
 			arg := ""
 			if len(os.Args) > 2 {
 				arg = os.Args[2]
 			}
-			report(runChord(os.Args[1], arg))
+			// The chord's agent is the config's, the same as the a key's.
+			// A config that cannot be read is the navigator's to report,
+			// where it is in view; here the defaults stand.
+			cfg, _ := loadConfig()
+			cfg.apply()
+			if !report(chord(arg)) {
+				os.Exit(1)
+			}
 			return
-		// Anything else is refused rather than shrugged off: a mistyped
-		// argument that silently opened the window would look like it worked.
-		default:
-			fmt.Fprintf(os.Stderr, "scrn: unknown argument %q\n\n%s", os.Args[1], usage)
-			os.Exit(2)
 		}
 	}
 
-	if cfg, err := loadConfig(); err == nil {
-		applyNavWidth(cfg.NavWidth)
-		applyScrollback(cfg.Scrollback)
-		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
-		applyTheme(cfg.Theme)
+	// A config that cannot be read is said here, before the terminal is
+	// tmux's, and the defaults stand: a typo should not keep the window
+	// from opening. The navigator says it again, in view.
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 	}
+	cfg.apply()
 	if err := runLaunch(); err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// runChord carries out one of the chords' commands.
-func runChord(word, arg string) error {
-	switch word {
-	case "home":
-		return runHome(arg)
-	case "shell":
-		return runShellAt(arg, "")
-	case "agent":
-		return runShellAt(arg, startAgent())
-	case "run":
-		return runPlanAt(arg)
-	case "jump":
-		return runJump()
-	case "next":
-		return runStep(1)
-	case "prev":
-		return runStep(-1)
-	case "keys":
-		return showKeys(tmuxCommand, scrnExe(), arg)
-	}
-	return nil
+// chords is every word the configuration binds, and what each does with
+// the argument the binding passes.
+var chords = map[string]func(arg string) error{
+	"home":  runHome,
+	"shell": func(dir string) error { return runShellAt(dir, "") },
+	"agent": func(dir string) error { return runShellAt(dir, startAgent()) },
+	"run":   runPlanAt,
+	"jump":  func(string) error { return runJump() },
+	"next":  func(string) error { return runStep(1) },
+	"prev":  func(string) error { return runStep(-1) },
+	"keys":  func(client string) error { return showKeys(tmuxCommand, scrnExe(), client) },
 }
 
 // runNav is the navigator: the program in the home window. The navigator's
 // width is drawn from before the first paint and the agent kind before the
-// first a, so both are applied here rather than on a scan.
+// first a, so both are applied here rather than on a scan. A config that
+// cannot be read is reported on the status line by the scan that reads it
+// again, so it is not said here, where stderr is the pane.
 func runNav() {
-	if cfg, err := loadConfig(); err == nil {
-		applyNavWidth(cfg.NavWidth)
-		applyScrollback(cfg.Scrollback)
-		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
-		applyTheme(cfg.Theme)
-	}
+	cfg, _ := loadConfig()
+	cfg.apply()
 	p := tea.NewProgram(newModel())
 	final, err := p.Run()
 	if m, ok := final.(model); ok && m.server != nil {

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +57,17 @@ func defaultConfig() Config {
 	return Config{ProjectsDir: "$HOME/projects"}
 }
 
+// apply records what the config says for the parts of scrn that read it
+// before anything is drawn or started: the navigator's width, the shells'
+// scrollback, the agent a starts, and the side tmux draws for. Every way in
+// — the launcher, the navigator, a chord — applies it the same way.
+func (c Config) apply() {
+	applyNavWidth(c.NavWidth)
+	applyScrollback(c.Scrollback)
+	applyAgentConfig(c.Agent, c.AgentRuns)
+	applyTheme(c.Theme)
+}
+
 // roots is every directory to search, expanded. A root that is only on the
 // other machine is still listed here: whether it exists is the scan's
 // business, not the config's.
@@ -103,7 +117,8 @@ func configPath() string {
 func loadConfig() (Config, error) {
 	cfg := defaultConfig()
 
-	b, err := os.ReadFile(configPath())
+	path := configPath()
+	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return cfg, nil
 	}
@@ -111,12 +126,33 @@ func loadConfig() (Config, error) {
 		return cfg, err
 	}
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return defaultConfig(), err
+		return defaultConfig(), fmt.Errorf("%s: %w", path, located(b, err))
 	}
 	if strings.TrimSpace(cfg.ProjectsDir) == "" {
 		cfg.ProjectsDir = defaultConfig().ProjectsDir
 	}
 	return cfg, nil
+}
+
+// located puts the line and column on a decoding error, which the decoder
+// gives only as an offset into the file.
+func located(b []byte, err error) error {
+	var offset int64
+	var syntax *json.SyntaxError
+	var mistyped *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntax):
+		offset = syntax.Offset
+	case errors.As(err, &mistyped):
+		offset = mistyped.Offset
+	default:
+		return err
+	}
+	offset = min(offset, int64(len(b)))
+	before := b[:offset]
+	line := 1 + bytes.Count(before, []byte("\n"))
+	col := int(offset) - bytes.LastIndexByte(before, '\n')
+	return fmt.Errorf("line %d, column %d: %w", line, col, err)
 }
 
 // expandPath resolves ~ and environment variables so a config file stays

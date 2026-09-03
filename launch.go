@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -292,12 +293,18 @@ func runPlanAt(dir string) error {
 
 // report says what a chord's command could not do, where the user is
 // looking: the status line. The command itself stays silent on stdout, which
-// run-shell would otherwise put in front of the user as a page.
-func report(err error) {
+// run-shell would otherwise put in front of the user as a page. It reports
+// whether the message reached anyone: a chord typed at a terminal with no
+// server to show it is told on stderr instead, and that is a failure.
+func report(err error) bool {
 	if err == nil {
-		return
+		return true
 	}
-	_, _ = tmuxCommand("display-message", "scrn: "+err.Error())
+	if _, told := tmuxCommand("display-message", "scrn: "+err.Error()); told != nil {
+		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		return false
+	}
+	return true
 }
 
 // runJump is `scrn jump`: the next agent waiting on you, which is the

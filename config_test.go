@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,8 +52,26 @@ func TestLoadConfigReportsMalformedJSON(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	writeConfig(t, dir, `{"projectsDir":`)
 
-	if _, err := loadConfig(); err == nil {
-		t.Error("malformed config should report an error rather than pass silently")
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("malformed config should report an error rather than pass silently")
+	}
+	if got := err.Error(); !strings.Contains(got, "config.json") || !strings.Contains(got, "line 1") {
+		t.Errorf("error = %q, want the file and the line named", got)
+	}
+}
+
+func TestLoadConfigSaysWhereAValueIsTheWrongKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeConfig(t, dir, "{\n  \"scrollback\": 1,\n  \"navWidth\": \"wide\"\n}\n")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("a string where a number goes should be an error")
+	}
+	if got := err.Error(); !strings.Contains(got, "line 3") {
+		t.Errorf("error = %q, want line 3 named", got)
 	}
 }
 
