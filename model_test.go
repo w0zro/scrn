@@ -206,7 +206,7 @@ func TestViewFitsShortTerminals(t *testing.T) {
 
 func TestNavListsRepoNames(t *testing.T) {
 	m := withProcList(80, 8, []Project{{Name: "alpha"}, {Name: "beta"}}, nil)
-	wantRows(t, navColumn(m), []string{"▸alpha", " beta"})
+	wantRows(t, navColumn(m), []string{"▸ alpha", "  beta"})
 }
 
 func TestNavTruncatesLongNames(t *testing.T) {
@@ -258,7 +258,7 @@ func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     claude"})
 
 	if r, _ := m.rows[1], 0; r.chain().PID != 10 {
 		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain().PID)
@@ -275,7 +275,7 @@ func TestASameCommandForkingItselfIsStillOneRow(t *testing.T) {
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     nvim"})
 }
 
 func TestARunStopsFoldingWhereItBranches(t *testing.T) {
@@ -287,7 +287,7 @@ func TestARunStopsFoldingWhereItBranches(t *testing.T) {
 			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh", "   ├─ nvim", "   └─ zig"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     zsh", "       nvim", "       zig"})
 }
 
 func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
@@ -302,7 +302,7 @@ func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ zig",
+		"▸ scrn", "     zsh", "       vim", "    │    fmt", "    │    lint", "       zig",
 	})
 }
 
@@ -475,7 +475,7 @@ func TestCursorWalksProcessesToo(t *testing.T) {
 	if !ok || r.kind != rowProc || r.node.PID != 10 {
 		t.Errorf("selected = %+v, want the process row", r)
 	}
-	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh"})
+	wantRows(t, navColumn(m), []string{"  scrn", "▸    zsh"})
 }
 
 func TestCursorOnEmptyListDoesNotPanic(t *testing.T) {
@@ -502,14 +502,14 @@ func TestScrollFollowsCursorPastTheBottom(t *testing.T) {
 	if m.offset != 1 {
 		t.Errorf("offset = %d, want 1; the window should follow the cursor by one row", m.offset)
 	}
-	wantRows(t, navColumn(m), []string{" b", " c", "▸d"})
+	wantRows(t, navColumn(m), []string{"  b", "  c", "▸ d"})
 }
 
 func TestScrollKeepsCursorVisibleAfterWrap(t *testing.T) {
 	m := press(manyRepos(10, 5), "up") // wraps to the last row
 
 	col := navColumn(m)
-	if !strings.HasPrefix(col[len(col)-1], "▸j") {
+	if !strings.HasPrefix(col[len(col)-1], "▸ j") {
 		t.Errorf("after wrapping to the end the cursor should be on screen:\n%s", strings.Join(col, "\n"))
 	}
 }
@@ -659,13 +659,13 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh", "   ├─ vim", "   │ ├─ fmt", "   │ └─ lint", "   └─ zig",
+		"▸ scrn", "     zsh", "       vim", "    │    fmt", "    │    lint", "       zig",
 	})
 
 	// Move onto vim and fold it.
 	m = press(press(press(m, "down"), "down"), " ")
 	wantRows(t, navColumn(m), []string{
-		" scrn", " └─ zsh", "▸  ├─ vim +2", "   └─ zig",
+		"  scrn", "     zsh", "▸      vim +2", "       zig",
 	})
 }
 
@@ -673,7 +673,7 @@ func TestSpaceCollapsesARepo(t *testing.T) {
 	m := press(nestedTree(12), " ")
 
 	col := navColumn(m)
-	wantRows(t, col, []string{"▸scrn +5"})
+	wantRows(t, col, []string{"▸ scrn +5"})
 	if len(col) != 1 {
 		t.Errorf("a collapsed repo should hide its whole tree, got:\n%s", strings.Join(col, "\n"))
 	}
@@ -692,7 +692,7 @@ func TestSpaceUnfoldsAgain(t *testing.T) {
 func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 	// zsh hides vim, zig and fmt.
 	m := press(press(nestedTree(12), "down"), " ")
-	wantRows(t, navColumn(m), []string{" scrn", "▸└─ zsh +4"})
+	wantRows(t, navColumn(m), []string{"  scrn", "▸    zsh +4"})
 }
 
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
@@ -714,7 +714,7 @@ func TestSpaceOnALeafDoesNothing(t *testing.T) {
 func TestSpaceOnARepoWithNoProcessesDoesNothing(t *testing.T) {
 	m := withProcList(80, 8, []Project{{Name: "idle", Path: "/p/idle"}}, nil)
 	m = press(m, " ")
-	wantRows(t, navColumn(m), []string{"▸idle"})
+	wantRows(t, navColumn(m), []string{"▸ idle"})
 	if strings.Contains(navColumn(m)[0], "+") {
 		t.Error("an idle repo should not be marked as hiding anything")
 	}
@@ -2001,11 +2001,11 @@ func TestDashShowsEveryProcess(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
 			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     nvim"})
 
 	m = press(m, "-")
 	wantRows(t, navColumn(m), []string{
-		"▸scrn", " └─ zsh", "   └─ nvim", "     └─ nvim",
+		"▸ scrn", "     zsh", "       nvim", "         nvim",
 	})
 }
 
@@ -2057,7 +2057,7 @@ func TestSlashSearchesEveryProjectNotJustTheRunningOnes(t *testing.T) {
 	m = press(m, "/")
 	m = typeFilter(m, "brand")
 
-	wantRows(t, navColumn(m), []string{"▸brand"})
+	wantRows(t, navColumn(m), []string{"▸ brand"})
 }
 
 // typeFilter sends each rune to the filter.
@@ -2079,7 +2079,7 @@ func TestFilterReachesProcessesByCommand(t *testing.T) {
 	}, []Proc{{PID: 100, PPID: 1, Command: "claude", Dir: "/p/brand"}})
 
 	m = typeFilter(press(narrowed(m), "/"), "claude")
-	wantRows(t, navColumn(m), []string{" brand", "▸└─ claude"})
+	wantRows(t, navColumn(m), []string{"  brand", "▸    claude"})
 }
 
 func TestFilterReachesAChildProcessCommand(t *testing.T) {
@@ -2092,7 +2092,7 @@ func TestFilterReachesAChildProcessCommand(t *testing.T) {
 		})
 
 	m = typeFilter(press(narrowed(m), "/"), "node")
-	wantRows(t, navColumn(m), []string{" brand", "▸└─ node"})
+	wantRows(t, navColumn(m), []string{"  brand", "▸    node"})
 }
 
 func TestTypingListsTheProcessesThatAnswer(t *testing.T) {
@@ -2109,7 +2109,7 @@ func TestTypingListsTheProcessesThatAnswer(t *testing.T) {
 
 	m = typeFilter(press(narrowed(m), "/"), "node")
 	rows := navColumn(m)
-	wantRows(t, rows, []string{" brand", "▸└─ node"})
+	wantRows(t, rows, []string{"  brand", "▸    node"})
 	if len(rows) != 2 {
 		t.Fatalf("rows = %q, want the vim pruned away", rows)
 	}
@@ -2172,12 +2172,12 @@ func TestNavWidthComesFromConfigWithinReason(t *testing.T) {
 	defer func(w int) { navWidth = w }(navWidth)
 
 	for _, tc := range []struct{ in, want int }{
-		{0, 28},   // unset leaves the default
+		{0, 30},   // unset leaves the default
 		{40, 40},  // a chosen width holds
 		{5, 16},   // too narrow for any name
 		{200, 60}, // most of any screen
 	} {
-		navWidth = 28
+		navWidth = 30
 		applyNavWidth(tc.in)
 		if navWidth != tc.want {
 			t.Errorf("applyNavWidth(%d): navWidth = %d, want %d", tc.in, navWidth, tc.want)
@@ -2187,12 +2187,12 @@ func TestNavWidthComesFromConfigWithinReason(t *testing.T) {
 
 func TestFilterMatchesThePathAsWellAsTheName(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "node")
-	wantRows(t, navColumn(m), []string{"▸tressle-api"})
+	wantRows(t, navColumn(m), []string{"▸ tressle-api"})
 }
 
 func TestFilterIgnoresCase(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "SCRN")
-	wantRows(t, navColumn(m), []string{"▸scrn"})
+	wantRows(t, navColumn(m), []string{"▸ scrn"})
 }
 
 func TestKeysGoToTheFilterWhileItIsBeingTyped(t *testing.T) {
@@ -2215,7 +2215,7 @@ func TestBackspaceWidensTheFilter(t *testing.T) {
 	}
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	wantRows(t, navColumn(next.(model)), []string{"▸brand"})
+	wantRows(t, navColumn(next.(model)), []string{"▸ brand"})
 }
 
 func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
@@ -2231,7 +2231,7 @@ func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
 	if m.filter != "brand" {
 		t.Errorf("filter = %q, want it still applied", m.filter)
 	}
-	wantRows(t, navColumn(m), []string{"▸brand"})
+	wantRows(t, navColumn(m), []string{"▸ brand"})
 }
 
 func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {
@@ -2307,7 +2307,7 @@ func TestEscWhileTypingPutsTheCursorBack(t *testing.T) {
 
 func TestAFilterThatMatchesNothingSaysSo(t *testing.T) {
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "zzz")
-	wantRows(t, navColumn(m), []string{" no project matches"})
+	wantRows(t, navColumn(m), []string{"  no project matches"})
 }
 
 func TestTheFooterShowsWhatIsBeingTyped(t *testing.T) {
@@ -2353,7 +2353,7 @@ func TestStartingSomethingClearsTheSearchThatFoundIt(t *testing.T) {
 		t.Errorf("filter = %q, want it gone once the shell landed", m.filter)
 	}
 	// The cursor followed the shell it just started.
-	wantRows(t, navColumn(m), []string{" brand", "▸└─ zsh"})
+	wantRows(t, navColumn(m), []string{"  brand", "▸    zsh"})
 }
 
 func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
@@ -2370,7 +2370,7 @@ func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
 	if m.filter != "brand" {
 		t.Errorf("filter = %q, want it held until there is something to show", m.filter)
 	}
-	wantRows(t, navColumn(m), []string{"▸brand"})
+	wantRows(t, navColumn(m), []string{"▸ brand"})
 }
 
 func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
@@ -2414,7 +2414,7 @@ func TestSlashListsEveryProjectBeforeAnythingIsTyped(t *testing.T) {
 	m = press(m, "/")
 	// Alphabetical, the order the scan delivers and topPlaces keeps.
 	wantRows(t, navColumn(m), []string{
-		"▸brand", " flocking-pixi", " hsg", " scrn", " tressle-api",
+		"▸ brand", "  flocking-pixi", "  hsg", "  scrn", "  tressle-api",
 	})
 }
 
@@ -2428,7 +2428,7 @@ func TestThePickerShowsProjectsWithoutTheirProcesses(t *testing.T) {
 		})
 
 	m = press(m, "/")
-	wantRows(t, navColumn(m), []string{"▸hsg", " scrn"})
+	wantRows(t, navColumn(m), []string{"▸ hsg", "  scrn"})
 	if len(m.rows) != 2 {
 		t.Errorf("rows = %d, want only the two projects", len(m.rows))
 	}
@@ -2455,9 +2455,9 @@ func TestTypingNarrowsThePicker(t *testing.T) {
 	}
 
 	m = typeFilter(m, "h")
-	wantRows(t, navColumn(m), []string{"▸brand", " hsg"}) // both are under /p/hsg
+	wantRows(t, navColumn(m), []string{"▸ brand", "  hsg"}) // both are under /p/hsg
 	m = typeFilter(m, "sg/h")
-	wantRows(t, navColumn(m), []string{"▸hsg"})
+	wantRows(t, navColumn(m), []string{"▸ hsg"})
 }
 
 func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
@@ -2466,10 +2466,10 @@ func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
 		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}})
 
 	m = press(m, "/")
-	wantRows(t, navColumn(m), []string{"▸scrn"})
+	wantRows(t, navColumn(m), []string{"▸ scrn"})
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ zsh"})
+	wantRows(t, navColumn(next.(model)), []string{"▸ scrn", "     zsh"})
 }
 
 func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
@@ -2483,7 +2483,7 @@ func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
 			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
 			{PID: 30, PPID: 20, Command: "caffeinate", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     claude"})
 }
 
 func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
@@ -2494,11 +2494,11 @@ func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
 		{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
 	}
 	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, procs)
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ claude"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     claude"})
 
 	next, _ := m.Update(procsMsg{procs: append(procs,
 		Proc{PID: 40, PPID: 20, Command: "rg", Dir: "/p/scrn"})})
-	wantRows(t, navColumn(next.(model)), []string{"▸scrn", " └─ claude"})
+	wantRows(t, navColumn(next.(model)), []string{"▸ scrn", "     claude"})
 }
 
 func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
@@ -2509,7 +2509,7 @@ func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "bash", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ bash"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     bash"})
 }
 
 func TestALoginShellIsStillAShell(t *testing.T) {
@@ -2818,7 +2818,7 @@ func TestTypingStillNarrowsAfterMoving(t *testing.T) {
 	if m.filter != "scrn" {
 		t.Errorf("filter = %q, want the letters to have gone on narrowing it", m.filter)
 	}
-	wantRows(t, navColumn(m), []string{"▸scrn"})
+	wantRows(t, navColumn(m), []string{"▸ scrn"})
 }
 
 func TestLettersAreStillLettersWhileTyping(t *testing.T) {
@@ -2851,10 +2851,10 @@ func TestThePidIsOnlyShownWhenEveryProcessIs(t *testing.T) {
 			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
 			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
 		})
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ nvim"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     nvim"})
 
 	m = press(m, "-")
-	wantRows(t, navColumn(m), []string{"▸scrn", " └─ zsh 10", "   └─ nvim 20"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     zsh 10", "       nvim 20"})
 }
 
 func TestTwoOfTheSameCommandAreStillToldApartUnfolded(t *testing.T) {
@@ -2866,7 +2866,7 @@ func TestTwoOfTheSameCommandAreStillToldApartUnfolded(t *testing.T) {
 			{PID: 11, PPID: 1, Command: "nvim", Dir: "/p/scrn"},
 		})
 	m = press(m, "-")
-	wantRows(t, navColumn(m), []string{"▸scrn", " ├─ nvim 10", " └─ nvim 11"})
+	wantRows(t, navColumn(m), []string{"▸ scrn", "     nvim 10", "     nvim 11"})
 }
 
 func TestAProcessListeningNowhereSaysNothingAboutPorts(t *testing.T) {
@@ -3086,11 +3086,11 @@ func TestProcessesFileUnderTheirSubProject(t *testing.T) {
 		Proc{PID: 101, PPID: 1, Command: "make", Dir: "/p/mono"},
 	)
 	wantRows(t, navColumn(m), []string{
-		"▸mono",
-		" ├─ make",
-		" ├─ services/api",
-		" │ └─ node",
-		" └─ web",
+		"▸ mono",
+		"     make",
+		"     services/api",
+		"  │    node",
+		"     web",
 	})
 }
 
@@ -3098,9 +3098,9 @@ func TestIdleSubProjectsAreBehindTheDot(t *testing.T) {
 	// The repositories' own rule: what has work shows, the rest waits.
 	m := narrowed(subbed(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/mono/services/api"}))
 	wantRows(t, navColumn(m), []string{
-		"▸mono",
-		" └─ services/api",
-		"   └─ node",
+		"▸ mono",
+		"     services/api",
+		"       node",
 	})
 	for _, row := range navColumn(m) {
 		if strings.Contains(row, "web") {
@@ -3114,8 +3114,8 @@ func TestTheFilterReachesAnIdleSubProject(t *testing.T) {
 	// somewhere you can press s or r.
 	m := typeFilter(press(subbed(), "/"), "api")
 	wantRows(t, navColumn(m), []string{
-		" mono",
-		"▸└─ services/api",
+		"  mono",
+		"▸    services/api",
 	})
 	for _, row := range navColumn(m) {
 		if strings.Contains(row, "web") {
@@ -3215,19 +3215,19 @@ func TestAGroupHoldsItsRepositories(t *testing.T) {
 	// that level; the folder gets the row and its repositories sit under it.
 	m := groupedModel()
 	wantRows(t, navColumn(m), []string{
-		"▸checklists.org",
-		"   api",
-		"   web",
-		" scrn",
+		"▸ checklists.org",
+		"    api",
+		"    web",
+		"  scrn",
 	})
 }
 
 func TestWorkInARepositoryLiftsItsGroupIntoView(t *testing.T) {
 	m := narrowed(groupedModel(Proc{PID: 100, PPID: 1, Command: "node", Dir: "/p/checklists.org/api"}))
 	wantRows(t, navColumn(m), []string{
-		"▸checklists.org",
-		"   api",
-		"   └─ node",
+		"▸ checklists.org",
+		"    api",
+		"       node",
 	})
 	for _, row := range navColumn(m) {
 		if strings.Contains(row, "web") || strings.Contains(row, "scrn") {
@@ -3241,8 +3241,8 @@ func TestAShellAtTheGroupLevelBelongsToTheGroup(t *testing.T) {
 	// repositories; it belongs to the group row.
 	m := narrowed(groupedModel(Proc{PID: 100, PPID: 1, Command: "zsh", Dir: "/p/checklists.org"}))
 	wantRows(t, navColumn(m), []string{
-		"▸checklists.org",
-		"   └─ zsh",
+		"▸ checklists.org",
+		"       zsh",
 	})
 }
 

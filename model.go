@@ -15,7 +15,7 @@ import (
 // navWidth is the column the navigator occupies, divider excluded. The
 // default suits short home-project names; the config widens it for the long
 // qualified paths a work checkout produces.
-var navWidth = 28
+var navWidth = 30
 
 // applyNavWidth sets the navigator's width from the config, within reason:
 // below 16 columns no name survives, and past 60 the navigator is most of

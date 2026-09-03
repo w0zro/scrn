@@ -127,6 +127,7 @@ func TestArrangementsCoalesceToTheLastAsked(t *testing.T) {
 	s := newSession()
 	s.closed = true
 	s.nav = "%0"
+	s.column = 28
 	for pid := 1; pid <= 4; pid++ {
 		id := "%" + strconv.Itoa(pid)
 		s.panes[pid] = &pane{id: id, pid: pid}

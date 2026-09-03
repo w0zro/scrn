@@ -29,7 +29,7 @@ type Config struct {
 	// that no built-in list can know (bazel-out, dist, an extracted dataset).
 	SkipDirs []string `json:"skipDirs,omitempty"`
 
-	// NavWidth is the navigator column's width, for when the default 28 is
+	// NavWidth is the navigator column's width, for when the default 30 is
 	// too tight for the qualified names a work checkout produces. Held
 	// between 16 and 60; zero means the default.
 	NavWidth int `json:"navWidth,omitempty"`

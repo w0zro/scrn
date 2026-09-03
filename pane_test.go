@@ -398,7 +398,7 @@ func TestANameIsNotRepeatedBackAtYou(t *testing.T) {
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/proj", name: "claude"}}
 	m.rebuild()
 
-	if got := strings.TrimSpace(navColumn(m)[1]); got != "└─ claude" {
+	if got := strings.TrimSpace(navColumn(m)[1]); got != "claude" {
 		t.Errorf("row = %q, want the name once", got)
 	}
 }

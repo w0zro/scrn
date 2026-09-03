@@ -171,10 +171,10 @@ func tmuxStyled(fg string, bold bool, text string) string {
 // The glyphs. A filled mark is something lit — an answer waiting, a plan
 // entry up — and a hollow one is the same thing quiet; the diamond is an ask.
 const (
-	glyphSelected = "▸" // the cursor, in the navigator's gutter
-	glyphBranch   = "├─"
-	glyphLast     = "└─"
-	glyphRail     = "│" // the tree's vertical, continuing past a branch
+	glyphSelected = "▸"  // the cursor, in the navigator's gutter
+	glyphBranch   = "  " // a child sits on indent alone: the rules were the loudest thing on screen
+	glyphLast     = "  "
+	glyphRail     = "│" // the tree's vertical past a child that has siblings after it: a guide, drawn faint
 	glyphDivider  = "│" // between the navigator and its own pane; tmux's border stands where a shell's is
 	glyphOn       = "●"
 	glyphOff      = "○"

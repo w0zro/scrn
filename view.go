@@ -114,28 +114,49 @@ func (m model) navLines(rows int) []string {
 	}
 	switch {
 	case len(m.projects) == 0:
-		return []string{" " + noteStyle.Render("no repositories")}
+		return []string{"  " + noteStyle.Render("no repositories")}
 	case len(m.rows) == 0 && m.filter != "":
-		return []string{" " + noteStyle.Render("no project matches")}
+		return []string{"  " + noteStyle.Render("no project matches")}
 	case len(m.rows) == 0:
 		// The front door teaches the three doors out of it — including the
 		// one that teaches everything else.
 		return []string{
-			" " + noteStyle.Render("nothing running"),
+			"  " + noteStyle.Render("nothing running"),
 			"",
-			" " + faintStyle.Render(".  show all"),
-			" " + faintStyle.Render("/  find a project"),
-			" " + faintStyle.Render("?  the keys"),
+			"  " + faintStyle.Render(".  show all"),
+			"  " + faintStyle.Render("/  find a project"),
+			"  " + faintStyle.Render("?  the keys"),
 		}
 	}
 
-	end := min(m.offset+rows, len(m.rows))
+	// Places read as paragraphs when the window has room: a blank row before
+	// each place after the first. Only when the whole list fits with them —
+	// a list that scrolls counts its rows, and a blank is not a row.
+	gaps := 0
+	if !m.typing {
+		for i, r := range m.rows {
+			if i > 0 && isPlace(r) {
+				gaps++
+			}
+		}
+	}
+	spaced := m.offset == 0 && gaps > 0 && len(m.rows)+gaps <= rows
 
+	end := min(m.offset+rows, len(m.rows))
 	lines := make([]string, 0, rows)
 	for i := m.offset; i < end; i++ {
+		if spaced && i > 0 && isPlace(m.rows[i]) {
+			lines = append(lines, "")
+		}
 		lines = append(lines, m.renderRow(m.rows[i], i == m.cursor))
 	}
 	return lines
+}
+
+// isPlace reports whether a row is a place at the top of the list: a group,
+// or a repository under no group.
+func isPlace(r navRow) bool {
+	return r.prefix == "" && (r.kind == rowGroup || r.kind == rowProject)
 }
 
 // renderRow draws one navigator row. The cursor is a marker in the gutter
@@ -185,7 +206,8 @@ func (m model) renderRow(r navRow, selected bool) string {
 
 	// A group or a repository sits on indent alone, naming a place the rows
 	// beneath are inside. What hangs off a repository — its processes and its
-	// sub-projects — is one family of siblings, and the tree rules say so.
+	// sub-projects — is one family of siblings, a step further in, with a
+	// faint rail past a child that has siblings after it.
 	rules := r.prefix
 	if r.kind == rowProc || r.kind == rowSub {
 		branch := glyphBranch
@@ -204,7 +226,8 @@ func (m model) renderRow(r navRow, selected bool) string {
 		fromLeft = false
 	}
 
-	room := navWidth - 2 - lipgloss.Width(rules) - lipgloss.Width(fold) -
+	// The marker's column and a column of gutter come before the rules.
+	room := navWidth - 3 - lipgloss.Width(rules) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark)
 
 	// While a query is at work the matched letters are lit, so the narrowed
@@ -218,7 +241,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 	} else {
 		seg = style.Render(truncateTail(label, room))
 	}
-	return marker + faintStyle.Render(rules) + seg +
+	return marker + " " + ruleStyle.Render(rules) + seg +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 

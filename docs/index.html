@@ -66,15 +66,15 @@
     <div class="tui" aria-label="the scrn navigator: repositories with their processes nested under them">
 <pre><span class="t-ttl">scrn</span>                      <span class="t-num">①</span>
 
- acme
-   web
-<span class="t-sel">▸  ├─ npm run dev</span>         <span class="t-num">③</span>
-   <span class="t-dim">└─</span> claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
-   api
-   <span class="t-dim">└─</span> claude <span class="c-urgent">◆</span>
- scrn
- <span class="t-dim">└─</span> go test ./...
+  acme
+    web
+<span class="t-sel">▸      npm run dev</span>        <span class="t-num">③</span>
+       claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
+    api
+       claude <span class="c-urgent">◆</span>
 
+  scrn
+     go test ./...
 <span class="chip-navigate"> NAV </span><span class="wash-navigate">                                         </span><span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
@@ -149,29 +149,30 @@
   const span = (cls, text) => '<span class="' + cls + '">' + text + '</span>';
 
   // The navigator: a group, its repositories, and the processes under each.
+  // A child sits on indent alone; places sit a row apart when there is room.
   const TREE = [
-    { pre: '',   label: 'acme' },
-    { pre: '  ', label: 'web' },
-    { pre: '  ', rule: '├─ ', label: 'npm run dev' },
-    { pre: '  ', rule: '└─ ', label: 'claude', mark: 'spin' },
-    { pre: '  ', label: 'api' },
-    { pre: '  ', rule: '└─ ', label: 'go run ./cmd/api' },
-    { pre: '',   label: 'scrn' },
-    { pre: '',   rule: '├─ ', label: 'claude', mark: 'ask' },
-    { pre: '',   rule: '└─ ', label: 'go test ./...' },
+    { pre: '',      label: 'acme' },
+    { pre: '  ',    label: 'web' },
+    { pre: '     ', label: 'npm run dev' },
+    { pre: '     ', label: 'claude', mark: 'spin' },
+    { pre: '  ',    label: 'api' },
+    { pre: '     ', label: 'go run ./cmd/api' },
+    { gap: true },
+    { pre: '',      label: 'scrn' },
+    { pre: '   ',   label: 'claude', mark: 'ask' },
+    { pre: '   ',   label: 'go test ./...' },
   ];
 
   function navRow(i, cursor) {
     const r = TREE[i], sel = i === cursor;
-    const rules = r.pre + (r.rule || '');
-    // A blocked agent lights its whole row until the cursor is on it.
+    if (r.gap) return '';
+    // A blocked agent lights its whole row until the cursor is on it; the
+    // cursor row is bold, and no color is spent on where you are.
     const cls = sel ? 'c-sel' : (r.mark === 'ask' ? 'c-urgent' : 'c-fg');
     let mark = '';
-    if (r.mark === 'spin') mark = ' ' + span('c-good spin', '⠧');
+    if (r.mark === 'spin') mark = ' ' + span('c-attn spin', '⠧');
     if (r.mark === 'ask') mark = ' ' + span('c-urgent', '◆');
-    return cell(1, sel ? '▸' : ' ') +
-      (rules ? span('c-dim', rules) : '') +
-      span(cls, r.label) + mark;
+    return cell(1, sel ? '▸' : ' ') + ' ' + r.pre + span(cls, r.label) + mark;
   }
 
   function navLines(cursor) {
