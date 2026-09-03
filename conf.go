@@ -79,7 +79,12 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		`set -g set-titles-string "#{?#{@scrn_nav},scrn,#{?#{@scrn_tab},#{@scrn_tab},#{pane_current_command}}}"`,
 		"set -g escape-time 10",
 		"set -g focus-events on",
-		"set -g default-terminal tmux-256color",
+		// The panes' TERM is the xterm name rather than tmux's own: Claude
+		// Code reads a TERM that begins with tmux- as a 256-color terminal
+		// whatever COLORTERM says, and paints datum's near-black grounds as
+		// the nearest cube color, a saturated teal. The xterm name keeps
+		// true color, as it does in most tmux configurations.
+		"set -g default-terminal xterm-256color",
 		`set -as terminal-features ",*:RGB"`,
 		"set -g display-time 3000",
 		"",
