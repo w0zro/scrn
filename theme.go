@@ -1,9 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"image/color"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -13,106 +10,151 @@ import (
 // glyphs are the marks drawn beside and between the words, and the styles the
 // rest of the code reads are derived from them. An appearance change is a
 // change here; the render code asks for roles, not colors.
+//
+// scrn carries no colors of its own. It draws with the terminal's sixteen
+// slots, so the list wears whatever the terminal wears — datum, in light or
+// dark — and the claude in the pane beside it, the tmux around both and the
+// list are one palette by construction. Hue is spent on state alone: amber
+// for working, green for finished and waiting on you, pink for blocked on a
+// question, the orange-red for dying; where you are is weight and a marker.
+// When nothing needs you, the list is ink.
 
-// palette is every color scrn draws with. The values are GitHub Primer's,
-// plus a brand purple: a palette built for reading interfaces, in a light and
-// a dark answer for each role.
-type palette struct {
-	brand  color.Color // scrn's own name
-	fg     color.Color // what is being read
-	muted  color.Color // quiet: tree rules, idle rows, scrn's own asides
-	label  color.Color // the name of a fact, beside its value
-	border color.Color // lines that separate, never speak
-	accent color.Color // the selection
-
-	success   color.Color // something alive and well
-	attention color.Color // an answer owed, worth a glance
-	urgent    color.Color // an answer holding up work, worth crossing the room
-	danger    color.Color // dying, failed, destructive
-
-	// The washes: three of the same answers, pale enough to paint a field
-	// under text rather than speak. The mode bar rides on them.
-	accentWash    color.Color
-	successWash   color.Color
-	attentionWash color.Color
-}
-
-// newPalette picks each role's color for the background the terminal
-// reported.
-func newPalette(dark bool) palette {
-	pick := lipgloss.LightDark(dark)
-	c := func(light, dark string) color.Color {
-		return pick(lipgloss.Color(light), lipgloss.Color(dark))
-	}
-	return palette{
-		brand:  c("#5A3FD9", darkBrand),
-		fg:     c("#1F2328", darkFg),
-		muted:  c("#98A0A8", "#5C6570"),
-		label:  c("#6A737D", darkLabel),
-		border: c("#D8DEE4", darkBorder),
-		accent: c("#0550AE", darkAccent),
-
-		success:   c("#1A7F37", darkSuccess),
-		attention: c("#9A6700", darkAttention),
-		urgent:    c("#BF3989", "#F778BA"),
-		danger:    c("#CF222E", darkDanger),
-
-		accentWash:    c("#DDF4FF", darkAccentWash),
-		successWash:   c("#DAFBE1", "#12351F"),
-		attentionWash: c("#FFF8C5", "#372E12"),
-	}
-}
-
-// The dark answers tmux draws with. The status line, the borders and the
-// popups are tmux's, and tmux is configured once for every terminal rather
-// than asked which background it found, so they wear the dark palette
-// whatever the navigator learns. Named here so a color changes in one
-// place; the tmux configuration reads these.
+// The slots, by the job each does here. The terminal's theme says what
+// color a slot is; scrn says what it means.
 const (
-	darkBg         = "#0F1318"
-	darkBrand      = "#B9A7FF"
-	darkFg         = "#E6E6E6"
-	darkLabel      = "#8B949E"
-	darkBorder     = "#30363D"
-	darkAccent     = "#79C0FF"
-	darkSuccess    = "#3FB950"
-	darkAttention  = "#D29922"
-	darkDanger     = "#F85149"
-	darkAccentWash = "#15294A"
+	slotRed   = "1" // dying, failed, destructive
+	slotGreen = "2" // alive and well; finished and waiting on you
+	slotPink  = "5" // an answer holding up work: worth crossing the room
+	slotCyan  = "6" // found: the letters a query matched
+	slotGray  = "8" // quiet: idle rows, labels, scrn's own asides
+	slotAmber = "9" // working, and an answer owed
 )
 
-// shade is a color part way from the dark ground toward hex: 1 is the
-// color itself, 0 the ground. The status line's chips and washes are
-// shades of the mode's color, so a mode reads in one hue at two depths.
-func shade(hex string, amount float64) string {
-	c, err := strconv.ParseUint(strings.TrimPrefix(hex, "#"), 16, 32)
-	g, gerr := strconv.ParseUint(strings.TrimPrefix(darkBg, "#"), 16, 32)
-	if err != nil || gerr != nil {
-		return hex
+// The styles are package-wide because everything drawing reads them.
+var (
+	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
+	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
+	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
+	offSelStyle, noteStyle, matchStyle                     lipgloss.Style
+)
+
+func init() { applyStyles() }
+
+// applyStyles builds every style from the slots.
+func applyStyles() {
+	slot := func(s string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(s)) }
+	ink := lipgloss.NewStyle()
+
+	// The masthead and the cursor row are the two bold things on screen:
+	// where you are is weight, not a color.
+	titleStyle = ink.Bold(true)
+	selStyle = ink.Bold(true)
+	itemStyle = ink
+	headingStyle = ink.Bold(true)
+
+	// One quiet gray, worn by content that is idle (faint), by the names of
+	// facts (label) and by scrn's own asides (hint) alike; asides in italic,
+	// the way an editor's aside is set apart from the text.
+	faintStyle = slot(slotGray)
+	labelStyle = slot(slotGray)
+	hintStyle = slot(slotGray)
+	noteStyle = faintStyle.Italic(true)
+
+	// The rules that separate, never speak: a hairline, one step off the
+	// ground in whatever the ground is.
+	ruleStyle = ink.Faint(true)
+
+	// offSelStyle marks the selected row when that row is one scrn cannot
+	// step into: bold enough to find, dim enough to still read as unavailable.
+	offSelStyle = faintStyle.Bold(true)
+
+	// The states. busyStyle turns beside work in progress in claude's own
+	// amber; attnStyle marks an agent that is done and waiting on its user;
+	// blockedStyle one stopped mid-turn on a specific ask, holding up work
+	// already in flight. warnStyle asks before something irreversible.
+	busyStyle = slot(slotAmber)
+	attnStyle = slot(slotGreen).Bold(true)
+	blockedStyle = slot(slotPink).Bold(true)
+	warnStyle = slot(slotAmber).Bold(true)
+	errStyle = slot(slotRed)
+
+	// matchStyle lights the letters a query matched, inside whatever style
+	// the row is otherwise wearing: a narrowed list always shows why it
+	// narrowed. Cyan is found, and nothing else.
+	matchStyle = slot(slotCyan).Bold(true)
+
+	toneStyles = map[tone]lipgloss.Style{
+		tonePlain:  itemStyle,
+		toneGood:   slot(slotGreen),
+		toneAttn:   slot(slotAmber),
+		toneUrgent: slot(slotPink),
+		toneBad:    slot(slotRed),
+		toneAccent: ink.Bold(true),
+		toneQuiet:  faintStyle,
 	}
-	mix := func(shift uint) uint64 {
-		a, b := float64((c>>shift)&0xFF), float64((g>>shift)&0xFF)
-		return uint64(b + (a-b)*amount + 0.5)
-	}
-	return fmt.Sprintf("#%02X%02X%02X", mix(16), mix(8), mix(0))
 }
 
-// The status line's depths: how much of the mode's color the chip's
-// ground carries, and how much the rest of the line does.
+// tone is how a value in the detail pane reads. Most facts are plain; the
+// few that carry a state carry it in the same colors the navigator's marks
+// wear, and the ones that are true but secondary recede.
+type tone int
+
 const (
-	chipDepth = 0.32
-	washDepth = 0.10
+	tonePlain  tone = iota // content, read at full weight
+	toneGood               // alive and well: running, working
+	toneAttn               // worth a glance: a dirty tree, a diverged branch
+	toneUrgent             // holding up work: blocked on an ask
+	toneBad                // wrong: a zombie, a failure
+	toneAccent             // identity worth picking out: a branch, a port
+	toneQuiet              // true but secondary: ids, urls, empty counts
 )
+
+// toneStyles is the color each tone reads in. Values stay unbolded whatever
+// their tone: the pane is a page, and color is enough of a voice on a page.
+var toneStyles map[tone]lipgloss.Style
+
+// tmuxPalette is what tmux draws with: the status line, the borders, the
+// popups. tmux takes hex, and is configured once for every terminal rather
+// than asked which ground it found, so the config names the side and the
+// values are datum's for it — the same colors the slots resolve to in a
+// terminal wearing datum.
+type tmuxPalette struct {
+	bg1, bg2                      string // one and two steps off the ground: the wash, the chip
+	fg, gray                      string
+	green, amber, pink, red, cyan string
+}
+
+var tmuxDark = tmuxPalette{
+	bg1: "#1A1E24", bg2: "#2B2F35", fg: "#DBE0E8", gray: "#8F98A3",
+	green: "#54DCAA", amber: "#F8BD5F", pink: "#FA94CD", red: "#FE9864", cyan: "#6AE5EC",
+}
+
+var tmuxLight = tmuxPalette{
+	bg1: "#E7ECF2", bg2: "#CED3D9", fg: "#292E35", gray: "#616A76",
+	green: "#007553", amber: "#976700", pink: "#973070", red: "#A24500", cyan: "#0D7A7F",
+}
+
+// tp is the palette tmux draws with: dark unless the config says light.
+var tp = tmuxDark
+
+// applyTheme picks tmux's side from the config. Anything but "light" is
+// dark, the more common terminal.
+func applyTheme(theme string) {
+	if theme == "light" {
+		tp = tmuxLight
+	} else {
+		tp = tmuxDark
+	}
+}
 
 // statusChip is a mode on the status line: the word, bold in its color on
-// a dark ground of that color, and after it the rest of the line washed
-// with the faintest of it, which is what says the mode from across the
-// room. The word's # are doubled: tmux expands them otherwise.
+// the chip's ground, and after it the rest of the line washed one step off
+// the terminal's ground — one tone for every mode, the chip alone carrying
+// the color. The word's # are doubled: tmux expands them otherwise.
 func statusChip(color, word string) string {
-	wash := shade(color, washDepth)
-	return "#[fg=" + color + ",bg=" + shade(color, chipDepth) + ",bold] " +
+	return "#[fg=" + color + ",bg=" + tp.bg2 + ",bold] " +
 		strings.ReplaceAll(word, "#", "##") +
-		" #[fg=default,bg=" + wash + ",fill=" + wash + "]"
+		" #[fg=default,bg=" + tp.bg1 + ",fill=" + tp.bg1 + "]"
 }
 
 // tmuxStyled wraps text for tmux's status line: its color and weight in
@@ -149,96 +191,3 @@ const paneGutter = "  "
 // spinFrames is the turning marker beside work in progress: a process being
 // killed, an agent mid-turn.
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-// The styles are package-wide because everything drawing reads them, and they
-// are variables because they depend on a fact that arrives late: which
-// background the terminal has. Lipgloss no longer guesses at it, so scrn asks
-// (Init) and rebuilds on the answer (Update). Until it comes, dark — the more
-// common terminal, and a wrong guess lasts one frame.
-var (
-	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
-	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
-	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
-	offSelStyle, noteStyle, matchStyle                     lipgloss.Style
-)
-
-func init() { applyBackground(true) }
-
-// applyBackground rebuilds every style for the background the terminal
-// reported.
-func applyBackground(dark bool) {
-	p := newPalette(dark)
-
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(p.brand)
-	ruleStyle = lipgloss.NewStyle().Foreground(p.border)
-	itemStyle = lipgloss.NewStyle().Foreground(p.fg)
-	selStyle = lipgloss.NewStyle().Bold(true).Foreground(p.accent)
-	labelStyle = lipgloss.NewStyle().Foreground(p.label)
-
-	// One quiet gray, worn by content that is idle (faint) and by scrn's own
-	// asides (hint) alike. They were two barely different grays, and read as
-	// inconsistency rather than hierarchy.
-	faintStyle = lipgloss.NewStyle().Foreground(p.muted)
-	hintStyle = lipgloss.NewStyle().Foreground(p.muted)
-	errStyle = lipgloss.NewStyle().Foreground(p.danger)
-	busyStyle = lipgloss.NewStyle().Foreground(p.success)
-
-	// warnStyle asks before something irreversible; attnStyle marks an agent
-	// that is done and waiting on its user. Different moments, one color:
-	// both are an answer owed, bright enough to catch from across the room.
-	warnStyle = lipgloss.NewStyle().Bold(true).Foreground(p.attention)
-	attnStyle = lipgloss.NewStyle().Bold(true).Foreground(p.attention)
-
-	// blockedStyle marks an agent stopped mid-turn on a specific ask — a
-	// permission prompt, a question. Brighter than the amber of done-and-
-	// waiting, because this answer is holding up work already in flight.
-	blockedStyle = lipgloss.NewStyle().Bold(true).Foreground(p.urgent)
-
-	// headingStyle names what the detail pane is about, so that what a row is
-	// does not read at the same weight as its memory share.
-	headingStyle = itemStyle.Bold(true)
-
-	// offSelStyle marks the selected row when that row is one scrn cannot
-	// step into: bold enough to find, dim enough to still read as unavailable.
-	offSelStyle = faintStyle.Bold(true)
-
-	// matchStyle lights the letters a query matched, inside whatever style
-	// the row is otherwise wearing: a narrowed list always shows why it
-	// narrowed.
-	matchStyle = lipgloss.NewStyle().Bold(true).Foreground(p.accent)
-
-	// noteStyle is scrn speaking for itself — the path under a heading, an
-	// empty list saying why it is empty. Italic sets the voice apart from
-	// content the same way an editor's aside is set apart from the text.
-	noteStyle = faintStyle.Italic(true)
-
-	toneStyles = map[tone]lipgloss.Style{
-		tonePlain:  itemStyle,
-		toneGood:   lipgloss.NewStyle().Foreground(p.success),
-		toneAttn:   lipgloss.NewStyle().Foreground(p.attention),
-		toneUrgent: lipgloss.NewStyle().Foreground(p.urgent),
-		toneBad:    lipgloss.NewStyle().Foreground(p.danger),
-		toneAccent: lipgloss.NewStyle().Foreground(p.accent),
-		toneQuiet:  faintStyle,
-	}
-}
-
-// tone is how a value in the detail pane reads. Most facts are plain; the
-// few that carry a state carry it in the same colors the navigator's marks
-// wear, and the ones that are true but secondary recede.
-type tone int
-
-const (
-	tonePlain  tone = iota // content, read at full weight
-	toneGood               // alive and well: running, working
-	toneAttn               // worth a glance: a dirty tree, a diverged branch
-	toneUrgent             // holding up work: blocked on an ask
-	toneBad                // wrong: a zombie, a failure
-	toneAccent             // identity worth picking out: a branch, a port
-	toneQuiet              // true but secondary: ids, urls, empty counts
-)
-
-// toneStyles is the color each tone reads in, rebuilt with the rest of the
-// styles. Values stay unbolded whatever their tone: the pane is a page, and
-// color is enough of a voice on a page.
-var toneStyles map[tone]lipgloss.Style

@@ -34,6 +34,12 @@ type Config struct {
 	// between 16 and 60; zero means the default.
 	NavWidth int `json:"navWidth,omitempty"`
 
+	// Theme is the side tmux draws for — "dark" unless it says "light". The
+	// navigator needs no telling: it draws with the terminal's own sixteen
+	// colors. The status line, the borders and the popups are tmux's, and
+	// tmux takes colors, not slots, so the config says which side.
+	Theme string `json:"theme,omitempty"`
+
 	// Agent names the kind of agent the a key starts — "claude" unless said
 	// otherwise. A name scrn does not know falls back to the default.
 	Agent string `json:"agent,omitempty"`

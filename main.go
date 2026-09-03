@@ -97,6 +97,7 @@ func main() {
 		applyNavWidth(cfg.NavWidth)
 		applyScrollback(cfg.Scrollback)
 		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
+		applyTheme(cfg.Theme)
 	}
 	if err := runLaunch(); err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
@@ -135,6 +136,7 @@ func runNav() {
 		applyNavWidth(cfg.NavWidth)
 		applyScrollback(cfg.Scrollback)
 		applyAgentConfig(cfg.Agent, cfg.AgentRuns)
+		applyTheme(cfg.Theme)
 	}
 	p := tea.NewProgram(newModel())
 	if _, err := p.Run(); err != nil {

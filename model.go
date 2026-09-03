@@ -318,10 +318,7 @@ func newModel() model {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(scanProjects, scanProcs, scanAgents, connectServer(),
-		tick(procPoll), agentTick(),
-		// The styles depend on the terminal's background, which lipgloss no
-		// longer guesses at: scrn asks, and rebuilds them on the answer.
-		func() tea.Msg { return tea.RequestBackgroundColor() })
+		tick(procPoll), agentTick())
 }
 
 // scanProjects loads the config and walks the projects directory off the
@@ -646,11 +643,6 @@ func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 			cmds = append(cmds, m.scanPoll())
 		}
 		return m, tea.Batch(cmds...)
-
-	case tea.BackgroundColorMsg:
-		// The answer to Init's ask: now the styles can pick their side.
-		applyBackground(msg.IsDark())
-		return m, nil
 
 	case tea.PasteMsg:
 		// Into the picker it is more of the query, the way it is for the
@@ -1827,36 +1819,36 @@ func (m model) statusLine() statusText {
 	var t statusText
 	switch {
 	case m.pendingReplace:
-		t.mode = statusChip(darkAttention, "CONFIRM")
-		t.msg = tmuxStyled(darkAttention, true, " end the server, and "+
+		t.mode = statusChip(tp.amber, "CONFIRM")
+		t.msg = tmuxStyled(tp.amber, true, " end the server, and "+
 			plural(len(m.terms), "shell", "shells")+"? · R confirms")
 		return t
 
 	case m.pendingKill != nil:
-		t.mode = statusChip(darkAttention, "CONFIRM")
-		t.msg = tmuxStyled(darkAttention, true, " kill "+m.pendingKill.subject+"? · x confirms")
+		t.mode = statusChip(tp.amber, "CONFIRM")
+		t.msg = tmuxStyled(tp.amber, true, " kill "+m.pendingKill.subject+"? · x confirms")
 		return t
 
 	case m.resume != nil:
 		// The picker wears the filter's face: it is the same kind of
 		// typing, aimed at conversations instead of places.
-		t.mode = statusChip(darkFg, "CONTINUE /"+m.resume.query+"█")
+		t.mode = statusChip(tp.fg, "CONTINUE /"+m.resume.query+"█")
 
 	case m.typing:
-		t.mode = statusChip(darkFg, "/"+m.filter+"█")
+		t.mode = statusChip(tp.fg, "/"+m.filter+"█")
 
 	case m.filter != "":
 		// A standing filter is the navigator's mode still, in its color.
-		t.mode = statusChip(darkAttention, "/"+m.filter)
+		t.mode = statusChip(tp.cyan, "/"+m.filter)
 	}
 
 	// What was just reported stays beside the query being typed: acting
 	// from the search is the point of it, and an action that says nothing
 	// looks like one that did nothing.
 	if m.status != "" {
-		color := darkFg
+		color := tp.fg
 		if m.statusErr {
-			color = darkDanger
+			color = tp.red
 		}
 		t.msg = tmuxStyled(color, false, " "+m.status)
 	}

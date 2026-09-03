@@ -327,6 +327,12 @@ server's configuration at launch, so raising it takes
 .B navWidth
 the navigator column's width, 16\(en60 (default 28)
 .TP
+.B theme
+the side tmux draws for: "dark" (the default) or "light". The navigator
+draws with the terminal's own sixteen colors and needs no telling; the
+status line, the borders and the popups are tmux's, which takes colors
+rather than slots, so the config says which side.
+.TP
 .B agent
 the kind of agent
 .B a

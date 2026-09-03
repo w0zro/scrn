@@ -88,11 +88,11 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"# resize, so the window's growth is the shell's.",
 		"set -g main-pane-width "+strconv.Itoa(navWidth),
 		`set-hook -g window-resized 'if -F "#{@scrn_home}" "select-layout main-vertical"'`,
-		`set -g pane-border-style "fg=`+darkBorder+`"`,
-		`set -g pane-active-border-style "fg=`+darkBorder+`"`,
+		`set -g pane-border-style "fg=`+tp.bg1+`"`,
+		`set -g pane-active-border-style "fg=`+tp.bg1+`"`,
 		"set -g pane-border-indicators off",
 		"set -g popup-border-lines rounded",
-		`set -g popup-border-style "fg=`+darkBorder+`"`,
+		`set -g popup-border-style "fg=`+tp.bg2+`"`,
 		"",
 		"# The status line: the mode the keys are in — the prefix while a",
 		"# chord hangs, copy mode, the navigator's own when it has one to",
@@ -104,15 +104,15 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"set -g status-interval 1",
 		"set -g status-justify left",
 		"set -g status-left-length 400",
-		`set -g status-style "bg=default,fg=`+darkLabel+`"`,
+		`set -g status-style "bg=`+tp.bg1+`,fg=`+tp.gray+`"`,
 		`set -g status-left "`+statusLeft()+`"`,
 		`set -g status-right ""`,
 		`set -g window-status-separator ""`,
 		`set -g window-status-format ""`,
 		`set -g window-status-current-format ""`,
-		`set -g message-style "bg=default,fg=`+darkAttention+`,bold"`,
-		`set -g message-command-style "bg=default,fg=`+darkAttention+`"`,
-		`set -g mode-style "bg=`+darkAccentWash+`,fg=`+darkFg+`"`,
+		`set -g message-style "bg=`+tp.bg1+`,fg=`+tp.amber+`,bold"`,
+		`set -g message-command-style "bg=`+tp.bg1+`,fg=`+tp.amber+`"`,
+		`set -g mode-style "bg=`+tp.bg2+`,fg=`+tp.fg+`"`,
 	)
 	return b.String()
 }
@@ -122,18 +122,18 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 // the keys are in — and the navigator names its own in @scrn_mode, which
 // counts only while the keys are with it: a filter half-typed is not the
 // mode of a shell. What the navigator has to say is in @scrn_msg. Each
-// mode is a chip in its color with the line washed after it: purple for
-// the prefix — scrn's own key, in scrn's own color — amber for the
-// navigator, green for a process.
+// mode is a chip in its color with the line washed one tone after it:
+// amber for the prefix, green for a process, cyan for copy mode, and the
+// navigator in ink — home is not a state.
 func statusLeft() string {
 	// A chip stands inside a conditional, where a comma would split the
 	// alternatives, so the styles' commas are escaped.
 	chip := func(color, word string) string {
 		return strings.ReplaceAll(statusChip(color, word), ",", "#,")
 	}
-	mode := "#{?client_prefix," + chip(darkBrand, "PREFIX") +
-		",#{?pane_in_mode," + chip(darkLabel, "COPY") +
-		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(darkAttention, "NAV") + "}," +
-		chip(darkSuccess, "PROC") + "}}}"
+	mode := "#{?client_prefix," + chip(tp.amber, "PREFIX") +
+		",#{?pane_in_mode," + chip(tp.cyan, "COPY") +
+		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(tp.fg, "NAV") + "}," +
+		chip(tp.green, "PROC") + "}}}"
 	return mode + "#{@scrn_msg}"
 }

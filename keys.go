@@ -110,12 +110,10 @@ func showKeys(run runner, exe, client string) error {
 // keysModel is the page as a program: drawn once, gone on the first key.
 type keysModel struct{}
 
-func (keysModel) Init() tea.Cmd { return tea.RequestBackgroundColor }
+func (keysModel) Init() tea.Cmd { return nil }
 
 func (k keysModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.BackgroundColorMsg:
-		applyBackground(msg.IsDark())
+	switch msg.(type) {
 	case tea.KeyPressMsg, tea.PasteMsg:
 		return k, tea.Quit
 	}
