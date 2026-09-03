@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 )
 
 // scrn ls is the faucet on the server's state: the shells it holds, one per
@@ -18,7 +20,7 @@ import (
 func runLS(w io.Writer) error {
 	out, err := tmuxCommand("list-panes", "-a", "-F", listFormat)
 	if err != nil {
-		if err == errNoServer {
+		if errors.Is(err, errNoServer) {
 			return nil
 		}
 		return err
@@ -30,15 +32,8 @@ func runLS(w io.Writer) error {
 		ss = append(ss, p.info())
 	}
 
-	sort.Slice(ss, func(i, j int) bool {
-		a, b := ss[i], ss[j]
-		if a.Dir != b.Dir {
-			return a.Dir < b.Dir
-		}
-		if a.Name != b.Name {
-			return a.Name < b.Name
-		}
-		return a.PID < b.PID
+	slices.SortFunc(ss, func(a, b sessionInfo) int {
+		return cmp.Or(cmp.Compare(a.Dir, b.Dir), cmp.Compare(a.Name, b.Name), cmp.Compare(a.PID, b.PID))
 	})
 	for _, s := range ss {
 		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\n", s.PID, s.Dir, s.Name); err != nil {

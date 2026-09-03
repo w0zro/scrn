@@ -429,7 +429,7 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 		// Under a shell, so the command is found on the user's own PATH,
 		// and one that exits leaves the shell rather than the row
 		// vanishing.
-		cmd = command + "; exec " + shellCommand()
+		cmd = command + "; exec " + shellQuote(shellCommand())
 	}
 	winName := heldName
 	if wanted {
@@ -449,7 +449,7 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 		_, err := run("new-session", "-d", "-s", tmuxSession, "-n", bornName, "-c", "/", "sleep 30")
 		if err == nil {
 			defer func() { _, _ = run("kill-window", "-t", tmuxSession+":"+bornName) }()
-		} else if !strings.Contains(err.Error(), "duplicate session") {
+		} else if !errors.Is(err, errDuplicateSession) {
 			return birth{}, err
 		}
 	}

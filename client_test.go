@@ -275,7 +275,7 @@ func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
 		case "has-session":
 			return "", errNoServer
 		case "new-session":
-			return "", errors.New("duplicate session: scrn")
+			return "", errDuplicateSession
 		case "new-window":
 			return "%1 700", nil
 		case "list-panes":

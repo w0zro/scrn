@@ -1,6 +1,8 @@
 package main
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -43,17 +45,7 @@ func matchSpans(query, s string) []int {
 			seen[p] = true
 		}
 	}
-	spans := make([]int, 0, len(seen))
-	for p := range seen {
-		spans = append(spans, p)
-	}
-	// Insertion sort: spans are few and nearly ordered.
-	for i := 1; i < len(spans); i++ {
-		for j := i; j > 0 && spans[j] < spans[j-1]; j-- {
-			spans[j], spans[j-1] = spans[j-1], spans[j]
-		}
-	}
-	return spans
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // subseq matches token as a subsequence of s, case-folded, preferring word

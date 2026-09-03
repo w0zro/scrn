@@ -24,7 +24,12 @@ const homeName = "scrn"
 // homeCommand is what the navigator's pane runs: this build, as the
 // navigator. A variable so the tests can put something inert there.
 var homeCommand = func() string {
-	return "'" + strings.ReplaceAll(scrnExe(), "'", `'\''`) + "' nav"
+	return shellQuote(scrnExe()) + " nav"
+}
+
+// shellQuote is s as one word to a POSIX shell, whatever is in it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // scrnExe is the path of this build, for the configuration and the home

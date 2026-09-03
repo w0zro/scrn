@@ -1,10 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -91,18 +92,15 @@ func discoverAll(roots []string, skip map[string]bool) ([]Project, []Project, er
 
 	groups := deriveGroups(found, rootOf)
 	qualifyAcrossRoots(found, rootOf)
-	byName := func(ps []Project) func(i, j int) bool {
-		return func(i, j int) bool {
-			a, b := strings.ToLower(ps[i].Name), strings.ToLower(ps[j].Name)
-			if a != b {
-				return a < b
-			}
-			return ps[i].Path < ps[j].Path
-		}
-	}
-	sort.Slice(found, byName(found))
-	sort.Slice(groups, byName(groups))
+	slices.SortFunc(found, byName)
+	slices.SortFunc(groups, byName)
 	return found, groups, nil
+}
+
+// byName orders projects by name, case aside, and by path between two
+// that share one.
+func byName(a, b Project) int {
+	return cmp.Or(cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), cmp.Compare(a.Path, b.Path))
 }
 
 // deriveGroups finds the folders that group repositories: a repository's own
@@ -226,13 +224,7 @@ func discoverProjects(root string, skip map[string]bool) ([]Project, error) {
 	}
 
 	assignNames(root, found)
-	sort.Slice(found, func(i, j int) bool {
-		a, b := strings.ToLower(found[i].Name), strings.ToLower(found[j].Name)
-		if a != b {
-			return a < b
-		}
-		return found[i].Path < found[j].Path
-	})
+	slices.SortFunc(found, byName)
 	return found, nil
 }
 
@@ -338,9 +330,7 @@ func shortName(segs []string, n, keep int) string {
 	if keep == 0 {
 		return nameAt(segs, n)
 	}
-	if n > len(segs) {
-		n = len(segs)
-	}
+	n = min(n, len(segs))
 
 	parts := make([]string, 0, n)
 	tail := segs[len(segs)-n:]
@@ -356,14 +346,10 @@ func shortName(segs []string, n, keep int) string {
 // widestParent is the longest parent in a name, which is as far as squeezing
 // them can ever be undone.
 func widestParent(segs []string, n int) int {
-	if n > len(segs) {
-		n = len(segs)
-	}
+	n = min(n, len(segs))
 	widest := 0
 	for _, seg := range segs[len(segs)-n : len(segs)-1] {
-		if r := len([]rune(seg)); r > widest {
-			widest = r
-		}
+		widest = max(widest, len([]rune(seg)))
 	}
 	return widest
 }
@@ -438,6 +424,6 @@ func subProjects(repo string) []Project {
 			Path: filepath.Join(repo, dir),
 		})
 	}
-	sort.Slice(subs, func(i, j int) bool { return subs[i].Name < subs[j].Name })
+	slices.SortFunc(subs, func(a, b Project) int { return cmp.Compare(a.Name, b.Name) })
 	return subs
 }

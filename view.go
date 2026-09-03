@@ -562,9 +562,7 @@ func renderBlock(block []field, width int) []string {
 	labelW := 0
 	for _, f := range block {
 		if f.kind == pairField {
-			if w := lipgloss.Width(f.label); w > labelW {
-				labelW = w
-			}
+			labelW = max(labelW, lipgloss.Width(f.label))
 		}
 	}
 

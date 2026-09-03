@@ -103,7 +103,7 @@ func showKeys(run runner, exe, client string) error {
 	}
 	_, err := run("display-popup", "-E", "-c", client, "-T", " keys ",
 		"-w", strconv.Itoa(width), "-h", strconv.Itoa(height),
-		"'"+strings.ReplaceAll(exe, "'", `'\''`)+"' page")
+		shellQuote(exe)+" page")
 	return err
 }
 

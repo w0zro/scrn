@@ -57,6 +57,9 @@ func tmuxCommand(args ...string) (string, error) {
 				strings.HasSuffix(msg, "(Connection refused)") {
 				return "", errNoServer
 			}
+			if strings.HasPrefix(msg, "duplicate session") {
+				return "", errDuplicateSession
+			}
 			return "", errors.New(msg)
 		}
 		return "", err
@@ -73,6 +76,10 @@ func tmuxCommand(args ...string) (string, error) {
 // errNoServer says no tmux server holds scrn's socket, which is how "no
 // shells anywhere" looks from outside.
 var errNoServer = errors.New("no server is running")
+
+// errDuplicateSession says the session was made in the instant between
+// asking after it and making it: someone else's making is as good as ours.
+var errDuplicateSession = errors.New("duplicate session")
 
 // ctlNote is one thing the control-mode stream said, reduced to what the bridge
 // acts on.

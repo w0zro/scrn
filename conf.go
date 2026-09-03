@@ -26,7 +26,7 @@ func confPath() string {
 // space in its name still finds it. navWidth is the navigator's column,
 // which the layout holds through every resize.
 func tmuxConf(scrn string, scrollback, navWidth int) string {
-	exe := "'" + strings.ReplaceAll(scrn, "'", `'\''`) + "'"
+	exe := shellQuote(scrn)
 	run := func(args string) string {
 		return `run-shell "` + exe + ` ` + args + `"`
 	}

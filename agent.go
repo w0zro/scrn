@@ -1,9 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -173,13 +174,14 @@ func suspendedConversations(dirs []string, live map[string]bool) []conversation 
 		}
 		out = append(out, found...)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].When.Equal(out[j].When) {
-			return out[i].When.After(out[j].When)
-		}
-		return out[i].ID < out[j].ID
-	})
+	slices.SortStableFunc(out, byRecency)
 	return out
+}
+
+// byRecency orders conversations newest first, with the id to break a tie
+// so the order holds between scans.
+func byRecency(a, b conversation) int {
+	return cmp.Or(b.When.Compare(a.When), cmp.Compare(a.ID, b.ID))
 }
 
 // resumeCommand is what continuing a conversation runs, by the kind that

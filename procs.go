@@ -3,10 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"os"
 	"os/exec"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -214,12 +215,8 @@ func descends(a, b *ProcNode, byPID map[int]*ProcNode) bool {
 // order would move the row; identically-named siblings fall back to creation
 // order, the one place it is the natural reading.
 func sortNodes(ns []*ProcNode) {
-	sort.Slice(ns, func(i, j int) bool {
-		a, b := sortName(ns[i]), sortName(ns[j])
-		if a != b {
-			return a < b
-		}
-		return ns[i].PID < ns[j].PID
+	slices.SortFunc(ns, func(a, b *ProcNode) int {
+		return cmp.Or(cmp.Compare(sortName(a), sortName(b)), cmp.Compare(a.PID, b.PID))
 	})
 	for _, n := range ns {
 		sortNodes(n.Children)
@@ -293,16 +290,16 @@ func listeningPorts(pid int) []string {
 
 // sortPorts orders ports by number, so 80 comes before 8080.
 func sortPorts(ports []string) {
-	sort.Slice(ports, func(i, j int) bool { return lessPort(ports[i], ports[j]) })
+	slices.SortFunc(ports, comparePort)
 }
 
-func lessPort(a, b string) bool {
+func comparePort(a, b string) int {
 	x, errA := strconv.Atoi(a)
 	y, errB := strconv.Atoi(b)
 	if errA != nil || errB != nil {
-		return a < b
+		return cmp.Compare(a, b)
 	}
-	return x < y
+	return cmp.Compare(x, y)
 }
 
 // under reports whether dir is path itself or nested inside it.

@@ -1,9 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1164,12 +1165,8 @@ func (m model) heldOrder() []int {
 		}
 		return len(m.projects)
 	}
-	sort.Slice(pids, func(i, j int) bool {
-		a, b := at(pids[i]), at(pids[j])
-		if a != b {
-			return a < b
-		}
-		return pids[i] < pids[j]
+	slices.SortFunc(pids, func(a, b int) int {
+		return cmp.Or(cmp.Compare(at(a), at(b)), cmp.Compare(a, b))
 	})
 	return pids
 }
@@ -1455,7 +1452,7 @@ func (m model) planned(path string) []*remoteTerm {
 			out = append(out, t)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	slices.SortFunc(out, func(a, b *remoteTerm) int { return cmp.Compare(a.name, b.name) })
 	return out
 }
 
@@ -1585,7 +1582,7 @@ func describeFailures(results []killResult) string {
 		seen[r.err.Error()] = true
 		reasons = append(reasons, r.err.Error())
 	}
-	sort.Strings(reasons)
+	slices.Sort(reasons)
 	return strings.Join(reasons, ", ")
 }
 
@@ -1659,7 +1656,7 @@ func (m *model) ageDying() {
 	}
 
 	// Sorted, so what the footer says does not depend on map order.
-	sort.Ints(stuck)
+	slices.Sort(stuck)
 	names := make([]string, 0, len(stuck))
 	for _, pid := range stuck {
 		names = append(names, m.dying[pid].command+" "+strconv.Itoa(pid))
@@ -2148,13 +2145,7 @@ func (m model) topPlaces() []navRow {
 			out = append(out, navRow{kind: rowProject, project: p})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := strings.ToLower(out[i].project.Name), strings.ToLower(out[j].project.Name)
-		if a != b {
-			return a < b
-		}
-		return out[i].project.Path < out[j].project.Path
-	})
+	slices.SortStableFunc(out, func(a, b navRow) int { return byName(a.project, b.project) })
 	return out
 }
 

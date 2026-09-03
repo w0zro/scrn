@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -264,12 +263,7 @@ func claudeSuspended(dirs []string, live map[string]bool) []conversation {
 			out = append(out, c)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].When.Equal(out[j].When) {
-			return out[i].When.After(out[j].When)
-		}
-		return out[i].ID < out[j].ID
-	})
+	slices.SortFunc(out, byRecency)
 	return out
 }
 
