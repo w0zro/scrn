@@ -1,13 +1,13 @@
 package main
 
-// The pane, the rows, and the keys, tested without a server: everything here
-// once lived beside the daemon's end-to-end tests and never needed the
-// daemon. What does need one lives in session_test.go.
+// The pane, the rows, and the keys, tested without a server. What needs one
+// lives in session_test.go.
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -124,15 +124,15 @@ func TestANewShellStartsWhereTheWorkIs(t *testing.T) {
 	}
 }
 
-func TestFooterAdvertisesTheNewShellKey(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "s shell") {
-		t.Errorf("footer = %q, want the one way to make a process advertised", f)
+func TestTheKeysListTheShell(t *testing.T) {
+	if f := keysOf(); !strings.Contains(f, "s shell") {
+		t.Errorf("keys = %q, want the shell key listed", f)
 	}
 }
 
-func TestFooterAdvertisesTheAgentKey(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "a agent") {
-		t.Errorf("footer = %q, want the agent key advertised", f)
+func TestTheKeysListTheAgent(t *testing.T) {
+	if f := keysOf(); !strings.Contains(f, "a agent") {
+		t.Errorf("keys = %q, want the agent key listed", f)
 	}
 }
 
@@ -234,7 +234,7 @@ func TestAProcessInNobodysShellIsJustItself(t *testing.T) {
 	m.cursor = 1
 
 	next, _ := m.Update(typed("x"))
-	if got := targets(next.(model).pendingKill); !sameInts(got, []int{801}) {
+	if got := targets(next.(model).pendingKill); !slices.Equal(got, []int{801}) {
 		t.Errorf("targets = %v, want just the process", got)
 	}
 }
@@ -250,7 +250,7 @@ func TestAShellIsNotItsOwnShell(t *testing.T) {
 	next, _ := m.Update(typed("x"))
 	m = next.(model)
 
-	if got := targets(m.pendingKill); !sameInts(got, []int{700}) {
+	if got := targets(m.pendingKill); !slices.Equal(got, []int{700}) {
 		t.Errorf("targets = %v, want the shell once", got)
 	}
 	if f := footer(m); strings.Contains(f, "and its shell") {
@@ -391,7 +391,7 @@ func TestXOnAProjectWithNothingRunningSaysSo(t *testing.T) {
 }
 
 func TestTheKeysListTheRun(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "r run") {
+	if f := keysOf(); !strings.Contains(f, "r run") {
 		t.Errorf("keys = %q, want the run key listed", f)
 	}
 }

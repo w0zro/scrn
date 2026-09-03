@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,8 +94,7 @@ func targets(req *killRequest) []int {
 }
 
 // splitRow cuts a body row into its navigator and detail halves at the pane
-// divider, which sits at a fixed column. It cannot search for "│": the process
-// tree draws the same rune as a continuation rule.
+// divider, which sits at a fixed column.
 func splitRow(row string) (nav, detail string) {
 	r := []rune(row)
 	if len(r) <= navWidth {
@@ -113,8 +113,8 @@ func bodyRows(m model) []string {
 	return out
 }
 
-// navColumn returns the non-blank navigator rows: scrn's own name and keys
-// bracket them in that column and are not part of the list.
+// navColumn returns the non-blank navigator rows under scrn's own name,
+// which heads that column and is not part of the list.
 func navColumn(m model) []string {
 	rows := bodyRows(m)
 	end := len(rows)
@@ -178,7 +178,7 @@ func TestViewPutsScrnInTopLeft(t *testing.T) {
 
 func TestNavPaneOccupiesItsColumn(t *testing.T) {
 	lines := strings.Split(sized(80, 24).View().Content, "\n")
-	for i := 1; i < len(lines)-1; i++ {
+	for i := 1; i < len(lines); i++ {
 		row := []rune(stripANSI(lines[i]))
 		if len(row) <= navWidth || row[navWidth] != '│' {
 			t.Fatalf("row %d: no divider at column %d: %q", i, navWidth, string(row))
@@ -290,7 +290,7 @@ func TestARunStopsFoldingWhereItBranches(t *testing.T) {
 	wantRows(t, navColumn(m), []string{" ▸ scrn", "      zsh", "        nvim", "        zig"})
 }
 
-func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
+func TestNavIndentsSiblingsUnderTheirParent(t *testing.T) {
 	m := withProcList(80, 12,
 		[]Project{{Name: "scrn", Path: "/p/scrn"}},
 		[]Proc{
@@ -411,7 +411,7 @@ func TestNarrowingRescansProcesses(t *testing.T) {
 func TestTheKeysListTheToggle(t *testing.T) {
 	// Both sides at once: the modal describes the pair rather than tracking
 	// which view the next press would show.
-	if !strings.Contains(keysOf(sized(160, 24)), ". all · running") {
+	if !strings.Contains(keysOf(), ". all · running") {
 		t.Error("the keys should mention the all/running toggle")
 	}
 }
@@ -750,7 +750,7 @@ func TestCollapseSurvivesARescan(t *testing.T) {
 func TestTheKeysListTheFolds(t *testing.T) {
 	// Both directions at once: the modal describes the pair rather than
 	// tracking which way the next press would go.
-	if !strings.Contains(keysOf(sized(160, 24)), "space · - fold · unfold all") {
+	if !strings.Contains(keysOf(), "space · - fold · unfold all") {
 		t.Error("the keys should mention folding")
 	}
 }
@@ -771,7 +771,7 @@ func TestCollapsedRowStaysInItsColumn(t *testing.T) {
 
 // keysOf is the keys page flattened to one string, so a test can ask
 // whether a key is listed.
-func keysOf(model) string {
+func keysOf() string {
 	return strings.Join(strings.Fields(stripANSI(strings.Join(keysPage(), "\n"))), " ")
 }
 
@@ -926,7 +926,7 @@ func TestStatusClearsOnTheNextKey(t *testing.T) {
 }
 
 func TestTheKeysListTheKill(t *testing.T) {
-	if !strings.Contains(keysOf(sized(80, 24)), "x · X kill") {
+	if !strings.Contains(keysOf(), "x · X kill") {
 		t.Error("the keys should mention the kill key")
 	}
 }
@@ -1262,7 +1262,7 @@ func TestXKillsTheSubtreeParentsFirst(t *testing.T) {
 	// zsh 10 holds vim 20 (holding fmt 40) and zig 30.
 	m := press(press(nestedTree(12), "down"), "X") // onto zsh 10
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !slices.Equal(got, want) {
 		t.Errorf("targets = %v, want the subtree parents first %v", got, want)
 	}
 	if f := footer(m); !strings.Contains(f, "kill zsh 10 and 4 under it?") {
@@ -1273,7 +1273,7 @@ func TestXKillsTheSubtreeParentsFirst(t *testing.T) {
 func TestLowercaseXTakesOnlyTheOneProcess(t *testing.T) {
 	m := press(press(nestedTree(12), "down"), "x") // onto zsh 10
 
-	if got := targets(m.pendingKill); !sameInts(got, []int{10}) {
+	if got := targets(m.pendingKill); !slices.Equal(got, []int{10}) {
 		t.Errorf("targets = %v, want only the selected process", got)
 	}
 	if f := footer(m); !strings.Contains(f, "kill zsh 10?") {
@@ -1288,7 +1288,7 @@ func TestXOnALeafReadsAsAPlainKill(t *testing.T) {
 	}
 	m = press(m, "X")
 
-	if got := targets(m.pendingKill); !sameInts(got, []int{40}) {
+	if got := targets(m.pendingKill); !slices.Equal(got, []int{40}) {
 		t.Errorf("targets = %v, want just the leaf", got)
 	}
 	if f := footer(m); !strings.Contains(f, "kill fmt 40?") {
@@ -1299,7 +1299,7 @@ func TestXOnALeafReadsAsAPlainKill(t *testing.T) {
 func TestXOnARepoTakesEverythingInIt(t *testing.T) {
 	m := press(nestedTree(12), "X") // cursor is on the repo row
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !slices.Equal(got, want) {
 		t.Errorf("targets = %v, want every process in the repo %v", got, want)
 	}
 	if f := footer(m); !strings.Contains(f, "kill 5 processes in scrn?") {
@@ -1313,7 +1313,7 @@ func TestLowercaseXOnARepoTakesEverythingInItToo(t *testing.T) {
 	// was on screen.
 	m := press(nestedTree(12), "x") // cursor is on the repo row
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !slices.Equal(got, want) {
 		t.Errorf("targets = %v, want every process in the repo %v", got, want)
 	}
 }
@@ -1337,7 +1337,7 @@ func TestXCollapsedStillKillsWhatIsFoldedAway(t *testing.T) {
 	m := press(press(nestedTree(12), "down"), " ") // fold zsh 10
 	m = press(m, "X")
 
-	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !sameInts(got, want) {
+	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !slices.Equal(got, want) {
 		t.Errorf("targets = %v, want the folded subtree too %v", got, want)
 	}
 }
@@ -1418,21 +1418,9 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 }
 
 func TestTheKeysListTheTreeKill(t *testing.T) {
-	if f := keysOf(sized(160, 24)); !strings.Contains(f, "kill the tree") {
+	if f := keysOf(); !strings.Contains(f, "kill the tree") {
 		t.Errorf("keys = %q, want the tree kill listed", f)
 	}
-}
-
-func sameInts(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // --- claude instances -----------------------------------------------------
@@ -1640,8 +1628,8 @@ func TestPrefixEnterCyclesTheWaitingAgents(t *testing.T) {
 	}
 }
 
-// message is a daemon-era ask, reconstructed from the tmux commands the
-// session runs, so the tests keep asserting intent rather than plumbing.
+// message is an ask of the server, reconstructed from the tmux commands the
+// session runs, so the tests assert intent rather than plumbing.
 type message struct {
 	Kind string
 	PID  int
@@ -1652,7 +1640,6 @@ type message struct {
 
 const (
 	kindOpen  = "open"
-	kindClose = "close"
 	kindShow  = "show"  // a shell moved beside the navigator
 	kindPark  = "park"  // the shown shell moved back to a window of its own
 	kindFocus = "focus" // the keys taken to a pane
@@ -1742,7 +1729,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		switch args[0] {
 		case "has-session":
 			return "", nil
-		case "new-window", "start-server":
+		case "new-window":
 			// An open: the directory rides behind -c, the command — when
 			// there is one — is the last argument, wearing the shell wrapper.
 			dir, run := "", ""
@@ -1809,9 +1796,6 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 		case "display-popup":
 			asked <- message{Kind: kindHelp}
 			return "", nil
-		case "kill-pane":
-			asked <- message{Kind: kindClose, PID: target(args)}
-			return "", nil
 		}
 		return "", nil
 	}
@@ -1836,8 +1820,8 @@ func askedForKind(t *testing.T, asked chan message, kind string) message {
 	}
 }
 
-// askedFor waits for the server to be asked something, or fails the test.
-// askedFor is the next ask that is about the shells. The status line's
+// askedFor waits for the next ask that is about the shells, or fails the
+// test. The status line's
 // asks — the mode, the message — ride along with any update and are not
 // what a test asking "what did that key do" is about.
 func askedFor(t *testing.T, asked chan message) message {
@@ -1946,7 +1930,7 @@ func TestTheListKeepsARowHoweverShortTheWindow(t *testing.T) {
 			t.Errorf("height %d: view is %d lines", h, got)
 		}
 		if h >= 3 && len(navColumn(m)) == 0 {
-			t.Errorf("height %d: the keys left no room for the list", h)
+			t.Errorf("height %d: no room was left for the list", h)
 		}
 	}
 }
@@ -2123,7 +2107,7 @@ func TestTypingAnEmptyQueryListsPlacesAlone(t *testing.T) {
 
 	m = press(narrowed(m), "/")
 	for _, row := range navColumn(m) {
-		if strings.Contains(row, "─") {
+		if strings.Contains(row, "vim") {
 			t.Fatalf("row %q lists a process before anything was typed", row)
 		}
 	}
@@ -2571,7 +2555,7 @@ func TestTheKeysPageFitsItsPopup(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"shell", "kill the tree", "the next waiting agent", "leave"} {
-		if !strings.Contains(keysOf(model{}), key) {
+		if !strings.Contains(keysOf(), key) {
 			t.Errorf("the page does not list %q", key)
 		}
 	}
@@ -2825,7 +2809,7 @@ func TestGIsALetterWhileAFilterIsBeingTyped(t *testing.T) {
 }
 
 func TestTheKeysListTheEnds(t *testing.T) {
-	f := keysOf(sized(160, 24))
+	f := keysOf()
 	for _, key := range []string{"gg · G", "top · bottom"} {
 		if !strings.Contains(f, key) {
 			t.Errorf("keys = %q, want %q listed", f, key)

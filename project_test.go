@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -28,18 +29,6 @@ func names(ps []Project) []string {
 	return out
 }
 
-func equal(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func TestDiscoverFindsReposAtAnyDepth(t *testing.T) {
 	root := tree(t,
 		"flat/.git",
@@ -52,7 +41,7 @@ func TestDiscoverFindsReposAtAnyDepth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverProjects: %v", err)
 	}
-	if want := []string{"deep", "flat", "nested"}; !equal(names(got), want) {
+	if want := []string{"deep", "flat", "nested"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v (sorted, repos only)", names(got), want)
 	}
 }
@@ -61,7 +50,7 @@ func TestDiscoverDoesNotDescendIntoRepos(t *testing.T) {
 	root := tree(t, "outer/.git", "outer/inner/.git")
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"outer"}; !equal(names(got), want) {
+	if want := []string{"outer"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v; a repo inside a repo belongs to its owner", names(got), want)
 	}
 }
@@ -70,7 +59,7 @@ func TestDiscoverSkipsVendorDirs(t *testing.T) {
 	root := tree(t, "app/.git", "site/node_modules/dep/.git", "site/src")
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"app"}; !equal(names(got), want) {
+	if want := []string{"app"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -84,7 +73,7 @@ func TestDiscoverSkipsTaggedCacheDirs(t *testing.T) {
 	}
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"app"}; !equal(names(got), want) {
+	if want := []string{"app"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v; a tagged cache is not walked", names(got), want)
 	}
 }
@@ -99,7 +88,7 @@ func TestDiscoverHonorsConfiguredSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverProjects: %v", err)
 	}
-	if want := []string{"app"}; !equal(names(got), want) {
+	if want := []string{"app"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v; both the configured and built-in skips hold", names(got), want)
 	}
 }
@@ -115,7 +104,7 @@ func TestDiscoverHandlesGitFileWorktrees(t *testing.T) {
 	}
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"wt"}; !equal(names(got), want) {
+	if want := []string{"wt"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -130,7 +119,7 @@ func TestNamesAreBareWhenUnique(t *testing.T) {
 	root := tree(t, "w0zro/scrn/.git", "w0zro/notebook/.git")
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"notebook", "scrn"}; !equal(names(got), want) {
+	if want := []string{"notebook", "scrn"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v; unique names should not be qualified", names(got), want)
 	}
 }
@@ -140,7 +129,7 @@ func TestCollidingNamesGainParent(t *testing.T) {
 
 	got, _ := discoverProjects(root, nil)
 	want := []string{"archive/site", "scrn", "w0zro/site"}
-	if !equal(names(got), want) {
+	if !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -159,7 +148,7 @@ func TestCollidingNamesGrowUntilUnique(t *testing.T) {
 		"archive/checklists.org/api",
 		"w/a/c/api",
 	}
-	if !equal(names(got), want) {
+	if !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -300,7 +289,7 @@ func TestDiscoverAllMergesRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverAll: %v", err)
 	}
-	if want := []string{"mono", "scrn"}; !equal(names(got), want) {
+	if want := []string{"mono", "scrn"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v (both roots, one sorted list)", names(got), want)
 	}
 }
@@ -332,7 +321,7 @@ func TestDiscoverAllToleratesARootFromAnotherMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverAll: %v", err)
 	}
-	if want := []string{"scrn"}; !equal(names(got), want) {
+	if want := []string{"scrn"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -386,7 +375,7 @@ func TestSubProjectsAreTheDirectoriesWithManifests(t *testing.T) {
 
 	got := subProjects(repo)
 	want := []string{"notes", "rust", "services/api", "tools"}
-	if !equal(names(got), want) {
+	if !slices.Equal(names(got), want) {
 		t.Errorf("subs = %v, want %v (sorted, root excluded)", names(got), want)
 	}
 	for _, s := range got {
@@ -407,7 +396,7 @@ func TestSubProjectsRespectTheIgnoreRules(t *testing.T) {
 	}
 
 	got := subProjects(repo)
-	if want := []string{"web/app"}; !equal(names(got), want) {
+	if want := []string{"web/app"}; !slices.Equal(names(got), want) {
 		t.Errorf("subs = %v, want %v; what git ignores, scrn ignores", names(got), want)
 	}
 }

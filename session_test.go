@@ -9,8 +9,7 @@ import (
 )
 
 // These tests run the whole way: a real tmux server on a private socket, a
-// real shell in a real pane, and the model reading the session's events. They
-// are what stands where the old daemon's end-to-end tests stood.
+// real shell in a real pane, and the model reading the session's events.
 
 // connected gives a model a session over a private tmux server.
 func connected(t *testing.T, m model) model {
