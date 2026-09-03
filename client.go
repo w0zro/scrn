@@ -445,8 +445,10 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 	if command != "" {
 		// Under a shell, so the command is found on the user's own PATH,
 		// and one that exits leaves the shell rather than the row
-		// vanishing.
-		cmd = command + "; exec " + shellQuote(shellCommand())
+		// vanishing. The shell is the pane's own $SHELL, which tmux sets
+		// to its default-shell whatever the asker's environment says: a
+		// chord runs under run-shell, where SHELL is /bin/sh.
+		cmd = command + `; exec "$SHELL"`
 	}
 	winName := heldName
 	if wanted {
@@ -835,13 +837,4 @@ func outerTerminal(run runner) []string {
 		kvs = append(kvs, name+"="+v)
 	}
 	return kvs
-}
-
-// shellCommand is the shell to open, honoring $SHELL so scrn opens the one
-// the user actually uses.
-func shellCommand() string {
-	if sh := os.Getenv("SHELL"); sh != "" {
-		return sh
-	}
-	return "/bin/sh"
 }
