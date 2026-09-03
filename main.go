@@ -58,6 +58,10 @@ environment:
 `
 
 func main() {
+	if err := needHome(); err != nil {
+		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		os.Exit(1)
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-h", "--help", "help":
@@ -114,6 +118,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// needHome refuses to run without a home directory to put the config and
+// the socket under, unless the environment has placed both elsewhere.
+// Without it the paths would be relative, and a socket made in whatever
+// directory scrn was started from would look like it worked.
+func needHome() error {
+	placed := os.Getenv("XDG_CONFIG_HOME") != "" &&
+		(os.Getenv("SCRN_SOCKET") != "" || os.Getenv("XDG_STATE_HOME") != "")
+	if placed {
+		return nil
+	}
+	if _, err := os.UserHomeDir(); err != nil {
+		return fmt.Errorf("no home directory: %w", err)
+	}
+	return nil
 }
 
 // chords is every word the configuration binds, and what each does with

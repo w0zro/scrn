@@ -116,7 +116,12 @@ func claudeDir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
 		return d
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// No home is no sessions, rather than a .claude wherever scrn
+		// happens to have been started.
+		return ""
+	}
 	return filepath.Join(home, ".claude")
 }
 
