@@ -663,145 +663,152 @@ func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// A pending kill takes the next key, whatever it is — before even
-		// the prefix, or the warning lies: routed later, a prefix excursion
-		// could carry the armed kill along for minutes and hand it to an
-		// enter meant to open something.
-		if m.pendingKill != nil {
-			req := m.pendingKill
-			m.pendingKill = nil
-			switch msg.String() {
-			case "x", "X", "y", "enter":
-				return m, m.runKill(req)
-			default:
-				m.status, m.statusErr = "kill cancelled", false
-				return m, nil
-			}
-		}
+		return m.keyPress(msg)
+	}
+	return m, nil
+}
 
-		// The resume picker takes every key while it is open: it is a look
-		// through what could be continued, and its keys are the filter's.
-		if m.resume != nil {
-			return m, m.resumeKey(msg)
-		}
-
-		// The filter takes every key while it is being typed, so a repository
-		// called "scrn" can be typed without s opening a shell halfway through.
-		if m.typing {
-			return m, m.filterKey(msg)
-		}
-
-		// Ending the server ends the work it is holding, so it takes a
-		// second key like any other kill.
-		if m.pendingReplace {
-			m.pendingReplace = false
-			switch msg.String() {
-			case "R", "y", "enter":
-				// The bridge notices the server going and says so; clearing
-				// here as well just spares the window a beat of stale rows.
-				m.server.replace()
-				m.terms = map[int]*remoteTerm{}
-				m.status, m.statusErr = "ending the server and its shells", false
-				m.rebuild()
-				return m, nil
-			}
-			m.status, m.statusErr = "left the server alone", false
-			return m, nil
-		}
-
-		// gg is a pair, so the first g waits for the second. Anything else
-		// cancels it and is swallowed, rather than being acted on as though
-		// the g had not been typed.
-		if m.pendingG {
-			m.pendingG = false
-			if msg.String() == "g" {
-				return m, m.jump(0)
-			}
-			return m, nil
-		}
-
-		m.status = ""
+// keyPress is a key at the navigator: the one place every key is read,
+// and the order they are read in is the order of the claims on them.
+func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
+	// A pending kill takes the next key, whatever it is — before even
+	// the prefix, or the warning lies: routed later, a prefix excursion
+	// could carry the armed kill along for minutes and hand it to an
+	// enter meant to open something.
+	if m.pendingKill != nil {
+		req := m.pendingKill
+		m.pendingKill = nil
 		switch msg.String() {
-		case "?":
-			// The keys, in a popup over the whole window: tmux draws it,
-			// and the next keystroke puts it away.
-			m.server.help()
-			return m, nil
-		case "R":
-			return m, m.askReplace()
-		case "/":
-			return m, m.openFilter()
-		case "enter":
-			return m, m.openShell()
-		case "r":
-			return m, m.run()
-		case "s":
-			return m, m.start("")
-		case "a":
-			// An agent scrn owns, so it survives the window and can be
-			// stepped back into, unlike the ones it can only watch. Which
-			// kind is the config's call; claude is the default.
-			return m, m.start(startAgent())
-		case "A":
-			// The same verb, reaching back: a starts a fresh conversation,
-			// A picks a suspended one back up.
-			return m, m.openResume()
-		case "x":
-			return m, m.askKill(false)
-		case "X":
-			return m, m.askKill(true)
-		case "g":
-			m.pendingG = true
-			return m, nil
-		case "G":
-			return m, m.jump(len(m.rows) - 1)
-		case "down", "j":
-			return m, m.move(1)
-		case "up", "k":
-			return m, m.move(-1)
-		case "J":
-			return m, m.stepShell(1)
-		case "K":
-			return m, m.stepShell(-1)
-		case "tab":
-			// The next agent waiting on you, and again around them in
-			// turn: the summons the chord ctrl-space enter delivers from
-			// any shell, at the list.
-			return m, m.jumpWaiting()
-		case "space":
-			m.toggleCollapse()
-			return m, nil
-		case "-":
-			m.unfolded = !m.unfolded
-			m.rebuild()
-			return m, m.detailCmd()
-		case ".":
-			// Dot shows the hidden, the way it does in a home directory.
-			m.showAll = !m.showAll
-			m.rebuild()
-			if !m.showAll {
-				// Narrowing is a question about right now, so ask again.
-				return m, tea.Batch(m.scanNow(), m.detailCmd())
-			}
-			return m, m.detailCmd()
-		case "esc":
-			// Esc closes whatever is open — the filter here, and the modal
-			// and the transcript where they take the keys — and it never
-			// closes scrn. Leaving is q's word alone: one reflexive esc too
-			// many, a beat after the filter it was meant for has already
-			// gone, must not take the window with it.
-			if m.filter != "" {
-				m.setFilter("")
-				return m, m.detailCmd()
-			}
-			return m, nil
-		case "q", "ctrl+c":
-			// Leaving the window, not the shells: the client detaches and
-			// the navigator keeps its place in the home window for the
-			// next `scrn`.
-			m.server.leave()
+		case "x", "X", "y", "enter":
+			return m, m.runKill(req)
+		default:
+			m.status, m.statusErr = "kill cancelled", false
 			return m, nil
 		}
+	}
+
+	// The resume picker takes every key while it is open: it is a look
+	// through what could be continued, and its keys are the filter's.
+	if m.resume != nil {
+		return m, m.resumeKey(msg)
+	}
+
+	// The filter takes every key while it is being typed, so a repository
+	// called "scrn" can be typed without s opening a shell halfway through.
+	if m.typing {
+		return m, m.filterKey(msg)
+	}
+
+	// Ending the server ends the work it is holding, so it takes a
+	// second key like any other kill.
+	if m.pendingReplace {
+		m.pendingReplace = false
+		switch msg.String() {
+		case "R", "y", "enter":
+			// The bridge notices the server going and says so; clearing
+			// here as well just spares the window a beat of stale rows.
+			m.server.replace()
+			m.terms = map[int]*remoteTerm{}
+			m.status, m.statusErr = "ending the server and its shells", false
+			m.rebuild()
+			return m, nil
+		}
+		m.status, m.statusErr = "left the server alone", false
+		return m, nil
+	}
+
+	// gg is a pair, so the first g waits for the second. Anything else
+	// cancels it and is swallowed, rather than being acted on as though
+	// the g had not been typed.
+	if m.pendingG {
+		m.pendingG = false
+		if msg.String() == "g" {
+			return m, m.jump(0)
+		}
+		return m, nil
+	}
+
+	m.status = ""
+	switch msg.String() {
+	case "?":
+		// The keys, in a popup over the whole window: tmux draws it,
+		// and the next keystroke puts it away.
+		m.server.help()
+		return m, nil
+	case "R":
+		return m, m.askReplace()
+	case "/":
+		return m, m.openFilter()
+	case "enter":
+		return m, m.openShell()
+	case "r":
+		return m, m.run()
+	case "s":
+		return m, m.start("")
+	case "a":
+		// An agent scrn owns, so it survives the window and can be
+		// stepped back into, unlike the ones it can only watch. Which
+		// kind is the config's call; claude is the default.
+		return m, m.start(startAgent())
+	case "A":
+		// The same verb, reaching back: a starts a fresh conversation,
+		// A picks a suspended one back up.
+		return m, m.openResume()
+	case "x":
+		return m, m.askKill(false)
+	case "X":
+		return m, m.askKill(true)
+	case "g":
+		m.pendingG = true
+		return m, nil
+	case "G":
+		return m, m.jump(len(m.rows) - 1)
+	case "down", "j":
+		return m, m.move(1)
+	case "up", "k":
+		return m, m.move(-1)
+	case "J":
+		return m, m.stepShell(1)
+	case "K":
+		return m, m.stepShell(-1)
+	case "tab":
+		// The next agent waiting on you, and again around them in
+		// turn: the summons the chord ctrl-space enter delivers from
+		// any shell, at the list.
+		return m, m.jumpWaiting()
+	case "space":
+		m.toggleCollapse()
+		return m, nil
+	case "-":
+		m.unfolded = !m.unfolded
+		m.rebuild()
+		return m, m.detailCmd()
+	case ".":
+		// Dot shows the hidden, the way it does in a home directory.
+		m.showAll = !m.showAll
+		m.rebuild()
+		if !m.showAll {
+			// Narrowing is a question about right now, so ask again.
+			return m, tea.Batch(m.scanNow(), m.detailCmd())
+		}
+		return m, m.detailCmd()
+	case "esc":
+		// Esc closes whatever is open — the filter here, and the modal
+		// and the transcript where they take the keys — and it never
+		// closes scrn. Leaving is q's word alone: one reflexive esc too
+		// many, a beat after the filter it was meant for has already
+		// gone, must not take the window with it.
+		if m.filter != "" {
+			m.setFilter("")
+			return m, m.detailCmd()
+		}
+		return m, nil
+	case "q", "ctrl+c":
+		// Leaving the window, not the shells: the client detaches and
+		// the navigator keeps its place in the home window for the
+		// next `scrn`.
+		m.server.leave()
+		return m, nil
 	}
 	return m, nil
 }
