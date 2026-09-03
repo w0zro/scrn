@@ -745,7 +745,7 @@ func (s *session) dress(pid int, name string) {
 	if p == nil {
 		return
 	}
-	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@scrn_tab", name) }()
+	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@scrn_title", name) }()
 }
 
 // statusText is what the navigator has the status line read: the mode

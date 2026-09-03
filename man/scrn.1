@@ -1,7 +1,7 @@
 .\" scrn(1) is written by hand in man(7) troff. The guide at
 .\" https://scrn.w0zro.com/guide tells the same story in walking order;
 .\" this page is the reference. Keep the two agreeing.
-.TH SCRN 1 2026-09-01 scrn "User Commands"
+.TH SCRN 1 2026-09-02 scrn "User Commands"
 .SH NAME
 scrn \- a terminal UI for working on projects at the command line
 .SH SYNOPSIS
@@ -11,6 +11,9 @@ scrn \- a terminal UI for working on projects at the command line
 .br
 .B scrn
 .RB [ \-h | \-\-help | \-\-version ]
+.br
+.B scrn
+.RB [ help | version ]
 .SH DESCRIPTION
 .B scrn
 shows every git repository under your project roots, what is running in
@@ -26,7 +29,9 @@ windows of their own. The navigator is where the shells are listed,
 found, started and killed. Close the terminal, come back, and everything
 is where it was.
 .PP
-There is nothing to set up beyond having tmux installed. The
+There is nothing to set up beyond having tmux and
+.BR lsof (8)
+installed \(em the process list is read through lsof. The
 configuration is scrn's, written at every launch into the state directory
 and sourced into a server already running, so no .tmux.conf reaches the
 server and every window has this build's keys. By default scrn looks for
@@ -72,12 +77,15 @@ with the mode the keys are in:
 .B NAV
 or
 .B PROC
-for the pane that has them, each in its own color with the line washed
-in it,
+for the pane that has them, each a chip in its own color with the line
+washed one tone after it,
 .B PREFIX
 while a chord hangs,
 .B COPY
-in copy mode, the query while one is typed, and
+in copy mode, the query while one is typed and the filter while one
+stands,
+.B CONTINUE
+with the picker open, and
 .B CONFIRM
 while a kill waits on its second key. Then anything scrn has to say \(em
 a report, an error, a confirmation \(em until the next key.
@@ -127,6 +135,9 @@ toggle between everything and only what is running
 .TP
 .B /
 find by name: repositories, and the processes whose commands answer
+.TP
+.B esc
+clear a standing filter
 .TP
 .B x
 kill the selected process; on a repository or group, everything running
@@ -399,7 +410,11 @@ itself with a word \(em
 .BR next ,
 .BR prev ,
 .B keys
-\(em each a short command against the server. They are not for typing.
+\(em each a short command against the server; the navigator's pane runs
+.B scrn nav
+and the keys popup
+.BR "scrn page" .
+None of them are for typing.
 .PP
 The server lives exactly as long as it holds something: the home window
 brings it up, the last window closing takes it down. Upgrading scrn never
@@ -443,7 +458,12 @@ where the server's socket and configuration live, instead of
 .TP
 .B SHELL
 the shell opened for
-.B s
+.BR s ,
+and the one waiting behind
+.BR a ,
+.B A
+and
+.B r
 .TP
 .B NO_COLOR
 set, the navigator draws without color, as

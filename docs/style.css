@@ -314,14 +314,14 @@ a:hover { color: var(--accent); }
 .c-urgent { color: #F778BA; font-weight: 600; }
 .c-note   { color: #5C6570; font-style: italic; }
 .c-place  { color: #B2DAFB; }
-/* The status line: a mode chip on a dark ground of its color, the rest of
-   the line washed with the faintest of it — the same shades tmux draws. */
-.chip-navigate { color: #D29922; background: #4D3E1B; font-weight: 600; }
-.wash-navigate { background: #232019; }
-.chip-proc { color: #3FB950; background: #1E482A; font-weight: 600; }
-.wash-proc { background: #14241E; }
-.chip-prefix { color: #B9A7FF; background: #454262; font-weight: 600; }
-.wash-prefix { background: #20222F; }
+/* The status line: a mode chip in its color on a ground two steps off the
+   terminal's, the rest of the line washed one step off — one wash for
+   every mode, the chip alone carrying the color, the way tmux draws it.
+   The navigator is in ink: home is not a state. */
+.chip-navigate { color: var(--term-text); background: #2B2F35; font-weight: 600; }
+.chip-proc { color: #3FB950; background: #2B2F35; font-weight: 600; }
+.chip-prefix { color: #D29922; background: #2B2F35; font-weight: 600; }
+.wash-navigate, .wash-proc, .wash-prefix { background: #1A1E24; }
 
 .c-cur    { background: #E6E6E6; color: var(--term); }
 

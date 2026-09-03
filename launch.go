@@ -16,7 +16,7 @@ import (
 // configuration, makes sure the home window exists with the navigator down
 // its left, and hands the terminal to tmux. The chords the configuration
 // binds run this same binary with a word — home, shell, agent, run, jump,
-// next, prev — each a short command against the server that says nothing
+// next, prev, keys — each a short command against the server that says nothing
 // on success: run-shell would put anything printed in front of the user,
 // so a failure is said through display-message.
 

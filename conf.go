@@ -76,7 +76,7 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"set -g automatic-rename off",
 		"set -g allow-rename off",
 		"set -g set-titles on",
-		`set -g set-titles-string "#{?#{@scrn_nav},scrn,#{?#{@scrn_tab},#{@scrn_tab},#{pane_current_command}}}"`,
+		`set -g set-titles-string "#{?#{@scrn_nav},scrn,#{?#{@scrn_title},#{@scrn_title},#{pane_current_command}}}"`,
 		"set -g escape-time 10",
 		"set -g focus-events on",
 		"set -g default-terminal tmux-256color",

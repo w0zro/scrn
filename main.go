@@ -35,12 +35,12 @@ const usage = `scrn is a terminal UI for working on projects at the command line
 usage:
   scrn             open the window: scrn's tmux server, with the navigator
   scrn ls          list the held shells: pid, directory, name
-  scrn -h, --help  show this
-  scrn --version   report the version
+  scrn -h, --help  show this; help is the same word bare
+  scrn --version   report the version; version, bare, too
 
 the chords run these; they are not for typing:
   scrn nav         the navigator, in the home window's left pane
-  scrn keys [client] the keys, in a popup over client
+  scrn keys [c]    the keys, in a popup over the client c
   scrn page        the page inside that popup
   scrn home [key]  to the navigator, pressing key there
   scrn shell [dir] a shell in dir, shown beside the navigator

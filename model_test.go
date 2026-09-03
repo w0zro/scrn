@@ -1748,7 +1748,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			return fmt.Sprintf("%s %d", id, nextPID), nil
 		case "set":
 			switch {
-			case has(args, "@scrn_tab"):
+			case has(args, "@scrn_title"):
 				asked <- message{Kind: kindDress, PID: target(args), Name: args[len(args)-1]}
 			case has(args, "@scrn_mode"):
 				asked <- message{Kind: kindMode, Name: args[len(args)-1]}

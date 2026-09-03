@@ -7,7 +7,7 @@
 # one address, for macOS and Linux alike.
 #
 # SCRN_VERSION pins a release instead of taking the latest. SCRN_INSTALL_DIR
-# says where the binary goes.
+# says where the binary goes, and SCRN_MAN_DIR where the manpage does.
 set -eu
 
 repo=w0zro/scrn
