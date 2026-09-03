@@ -397,7 +397,9 @@ makes it again, on the left. A
 .B scrn
 from a newer build than the navigator's restarts the navigator in its
 pane, the way it re\-reads the configuration: the server keeps the
-shells, and everything else is the build's.
+shells, and everything else is the build's. Run from a shell inside the
+window, it does that and no more, the terminal being attached already.
+Inside any other tmux it refuses: attaching would be nesting.
 .PP
 The chords run
 .B scrn

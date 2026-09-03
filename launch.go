@@ -54,6 +54,20 @@ func runLaunch() error {
 	if !term.IsTerminal(os.Stdout.Fd()) {
 		return errors.New("stdout is not a terminal")
 	}
+	// Inside a tmux that is not scrn's, attaching is nesting, which tmux
+	// refuses; said here, before anything is started. Inside scrn's own,
+	// the terminal is attached already, and what is left to do is what
+	// every launch does first: give the server this build's configuration
+	// and navigator. That is the way to take an upgrade from a shell in
+	// the window.
+	inside := false
+	if t := os.Getenv("TMUX"); t != "" {
+		sock, _, _ := strings.Cut(t, ",")
+		if sock != socketPath() {
+			return errors.New("inside another tmux; unset TMUX to nest")
+		}
+		inside = true
+	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		return errors.New("tmux is not installed")
@@ -96,6 +110,10 @@ func runLaunch() error {
 		}
 	}
 
+	if inside {
+		fmt.Println("scrn: attached here already; the server has this build's configuration and navigator")
+		return nil
+	}
 	return syscall.Exec(tmux, []string{"tmux", "-S", socketPath(), "attach", "-t", tmuxSession}, os.Environ())
 }
 
