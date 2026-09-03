@@ -106,10 +106,13 @@ func (m *model) resumeKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		m.resume = nil
 		return m.detailCmd()
-	case "backspace":
+	case "backspace", "ctrl+h":
 		if r := []rune(v.query); len(r) > 0 {
 			m.setResumeQuery(string(r[:len(r)-1]))
 		}
+		return nil
+	case "ctrl+w", "alt+backspace":
+		m.setResumeQuery(wordBack(v.query))
 		return nil
 	case "ctrl+u":
 		m.setResumeQuery("")

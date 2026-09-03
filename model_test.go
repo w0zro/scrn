@@ -2634,6 +2634,24 @@ func TestTheNavigatorHoldsItsColumnWhileAShellIsShown(t *testing.T) {
 	}
 }
 
+func TestTheQueryTakesALetterAndAWordBack(t *testing.T) {
+	// ctrl+h is a letter back and ctrl+w a word, the way they are in a
+	// shell: the query is a line being typed.
+	for _, c := range []struct{ in, key, want string }{
+		{"mono api", "ctrl+h", "mono ap"},
+		{"mono api", "ctrl+w", "mono "},
+		{"mono api  ", "ctrl+w", "mono "},
+		{"mono", "ctrl+w", ""},
+		{"", "ctrl+w", ""},
+	} {
+		m := typeFilter(press(manyProjects(90, 14), "/"), c.in)
+		next, _ := m.Update(tea.KeyPressMsg{Code: []rune(c.key[len(c.key)-1:])[0], Mod: tea.ModCtrl})
+		if got := next.(model).filter; got != c.want {
+			t.Errorf("%q then %s = %q, want %q", c.in, c.key, got, c.want)
+		}
+	}
+}
+
 func TestEscapeWithNothingOpenDoesNothing(t *testing.T) {
 	m := manyProjects(90, 14)
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {

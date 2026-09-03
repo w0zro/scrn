@@ -840,10 +840,15 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.setFilter("")
 		m.selectKey(m.filterFrom)
 		return m.detailCmd()
-	case "backspace":
+	case "backspace", "ctrl+h":
 		if r := []rune(m.filter); len(r) > 0 {
 			m.setFilter(string(r[:len(r)-1]))
 		}
+		return m.detailCmd()
+	case "ctrl+w", "alt+backspace":
+		// The query is a line being typed, and these are what take a word
+		// back everywhere else a line is typed.
+		m.setFilter(wordBack(m.filter))
 		return m.detailCmd()
 	case "ctrl+u":
 		// The query is a line being typed, and ctrl+u is what clears a line
@@ -932,6 +937,21 @@ func (m *model) selectProject(path string) {
 // middle of "vim pro" sent the selection back to the top of a list that had
 // not moved, which from the typist's side is the cursor jumping for no reason
 // at all. When the rows cannot have changed, neither does the cursor.
+// wordBack is a line being typed with its last word taken off: the
+// trailing spaces, then the word before them, the way ctrl+w does in a
+// shell.
+func wordBack(s string) string {
+	r := []rune(s)
+	i := len(r)
+	for i > 0 && r[i-1] == ' ' {
+		i--
+	}
+	for i > 0 && r[i-1] != ' ' {
+		i--
+	}
+	return string(r[:i])
+}
+
 func (m *model) setFilter(s string) {
 	narrowed := !strings.EqualFold(strings.TrimSpace(m.filter), strings.TrimSpace(s))
 
