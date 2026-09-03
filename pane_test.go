@@ -82,7 +82,7 @@ func TestTheSelectedRowIsStillFindableWhenDimmed(t *testing.T) {
 	m.cursor = 1
 
 	row := stripANSI(m.renderRow(m.rows[1], true))
-	if !strings.HasPrefix(row, "▸") {
+	if !strings.Contains(row, "▸ ") {
 		t.Errorf("row = %q, want the cursor marker to still say where you are", row)
 	}
 	if !m.rowStyle(m.rows[1], true).GetBold() {

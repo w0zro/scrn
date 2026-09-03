@@ -226,7 +226,8 @@ func (m model) renderRow(r navRow, selected bool) string {
 		fromLeft = false
 	}
 
-	// The marker's column and a column of gutter come before the rules.
+	// A column of gutter, the rules, and the marker's two columns come
+	// before the name.
 	room := navWidth - 3 - lipgloss.Width(rules) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark)
 
@@ -241,7 +242,9 @@ func (m model) renderRow(r navRow, selected bool) string {
 	} else {
 		seg = style.Render(truncateTail(label, room))
 	}
-	return marker + " " + ruleStyle.Render(rules) + seg +
+	// The marker stands beside the name it marks, in the indent, rather
+	// than at the edge of the column with the whole indent between them.
+	return " " + ruleStyle.Render(rules) + style.Render(marker) + " " + seg +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 

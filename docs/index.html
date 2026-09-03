@@ -68,7 +68,7 @@
 
   acme
     web
-<span class="t-sel">▸      npm run dev</span>        <span class="t-num">③</span>
+     <span class="t-sel">▸ npm run dev</span>         <span class="t-num">③</span>
        claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
     api
        claude <span class="c-urgent">◆</span>
@@ -151,16 +151,16 @@
   // The navigator: a group, its repositories, and the processes under each.
   // A child sits on indent alone; places sit a row apart when there is room.
   const TREE = [
-    { pre: '',      label: 'acme' },
-    { pre: '  ',    label: 'web' },
-    { pre: '     ', label: 'npm run dev' },
-    { pre: '     ', label: 'claude', mark: 'spin' },
-    { pre: '  ',    label: 'api' },
-    { pre: '     ', label: 'go run ./cmd/api' },
+    { pre: '',     label: 'acme' },
+    { pre: '  ',   label: 'web' },
+    { pre: '    ', label: 'npm run dev' },
+    { pre: '    ', label: 'claude', mark: 'spin' },
+    { pre: '  ',   label: 'api' },
+    { pre: '    ', label: 'go run ./cmd/api' },
     { gap: true },
-    { pre: '',      label: 'scrn' },
-    { pre: '   ',   label: 'claude', mark: 'ask' },
-    { pre: '   ',   label: 'go test ./...' },
+    { pre: '',     label: 'scrn' },
+    { pre: '  ',   label: 'claude', mark: 'ask' },
+    { pre: '  ',   label: 'go test ./...' },
   ];
 
   function navRow(i, cursor) {
@@ -172,7 +172,7 @@
     let mark = '';
     if (r.mark === 'spin') mark = ' ' + span('c-attn spin', '⠧');
     if (r.mark === 'ask') mark = ' ' + span('c-urgent', '◆');
-    return cell(1, sel ? '▸' : ' ') + ' ' + r.pre + span(cls, r.label) + mark;
+    return ' ' + r.pre + span(cls, sel ? '▸ ' : '  ') + span(cls, r.label) + mark;
   }
 
   function navLines(cursor) {

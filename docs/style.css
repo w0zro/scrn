@@ -114,7 +114,7 @@ a:hover { color: var(--accent); }
 .tui pre { margin: 0; font: 400 13.5px/1.65 var(--mono); color: var(--term-text); }
 .t-ttl { color: var(--accent-dark); font-weight: 600; }
 .t-num { color: var(--accent-dark); }
-.t-sel { color: #E6E6E6; font-weight: 600; }
+.t-sel { color: #F778BA; font-weight: 600; }
 .t-run { color: #D29922; }
 .t-dim { color: #666; }
 .t-hint { color: #777; }
@@ -307,7 +307,7 @@ a:hover { color: var(--accent); }
 .c-dim    { color: #5C6570; }
 .c-label  { color: #8B949E; }
 .c-rule   { color: #30363D; }
-.c-sel    { color: #E6E6E6; font-weight: 600; }
+.c-sel    { color: #F778BA; font-weight: 600; }
 .c-accent { color: #79C0FF; }
 .c-good   { color: #3FB950; }
 .c-attn   { color: #D29922; }

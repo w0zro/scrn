@@ -14,20 +14,21 @@ import (
 // scrn carries no colors of its own. It draws with the terminal's sixteen
 // slots, so the list wears whatever the terminal wears — datum, in light or
 // dark — and the claude in the pane beside it, the tmux around both and the
-// list are one palette by construction. Hue is spent on state alone: amber
-// for working, green for finished and waiting on you, pink for blocked on a
-// question, the orange-red for dying; where you are is weight and a marker.
-// When nothing needs you, the list is ink.
+// list are one palette by construction. Hue is spent on state: amber for
+// working, green for finished and waiting on you, the orange-red for blocked
+// and for dying — and on one thing more: where you are, in the slot the
+// terminal's own cursor wears, so scrn's cursor and the terminal's are the
+// same color. When nothing needs you, the list is ink and the cursor.
 
 // The slots, by the job each does here. The terminal's theme says what
 // color a slot is; scrn says what it means.
 const (
-	slotRed   = "1" // dying, failed, destructive
-	slotGreen = "2" // alive and well; finished and waiting on you
-	slotPink  = "5" // an answer holding up work: worth crossing the room
-	slotCyan  = "6" // found: the letters a query matched
-	slotGray  = "8" // quiet: idle rows, labels, scrn's own asides
-	slotAmber = "9" // working, and an answer owed
+	slotRed    = "1" // blocked on an ask, dying, failed, destructive
+	slotGreen  = "2" // alive and well; finished and waiting on you
+	slotCursor = "5" // here: the cursor, and scrn's own name — the terminal's cursor color
+	slotCyan   = "6" // found: the letters a query matched
+	slotGray   = "8" // quiet: idle rows, labels, scrn's own asides
+	slotAmber  = "9" // working, and an answer owed
 )
 
 // The styles are package-wide because everything drawing reads them.
@@ -45,10 +46,10 @@ func applyStyles() {
 	slot := func(s string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(s)) }
 	ink := lipgloss.NewStyle()
 
-	// The masthead and the cursor row are the two bold things on screen:
-	// where you are is weight, not a color.
-	titleStyle = ink.Bold(true)
-	selStyle = ink.Bold(true)
+	// The masthead and the cursor row are the two bold things on screen,
+	// and the two in the cursor's color: scrn's name, and where you are.
+	titleStyle = slot(slotCursor).Bold(true)
+	selStyle = slot(slotCursor).Bold(true)
 	itemStyle = ink
 	headingStyle = ink.Bold(true)
 
@@ -74,7 +75,7 @@ func applyStyles() {
 	// already in flight. warnStyle asks before something irreversible.
 	busyStyle = slot(slotAmber)
 	attnStyle = slot(slotGreen).Bold(true)
-	blockedStyle = slot(slotPink).Bold(true)
+	blockedStyle = slot(slotRed).Bold(true)
 	warnStyle = slot(slotAmber).Bold(true)
 	errStyle = slot(slotRed)
 
@@ -87,7 +88,7 @@ func applyStyles() {
 		tonePlain:  itemStyle,
 		toneGood:   slot(slotGreen),
 		toneAttn:   slot(slotAmber),
-		toneUrgent: slot(slotPink),
+		toneUrgent: slot(slotRed),
 		toneBad:    slot(slotRed),
 		toneAccent: ink.Bold(true),
 		toneQuiet:  faintStyle,
