@@ -440,25 +440,35 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 		winName = wantName
 	}
 
-	another := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
+	args := []string{"new-window", "-d", "-P", "-t", tmuxSession + ":",
 		"-F", paneBirth, "-n", winName, "-c", dir}
-	args := another
 	if _, err := run("has-session", "-t", tmuxSession); err != nil {
+		// The session is made again around a placeholder, and the shell
+		// opens in it the way every shell does: a session's first window
+		// cannot carry the terminal's name, and a new window can. The
+		// placeholder is a sleep, not a shell, and goes once the shell is
+		// there. Two askers finding no session in the same instant make
+		// one between them, and the other's shell still opens in it.
 		_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
-		args = []string{"new-session", "-d", "-s", tmuxSession, "-P", "-F", paneBirth, "-n", winName, "-c", dir}
+		_, err := run("new-session", "-d", "-s", tmuxSession, "-n", bornName, "-c", "/", "sleep 30")
+		if err == nil {
+			defer run("kill-window", "-t", tmuxSession+":"+bornName)
+		} else if !strings.Contains(err.Error(), "duplicate session") {
+			return birth{}, err
+		}
+	}
+	// The pane is told which terminal is around tmux, for the programs
+	// that speak to one. tmux sets the names itself, after the session's
+	// environment, so they go with the window rather than the server —
+	// which is asked once it is there to ask.
+	for _, kv := range outerTerminal(run) {
+		args = append(args, "-e", kv)
 	}
 	if cmd != "" {
-		another = append(another, cmd)
 		args = append(args, cmd)
 	}
 
 	out, err := run(args...)
-	if err != nil && strings.Contains(err.Error(), "duplicate session") {
-		// Two askers found no session in the same instant, and one of
-		// them made it. The other's shell still opens — as every shell
-		// after the first does.
-		out, err = run(another...)
-	}
 	if err != nil {
 		return birth{}, err
 	}
@@ -788,6 +798,37 @@ func applyScrollback(n int) {
 	if n > 0 {
 		scrollbackLines = n
 	}
+}
+
+// bornName is the placeholder window a session is remade around, gone
+// as soon as the first shell is in.
+const bornName = "scrn-born"
+
+// outerTerminal is the terminal around tmux, as the TERM_PROGRAM and
+// TERM_PROGRAM_VERSION the server was started under: the launcher's, kept
+// in the server's global environment. tmux tells every pane its terminal
+// is tmux, and Claude Code takes it at its word — the progress it reports
+// while it works, which Ghostty draws in the title bar, is offered only to
+// a terminal it knows will. Told the outer name, it sees through tmux and
+// wraps what it says for passing through, which the configuration allows.
+// A server started inside another tmux has nothing to pass on.
+func outerTerminal(run runner) []string {
+	var kvs []string
+	for _, name := range []string{"TERM_PROGRAM", "TERM_PROGRAM_VERSION"} {
+		out, err := run("show-environment", "-g", name)
+		if err != nil {
+			continue
+		}
+		_, v, ok := strings.Cut(strings.TrimSpace(out), "=")
+		if !ok || v == "" {
+			continue
+		}
+		if name == "TERM_PROGRAM" && v == "tmux" {
+			return nil
+		}
+		kvs = append(kvs, name+"="+v)
+	}
+	return kvs
 }
 
 // shellCommand is the shell to open, honoring $SHELL so scrn opens the one

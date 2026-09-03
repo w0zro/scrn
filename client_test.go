@@ -299,3 +299,111 @@ func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
 		}
 	}
 }
+
+func TestAShellIsToldTheTerminalAroundTmux(t *testing.T) {
+	// The server's global environment keeps the launcher's TERM_PROGRAM,
+	// and every shell's window carries it, so a program in the pane sees
+	// the terminal it is really on rather than the tmux in between.
+	var asked [][]string
+	run := func(args ...string) (string, error) {
+		asked = append(asked, args)
+		switch args[0] {
+		case "show-environment":
+			switch args[2] {
+			case "TERM_PROGRAM":
+				return "TERM_PROGRAM=ghostty", nil
+			case "TERM_PROGRAM_VERSION":
+				return "TERM_PROGRAM_VERSION=1.3.1", nil
+			}
+		case "new-window":
+			return "%1 @1 700", nil
+		}
+		return "", nil
+	}
+	if _, err := createWindow(run, "/tmp", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	var opened []string
+	for _, a := range asked {
+		if a[0] == "new-window" {
+			opened = a
+		}
+	}
+	want := []string{"-e", "TERM_PROGRAM=ghostty", "-e", "TERM_PROGRAM_VERSION=1.3.1"}
+	if !strings.Contains(" "+strings.Join(opened, " ")+" ", " "+strings.Join(want, " ")+" ") {
+		t.Errorf("new-window %v, want it carrying %v", opened, want)
+	}
+}
+
+func TestAServerInsideAnotherTmuxHasNoTerminalToPassOn(t *testing.T) {
+	var opened []string
+	run := func(args ...string) (string, error) {
+		switch args[0] {
+		case "show-environment":
+			if args[2] == "TERM_PROGRAM" {
+				return "TERM_PROGRAM=tmux", nil
+			}
+			return "TERM_PROGRAM_VERSION=3.5a", nil
+		case "new-window":
+			opened = args
+			return "%1 @1 700", nil
+		}
+		return "", nil
+	}
+	if _, err := createWindow(run, "/tmp", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range opened {
+		if a == "-e" {
+			t.Errorf("new-window %v carries an environment, but the terminal around is tmux's own", opened)
+		}
+	}
+}
+
+func TestAGoneSessionIsRemadeAroundAPlaceholderThatGoes(t *testing.T) {
+	// The first shell of a remade session opens as a new window, so it
+	// carries the terminal's name like every shell after it; the window
+	// the session had to start with is gone once the shell is there.
+	var asked [][]string
+	run := func(args ...string) (string, error) {
+		asked = append(asked, args)
+		switch args[0] {
+		case "has-session":
+			return "", errNoServer
+		case "show-environment":
+			return "TERM_PROGRAM=ghostty", nil
+		case "new-window":
+			return "%1 @1 700", nil
+		}
+		return "", nil
+	}
+	b, err := createWindow(run, "/tmp", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.pid != 700 {
+		t.Errorf("pid = %d, want the shell the new-window opened", b.pid)
+	}
+	var order []string
+	for _, a := range asked {
+		switch a[0] {
+		case "new-session", "new-window", "kill-window":
+			order = append(order, a[0])
+		case "show-environment":
+			// Asked once the server is there to answer: before the
+			// session, there is no server and nothing to ask.
+			if len(order) == 0 || order[len(order)-1] != a[0] {
+				order = append(order, a[0])
+			}
+		}
+		if a[0] == "new-session" && a[len(a)-1] != "sleep 30" {
+			t.Errorf("new-session %v, want a sleep as the placeholder rather than a shell", a)
+		}
+		if a[0] == "kill-window" && a[len(a)-1] != tmuxSession+":"+bornName {
+			t.Errorf("kill-window %v, want the placeholder", a)
+		}
+	}
+	if got := strings.Join(order, " "); got != "new-session show-environment new-window kill-window" {
+		t.Errorf("order = %q, want the session, the terminal asked of it, the shell, then the placeholder gone", got)
+	}
+}

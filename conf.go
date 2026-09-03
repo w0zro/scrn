@@ -86,6 +86,13 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		// nearest cube color, a saturated teal. This variable is its own way
 		// out of the cap; every pane inherits it.
 		"set-environment -g CLAUDE_CODE_TMUX_TRUECOLOR 1",
+		// What a program says to the terminal around tmux — the progress
+		// Claude Code reports while it works, its notification when it is
+		// done — reaches it only wrapped for passing through, and only
+		// where the server allows the wrapping. Every pane is told the
+		// outer terminal's name when it opens (outerTerminal), so a
+		// program knows there is one to speak to.
+		"set -g allow-passthrough on",
 		"set -g display-time 3000",
 		"",
 		"# The home window: the navigator down the left at its width, the shell",
