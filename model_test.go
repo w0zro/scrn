@@ -2634,21 +2634,31 @@ func TestTheNavigatorHoldsItsColumnWhileAShellIsShown(t *testing.T) {
 	}
 }
 
-func TestTheQueryTakesALetterAndAWordBack(t *testing.T) {
-	// ctrl+h is a letter back and ctrl+w a word, the way they are in a
-	// shell: the query is a line being typed.
-	for _, c := range []struct{ in, key, want string }{
-		{"mono api", "ctrl+h", "mono ap"},
-		{"mono api", "ctrl+w", "mono "},
-		{"mono api  ", "ctrl+w", "mono "},
-		{"mono", "ctrl+w", ""},
-		{"", "ctrl+w", ""},
-	} {
-		m := typeFilter(press(manyProjects(90, 14), "/"), c.in)
-		next, _ := m.Update(tea.KeyPressMsg{Code: []rune(c.key[len(c.key)-1:])[0], Mod: tea.ModCtrl})
-		if got := next.(model).filter; got != c.want {
-			t.Errorf("%q then %s = %q, want %q", c.in, c.key, got, c.want)
-		}
+func TestTheQueryIsALineWithReadlinesKeys(t *testing.T) {
+	// The line the query is typed on is a text input, so it has every
+	// editing key a line has and scrn owns none of them: a word back, a
+	// letter back, the cursor moved into the line and typing there.
+	m := typeFilter(press(manyProjects(90, 14), "/"), "mono api")
+	ctrl := func(m model, r rune) model {
+		next, _ := m.Update(tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl})
+		return next.(model)
+	}
+	if m = ctrl(m, 'w'); m.filter != "mono " {
+		t.Errorf("after ctrl+w filter = %q, want the word taken back", m.filter)
+	}
+	if m = ctrl(m, 'h'); m.filter != "mono" {
+		t.Errorf("after ctrl+h filter = %q, want a letter taken back", m.filter)
+	}
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = typeFilter(next.(model), "x")
+	if m.filter != "monxo" {
+		t.Errorf("after left and x filter = %q, want the letter typed where the cursor was", m.filter)
+	}
+	if line := lineText(m.query); line != "monx█o" {
+		t.Errorf("the status line reads %q, want the cursor drawn where it is", line)
+	}
+	if m = ctrl(m, 'u'); m.filter != "o" {
+		t.Errorf("after ctrl+u filter = %q, want what was before the cursor gone", m.filter)
 	}
 }
 

@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -20,7 +22,8 @@ type resumeView struct {
 	loaded bool           // the listing takes a beat; "empty" waits for it
 	convos []conversation // newest first, as the kind listed them
 	query  string
-	cursor int // indexes into matches(), not convos
+	input  textinput.Model // the line the query is typed on; query mirrors it
+	cursor int             // indexes into matches(), not convos
 }
 
 // convosMsg carries the listing for the place the picker was opened on. The
@@ -45,7 +48,7 @@ func (m *model) openResume() tea.Cmd {
 func (m *model) openResumePlace(p Project) tea.Cmd {
 	dirs := m.convoDirs(p)
 	live := m.liveConversations()
-	m.resume = &resumeView{place: p}
+	m.resume = &resumeView{place: p, input: newLine()}
 	// The picker takes the pane beside the list, so a shell shown there
 	// steps aside for it.
 	m.syncPreview()
@@ -106,24 +109,19 @@ func (m *model) resumeKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		m.resume = nil
 		return m.detailCmd()
-	case "backspace", "ctrl+h":
-		if r := []rune(v.query); len(r) > 0 {
-			m.setResumeQuery(string(r[:len(r)-1]))
-		}
-		return nil
-	case "ctrl+w", "alt+backspace":
-		m.setResumeQuery(wordBack(v.query))
-		return nil
-	case "ctrl+u":
-		m.setResumeQuery("")
-		return nil
-	case "space":
-		m.setResumeQuery(v.query + " ")
-		return nil
 	}
-	if msg.Text != "" {
+	// Everything else is the line's, editing keys and all. A picker made
+	// without a line — the tests build one by hand — gets one here, with
+	// the query it already has.
+	if !v.input.Focused() {
+		v.input = newLine()
+		v.input.SetValue(v.query)
+	}
+	before := v.input.Value()
+	v.input, _ = v.input.Update(msg)
+	if q := v.input.Value(); q != before {
 		m.status = ""
-		m.setResumeQuery(v.query + msg.Text)
+		m.setResumeQuery(q)
 	}
 	return nil
 }
@@ -135,6 +133,9 @@ func (m *model) setResumeQuery(s string) {
 	v := m.resume
 	narrowed := !strings.EqualFold(strings.TrimSpace(v.query), strings.TrimSpace(s))
 	v.query = s
+	if v.input.Value() != s {
+		v.input.SetValue(s)
+	}
 	if narrowed {
 		v.cursor = 0
 	}

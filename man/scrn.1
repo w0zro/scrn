@@ -173,14 +173,14 @@ starts an agent,
 goes to the next waiting agent, and
 .B ctrl\-x
 asks to kill \(em the filter holds, so the subject stays listed.
-.B ctrl\-h
-and
-.B ctrl\-w
-take a letter and a word back,
-.B ctrl\-u
-clears the query, and
 .B esc
-abandons the look, putting the cursor back on the row it left.
+abandons the look, putting the cursor back on the row it left. The query
+is a line like any other: it takes readline's editing keys \(em
+.BR ctrl\-w ,
+.BR ctrl\-u ,
+.BR ctrl\-h ,
+.B ctrl\-e
+and the rest \(em except the chords above, which are scrn's.
 .SS In a shell
 Every keystroke is the shell's; the pane is tmux's, and it behaves the
 way a tmux pane behaves, with the navigator beside it. scrn keeps one key:

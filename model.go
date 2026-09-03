@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -166,8 +167,12 @@ type model struct {
 	// matches it, searching every one rather than only those with something
 	// running: the point of it is to reach a project you are not working in.
 	// typing says the keys are going into the filter rather than at the list.
+	// query is the line the filter is typed on: a text input with the
+	// editing keys every other line has — readline's — which scrn does not
+	// own a case of. filter mirrors its value for everything that reads it.
 	filter string
 	typing bool
+	query  textinput.Model
 
 	// filterFrom is where the look began: the subject under the cursor.
 	// Abandoning the filter with esc puts it back — acting on a result does
@@ -305,6 +310,7 @@ type model struct {
 
 func newModel() model {
 	return model{
+		query:     newLine(),
 		collapsed: map[string]bool{},
 		details:   map[string][]field{},
 		dying:     map[int]dyingProc{},
@@ -840,28 +846,10 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.setFilter("")
 		m.selectKey(m.filterFrom)
 		return m.detailCmd()
-	case "backspace", "ctrl+h":
-		if r := []rune(m.filter); len(r) > 0 {
-			m.setFilter(string(r[:len(r)-1]))
-		}
-		return m.detailCmd()
-	case "ctrl+w", "alt+backspace":
-		// The query is a line being typed, and these are what take a word
-		// back everywhere else a line is typed.
-		m.setFilter(wordBack(m.filter))
-		return m.detailCmd()
-	case "ctrl+u":
-		// The query is a line being typed, and ctrl+u is what clears a line
-		// everywhere else a line is typed. The typing itself goes on.
-		m.setFilter("")
-		return m.detailCmd()
 	case "tab":
 		// The summons reaches through the look: the waiting agent lives in
 		// the whole list, and going to it is the end of looking.
 		return m.jumpWaiting()
-	case "space":
-		m.setFilter(m.filter + " ")
-		return m.detailCmd()
 
 	// The chords mean what their letters mean. Starting what a project needs
 	// is the end of looking for it, so the search closes and leaves the cursor
@@ -889,15 +877,36 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.askKill(false)
 	}
 
-	// A letter is a letter: a project called "scrn" has to be typeable
-	// without s doing something. The actions are on the chords, which no
-	// name contains.
-	if msg.Text != "" {
+	// Everything else is the line's: a letter is a letter — a project called
+	// "scrn" has to be typeable without s doing something; the actions are
+	// on the chords, which no name contains — and the editing keys are the
+	// ones every line has.
+	before := m.query.Value()
+	m.query, _ = m.query.Update(msg)
+	if v := m.query.Value(); v != before {
 		m.status = "" // whatever was reported was about the last project
-		m.setFilter(m.filter + msg.Text)
+		m.setFilter(v)
 		return m.detailCmd()
 	}
 	return nil
+}
+
+// newLine is a line to type a query on, bare: no prompt, no placeholder,
+// the status line draws it. It is focused for good, since only the keys
+// meant for it reach it.
+func newLine() textinput.Model {
+	l := textinput.New()
+	l.Prompt = ""
+	l.Focus()
+	return l
+}
+
+// lineText is a line as the status line shows it: the text with the
+// cursor's block where the cursor is.
+func lineText(l textinput.Model) string {
+	r := []rune(l.Value())
+	pos := min(max(l.Position(), 0), len(r))
+	return string(r[:pos]) + "█" + string(r[pos:])
 }
 
 // selectKey puts the cursor back on a remembered subject, where it is still
@@ -929,6 +938,16 @@ func (m *model) selectProject(path string) {
 	}
 }
 
+// putFilter sets the filter and the line it is typed on, without rebuilding:
+// the line is the truth while the keys are in it, and follows the filter
+// when something else set it — a paste, the filter clearing on its own.
+func (m *model) putFilter(s string) {
+	m.filter = s
+	if m.query.Value() != s {
+		m.query.SetValue(s)
+	}
+}
+
 // setFilter narrows the list and starts again from the top, because the rows
 // under the cursor are not the ones that were there a keystroke ago.
 //
@@ -937,25 +956,10 @@ func (m *model) selectProject(path string) {
 // middle of "vim pro" sent the selection back to the top of a list that had
 // not moved, which from the typist's side is the cursor jumping for no reason
 // at all. When the rows cannot have changed, neither does the cursor.
-// wordBack is a line being typed with its last word taken off: the
-// trailing spaces, then the word before them, the way ctrl+w does in a
-// shell.
-func wordBack(s string) string {
-	r := []rune(s)
-	i := len(r)
-	for i > 0 && r[i-1] == ' ' {
-		i--
-	}
-	for i > 0 && r[i-1] != ' ' {
-		i--
-	}
-	return string(r[:i])
-}
-
 func (m *model) setFilter(s string) {
 	narrowed := !strings.EqualFold(strings.TrimSpace(m.filter), strings.TrimSpace(s))
 
-	m.filter = s
+	m.putFilter(s)
 	// rebuild keeps the cursor on the subject it was on where that subject is
 	// still listed, which is the whole of what is wanted when nothing changed.
 	m.rebuild()
@@ -1725,13 +1729,13 @@ func (m *model) rebuild() {
 	// pressed is what stops the project blinking out and back while the scan
 	// catches up.
 	if m.wantCursor != 0 && m.running(m.wantCursor) {
-		m.filter = ""
+		m.putFilter("")
 	}
 	// The server holding them is enough to know they exist; waiting for the
 	// process scan as well would hold the search open for a poll longer, and
 	// the server is the thing that was actually asked.
 	if m.wantProject != "" && len(m.planned(m.wantProject)) > 0 {
-		m.filter = ""
+		m.putFilter("")
 	}
 
 	m.groupProcs()
@@ -1852,10 +1856,10 @@ func (m model) statusLine() statusText {
 	case m.resume != nil:
 		// The picker wears the filter's face: it is the same kind of
 		// typing, aimed at conversations instead of places.
-		t.mode = statusChip(tp.fg, "CONTINUE /"+m.resume.query+"█")
+		t.mode = statusChip(tp.fg, "CONTINUE /"+lineText(m.resume.input))
 
 	case m.typing:
-		t.mode = statusChip(tp.fg, "/"+m.filter+"█")
+		t.mode = statusChip(tp.fg, "/"+lineText(m.query))
 
 	case m.filter != "":
 		// A standing filter is the navigator's mode still, in its color.
