@@ -35,7 +35,6 @@ type claudeSession struct {
 	WaitingFor string
 	SessionID  string
 	Cwd        string
-	Version    string
 
 	// Agents are the subagents this session has started and not yet heard back
 	// from. A subagent is not a process — it runs inside the instance that
@@ -93,13 +92,6 @@ func (s claudeSession) blocked() (string, bool) {
 	return s.WaitingFor, s.Status == waitingStatus
 }
 
-func (s claudeSession) waitingFor() time.Duration {
-	if s.working() {
-		return 0
-	}
-	return s.StatusFor
-}
-
 // describe reads the transcript into a copy of the session — the deeper look
 // the scan does not take — and lays the whole of it out for the pane.
 func (s claudeSession) describe() []field {
@@ -139,7 +131,6 @@ type sessionFile struct {
 	Status          string `json:"status"`
 	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
 	WaitingFor      string `json:"waitingFor"`
-	Version         string `json:"version"`
 }
 
 // claudeSessions reads every live session Claude Code has advertised, keyed by
@@ -188,7 +179,6 @@ func readSessionFile(path string) (claudeSession, bool) {
 		WaitingFor: f.WaitingFor,
 		SessionID:  f.SessionID,
 		Cwd:        f.Cwd,
-		Version:    f.Version,
 	}
 	if f.StatusUpdatedAt > 0 {
 		s.StatusFor = max(time.Since(time.UnixMilli(f.StatusUpdatedAt)), 0)

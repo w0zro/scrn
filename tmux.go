@@ -8,13 +8,12 @@ import (
 	"io"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 )
 
 // scrn holds its shells in tmux. The shells outlive any window because the
-// tmux server does, which is the same promise the old daemon made — kept now
-// by twenty years of somebody else's hardening. scrn owns the experience; a
+// tmux server does, a promise kept by twenty years of somebody else's
+// hardening. scrn owns the experience; a
 // private tmux server, on scrn's own socket where no .tmux.conf reaches,
 // owns the ptys, the emulation, and the transcripts.
 //
@@ -120,9 +119,7 @@ func parseNote(line string) ctlNote {
 // is a hangup.
 type ctlClient struct {
 	cmd *exec.Cmd
-
-	mu sync.Mutex
-	in io.WriteCloser
+	in  io.WriteCloser
 }
 
 // startCtl attaches a control-mode client to scrn's session and begins
@@ -198,8 +195,6 @@ func readCtl(r io.Reader, notify func(ctlNote)) {
 
 // close hangs up the control client. The server and its shells stay.
 func (c *ctlClient) close() {
-	c.mu.Lock()
 	_ = c.in.Close()
-	c.mu.Unlock()
 	_ = c.cmd.Process.Kill()
 }

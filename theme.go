@@ -35,11 +35,11 @@ const (
 
 // The styles are package-wide because everything drawing reads them.
 var (
-	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
-	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
-	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
-	offSelStyle, noteStyle, matchStyle, selfStyle          lipgloss.Style
-	placeStyle                                             lipgloss.Style
+	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle lipgloss.Style
+	faintStyle, labelStyle, errStyle, busyStyle           lipgloss.Style
+	attnStyle, blockedStyle, headingStyle                 lipgloss.Style
+	offSelStyle, noteStyle, matchStyle, selfStyle         lipgloss.Style
+	placeStyle                                            lipgloss.Style
 )
 
 func init() { applyStyles() }
@@ -84,11 +84,10 @@ func applyStyles() {
 	// The states. busyStyle turns beside work in progress in claude's own
 	// amber; attnStyle marks an agent that is done and waiting on its user;
 	// blockedStyle one stopped mid-turn on a specific ask, holding up work
-	// already in flight. warnStyle asks before something irreversible.
+	// already in flight.
 	busyStyle = slot(slotAmber)
 	attnStyle = slot(slotGreen).Bold(true)
 	blockedStyle = slot(slotRed).Bold(true)
-	warnStyle = slot(slotAmber).Bold(true)
 	errStyle = slot(slotRed)
 
 	// matchStyle lights the letters a query matched, inside whatever style
@@ -132,19 +131,19 @@ var toneStyles map[tone]lipgloss.Style
 // values are datum's for it — the same colors the slots resolve to in a
 // terminal wearing datum.
 type tmuxPalette struct {
-	bg1, bg2                      string // one and two steps off the ground: the wash, the chip
-	fg, gray                      string
-	green, amber, pink, red, cyan string
+	bg1, bg2                string // one and two steps off the ground: the wash, the chip
+	fg, gray                string
+	green, amber, red, cyan string
 }
 
 var tmuxDark = tmuxPalette{
 	bg1: "#1A1E24", bg2: "#2B2F35", fg: "#DBE0E8", gray: "#8F98A3",
-	green: "#54DCAA", amber: "#F8BD5F", pink: "#FA94CD", red: "#FE9864", cyan: "#6AE5EC",
+	green: "#54DCAA", amber: "#F8BD5F", red: "#FE9864", cyan: "#6AE5EC",
 }
 
 var tmuxLight = tmuxPalette{
 	bg1: "#E7ECF2", bg2: "#CED3D9", fg: "#292E35", gray: "#616A76",
-	green: "#007553", amber: "#976700", pink: "#973070", red: "#A24500", cyan: "#0D7A7F",
+	green: "#007553", amber: "#976700", red: "#A24500", cyan: "#0D7A7F",
 }
 
 // tp is the palette tmux draws with: dark unless the config says light.
@@ -185,10 +184,8 @@ func tmuxStyled(fg string, bold bool, text string) string {
 // entry up — and a hollow one is the same thing quiet; the diamond is an ask.
 const (
 	glyphSelected = "▸"  // the cursor, in the navigator's gutter
-	glyphBranch   = "  " // a child sits on indent alone: the rules were the loudest thing on screen
-	glyphLast     = "  "
-	glyphRail     = " " // the tree is indentation alone: a rail past a child read as a stray stroke
-	glyphDivider  = "│" // between the navigator and its own pane; tmux's border stands where a shell's is
+	glyphIndent   = "  " // a child sits on indent alone: the tree's rules were the loudest thing on screen
+	glyphDivider  = "│"  // between the navigator and its own pane; tmux's border stands where a shell's is
 	glyphOn       = "●"
 	glyphOff      = "○"
 	glyphAsk      = "◆"

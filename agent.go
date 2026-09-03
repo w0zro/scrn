@@ -44,10 +44,6 @@ type agent interface {
 	// blocked one is holding unfinished work until it is answered.
 	blocked() (string, bool)
 
-	// waitingFor is how long the instance has been waiting on its user, so
-	// the one waiting longest — the answer owed first — can be found.
-	waitingFor() time.Duration
-
 	// describe is the detail pane's description of the instance. It may read
 	// deeper sources than the scan does, so it runs off the render path, for
 	// the selected row only.

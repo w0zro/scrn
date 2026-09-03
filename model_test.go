@@ -1688,9 +1688,9 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 
 	for pid, rt := range terms {
 		id := "%" + strconv.Itoa(pid)
-		s.panes[pid] = &pane{id: id, win: "@" + strconv.Itoa(pid), pid: pid, dir: rt.dir, name: rt.name}
+		s.panes[pid] = &pane{id: id, pid: pid, dir: rt.dir, name: rt.name}
 		s.byPane[id] = pid
-		listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t%s\t%s\t\t\tshell", id, pid, pid, rt.dir, rt.name, rt.dir))
+		listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t%s\t%s\t\t\tshell", id, pid, rt.dir, rt.name, rt.dir))
 	}
 
 	// The fake's panes and windows are numbered by pid, so a target names
@@ -1757,8 +1757,8 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			nextPID++
 			opening = &message{Kind: kindOpen, PID: nextPID, Dir: dir, Run: run}
 			id := "%" + strconv.Itoa(nextPID)
-			listing = append(listing, fmt.Sprintf("%s\t@%d\t%d\t%s\t\t%s\t\t\tshell", id, nextPID, nextPID, dir, dir))
-			return fmt.Sprintf("%s @%d %d", id, nextPID, nextPID), nil
+			listing = append(listing, fmt.Sprintf("%s\t%d\t%s\t\t%s\t\t\tshell", id, nextPID, dir, dir))
+			return fmt.Sprintf("%s %d", id, nextPID), nil
 		case "set":
 			switch {
 			case has(args, "@scrn_tab"):
@@ -3425,7 +3425,7 @@ func TestAShellAChordOpenedIsShownWhenItIsListed(t *testing.T) {
 	// it shows one it opened: keys in it, cursor to follow.
 	m := withProcList(90, 14, []Project{{Name: "tmp", Path: "/tmp"}}, nil)
 	m, asked := pipeServer(t, m)
-	m.server.panes[700] = &pane{id: "%700", win: "@700", pid: 700, dir: "/tmp"}
+	m.server.panes[700] = &pane{id: "%700", pid: 700, dir: "/tmp"}
 	m.server.byPane["%700"] = 700
 
 	next, _ := m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/tmp", Wanted: true}}})
@@ -3629,7 +3629,7 @@ func TestTheStatusLineIsToldTheModeOnceWhenItChanges(t *testing.T) {
 	}
 }
 
-func TestTheKeysLeavingForAShellDisarmsTheKillAndDimsTheCursor(t *testing.T) {
+func TestTheKeysLeavingForAShellDisarmsTheKillAndKeepsTheCursorLit(t *testing.T) {
 	m := withProcList(90, 14,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"}})

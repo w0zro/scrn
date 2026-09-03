@@ -139,7 +139,13 @@ func runNav() {
 		applyTheme(cfg.Theme)
 	}
 	p := tea.NewProgram(newModel())
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if m, ok := final.(model); ok && m.server != nil {
+		// The control client is hung up rather than left to the pane's
+		// end: the shells are the server's and stay.
+		m.server.close()
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
 		os.Exit(1)
 	}

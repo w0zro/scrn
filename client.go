@@ -79,7 +79,7 @@ type (
 	// serverLostMsg says the server hung this session up. With no error it is
 	// the ordinary end of holding nothing — the last shell closed, the
 	// session went, and the session object keeps watching for a new one.
-	serverLostMsg struct{ err error }
+	serverLostMsg struct{}
 
 	// serverErrorMsg says the server could not do something it was asked to.
 	// This is a report about one ask, not about the server.
@@ -104,11 +104,10 @@ func reconnect(after time.Duration) tea.Cmd {
 // appear — another window may hold shells this one cannot see yet.
 const probeEvery = 2 * time.Second
 
-// pane is one held shell as the session tracks it: which tmux pane it is
-// and which window holds it.
+// pane is one held shell as the session tracks it: which tmux pane it is,
+// and what it is called.
 type pane struct {
 	id     string // "%3"
-	win    string // "@3", the window holding it
 	pid    int
 	dir    string
 	name   string
@@ -289,7 +288,7 @@ func (s *session) notify(n ctlNote) {
 // opened a shell to be shown says so in the window's name, the one mark
 // that is set in the same breath as the window is made — an option set
 // after would race the refresh the new window sets off.
-const listFormat = "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}\t#{@scrn_nav}\t#{@scrn_home}\t#{window_name}"
+const listFormat = "#{pane_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}\t#{@scrn_nav}\t#{@scrn_home}\t#{window_name}"
 
 // wantName is the window name that asks the navigator to show the shell
 // in it; heldName is what the window is called once it has.
@@ -305,25 +304,25 @@ const (
 func parseListing(out string) (held []*pane, nav string) {
 	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) < 9 {
+		if len(f) < 8 {
 			continue
 		}
-		if f[6] == "1" {
+		if f[5] == "1" {
 			nav = f[0]
 			continue
 		}
-		pid, err := strconv.Atoi(f[2])
+		pid, err := strconv.Atoi(f[1])
 		if err != nil {
 			continue
 		}
 		// A pane scrn never dressed reports no directory of its own, and
 		// falls back to where it is working now.
-		dir := f[3]
+		dir := f[2]
 		if dir == "" {
-			dir = f[5]
+			dir = f[4]
 		}
-		held = append(held, &pane{id: f[0], win: f[1], pid: pid, dir: dir, name: f[4],
-			shown: f[7] == "1", wanted: f[7] != "1" && f[8] == wantName})
+		held = append(held, &pane{id: f[0], pid: pid, dir: dir, name: f[3],
+			shown: f[6] == "1", wanted: f[6] != "1" && f[7] == wantName})
 	}
 	return held, nav
 }
@@ -402,19 +401,16 @@ func nextEvent(s *session) tea.Cmd {
 	}
 }
 
-// paneBirth is what an open asks for back: the pane, the window holding it,
-// and the shell's pid.
-const paneBirth = "#{pane_id} #{window_id} #{pane_pid}"
+// paneBirth is what an open asks for back: the pane and the shell's pid.
+const paneBirth = "#{pane_id} #{pane_pid}"
 
 // runner is one tmux command against scrn's server: a session's seam, or
 // tmuxCommand itself for a one-shot caller.
 type runner func(args ...string) (string, error)
 
-// birth is a shell just opened: its pane, the window holding it, and the
-// pid of the shell in it.
+// birth is a shell just opened: its pane, and the pid of the shell in it.
 type birth struct {
 	pane string
-	win  string
 	pid  int
 }
 
@@ -452,7 +448,7 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 		_ = os.MkdirAll(filepath.Dir(socketPath()), 0o700)
 		_, err := run("new-session", "-d", "-s", tmuxSession, "-n", bornName, "-c", "/", "sleep 30")
 		if err == nil {
-			defer run("kill-window", "-t", tmuxSession+":"+bornName)
+			defer func() { _, _ = run("kill-window", "-t", tmuxSession+":"+bornName) }()
 		} else if !strings.Contains(err.Error(), "duplicate session") {
 			return birth{}, err
 		}
@@ -473,16 +469,16 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 		return birth{}, err
 	}
 	f := strings.Fields(out)
-	if len(f) != 3 {
+	if len(f) != 2 {
 		return birth{}, errors.New("tmux said " + out)
 	}
-	pid, err := strconv.Atoi(f[2])
+	pid, err := strconv.Atoi(f[1])
 	if err != nil {
 		return birth{}, errors.New("tmux said " + out)
 	}
 	_, _ = run("set", "-p", "-t", f[0], "@scrn_dir", dir, ";",
 		"set", "-p", "-t", f[0], "@scrn_name", name)
-	return birth{pane: f[0], win: f[1], pid: pid}, nil
+	return birth{pane: f[0], pid: pid}, nil
 }
 
 // open starts a shell — or handed a command, that command with a shell
@@ -500,7 +496,7 @@ func (s *session) open(dir, run, name string) {
 		}
 
 		s.mu.Lock()
-		s.panes[b.pid] = &pane{id: b.pane, win: b.win, pid: b.pid, dir: dir, name: name}
+		s.panes[b.pid] = &pane{id: b.pane, pid: b.pid, dir: dir, name: name}
 		s.byPane[b.pane] = b.pid
 		s.mu.Unlock()
 
@@ -560,13 +556,6 @@ type latest[T any] struct {
 	mu   sync.Mutex
 	want *T   // the ask not yet done
 	busy bool // an ask is being done
-}
-
-// idle says whether every ask has been done.
-func (l *latest[T]) idle() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return !l.busy
 }
 
 // ask queues v, superseding any ask still waiting, and sees to it that do

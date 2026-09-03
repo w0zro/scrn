@@ -109,7 +109,6 @@ type navRow struct {
 	run     []*ProcNode // the whole folded run, oldest first
 	node    *ProcNode   // the one in it the row is named for
 	prefix  string      // tree rules of the ancestors already drawn
-	last    bool        // last child at its level, so it closes the branch
 }
 
 // chain is the top of the run, which is what a tree kill has to cover.
@@ -217,10 +216,6 @@ type model struct {
 	// cursor moves on.
 	status    string
 	statusErr bool
-
-	// blurred says the keys are in another pane, so nothing here should be
-	// waiting on the next one.
-	blurred bool
 
 	// ticks counts refresh cycles, so slower work can run every Nth one.
 	ticks int
@@ -400,14 +395,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.FocusMsg:
-		m.blurred = false
-
 	case tea.BlurMsg:
 		// The keys have gone to a shell. What was pending here was about
 		// the next key, and the next key is not coming: a kill left armed
 		// would fire on the first letter typed back into the list.
-		m.blurred = true
 		m.pendingKill, m.pendingReplace, m.pendingG = nil, false, false
 
 	case tea.WindowSizeMsg:
@@ -473,9 +464,6 @@ func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 		// only stops showing shells that are no longer held.
 		m.terms = map[int]*remoteTerm{}
 		m.dressed = map[int]string{}
-		if msg.err != nil {
-			m.status, m.statusErr = msg.err.Error(), true
-		}
 		m.rebuild()
 		return m, nextEvent(m.server)
 
@@ -1698,14 +1686,8 @@ func (m *model) pruneDying() {
 	}
 }
 
-// bodyHeight is the number of navigator rows that fit between scrn's name and
-// its keys, which is what the cursor scrolls within.
-//
-// It counts the keys as they are actually drawn, not as they were asked for. A
-// hint block too tall for the window is cut down to leave the list a row, and
-// measuring the untrimmed block instead made this say nought where the column
-// still drew one — so the cursor scrolled within a list a row shorter than the
-// one on screen, and could sit off the end of it.
+// bodyHeight is the number of navigator rows that fit under scrn's name,
+// which is what the cursor scrolls within.
 func (m model) bodyHeight() int {
 	// Two rows at the top — the masthead and the blank beneath it — though
 	// the blank, being spacing, is the first thing a short window gives up.
@@ -1716,15 +1698,6 @@ func (m model) bodyHeight() int {
 		return h
 	}
 	return 0
-}
-
-// paneHeight is the room the preview has, which is the whole window: scrn's
-// own rows are in its column, not across the top and bottom.
-func (m model) paneHeight() int {
-	if m.height > 0 {
-		return m.height
-	}
-	return 1
 }
 
 // scrollToCursor moves the window the least amount that brings the cursor back
@@ -2136,9 +2109,8 @@ func (m model) flatten() []navRow {
 			// Work at the group's own level answers a query the same way it
 			// is listed without one: before the repositories it sits beside.
 			if f := strings.ToLower(strings.TrimSpace(m.filter)); f != "" {
-				roots := matchingProcs(m.byPlace[top.project.Path], f)
-				for i, n := range roots {
-					rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1)...)
+				for _, n := range matchingProcs(m.byPlace[top.project.Path], f) {
+					rows = append(rows, m.flattenProc(top.project, n, glyphIndent)...)
 				}
 			}
 			for _, p := range repos {
@@ -2151,9 +2123,8 @@ func (m model) flatten() []navRow {
 		}
 		// Work at the group's own level — a shell opened on the group row —
 		// comes before the repositories it sits beside.
-		roots := m.byPlace[top.project.Path]
-		for i, n := range roots {
-			rows = append(rows, m.flattenProc(top.project, n, "  ", i == len(roots)-1)...)
+		for _, n := range m.byPlace[top.project.Path] {
+			rows = append(rows, m.flattenProc(top.project, n, glyphIndent)...)
 		}
 		for _, p := range repos {
 			rows = append(rows, m.flattenRepo(p, "  ")...)
@@ -2287,23 +2258,17 @@ func (m model) flattenRepo(p Project, indent string) []navRow {
 		if f != "" {
 			roots = matchingProcs(m.byPlace[p.Path], f)
 		}
-		for i, n := range roots {
-			rows = append(rows, m.flattenProc(p, n, indent, i == len(roots)-1 && len(subs) == 0)...)
+		for _, n := range roots {
+			rows = append(rows, m.flattenProc(p, n, indent)...)
 		}
-		for i, sp := range subs {
-			srow := navRow{kind: rowSub, project: sp, prefix: indent,
-				last: i == len(subs)-1}
+		for _, sp := range subs {
+			srow := navRow{kind: rowSub, project: sp, prefix: indent}
 			rows = append(rows, srow)
 			if f == "" {
 				continue
 			}
-			rail := indent + glyphRail + " "
-			if srow.last {
-				rail = indent + "  "
-			}
-			sroots := matchingProcs(m.byPlace[sp.Path], f)
-			for j, n := range sroots {
-				rows = append(rows, m.flattenProc(sp, n, rail, j == len(sroots)-1)...)
+			for _, n := range matchingProcs(m.byPlace[sp.Path], f) {
+				rows = append(rows, m.flattenProc(sp, n, indent+glyphIndent)...)
 			}
 		}
 		return rows
@@ -2312,25 +2277,18 @@ func (m model) flattenRepo(p Project, indent string) []navRow {
 		return rows
 	}
 	// Processes and sub-projects hang off the repository as one family of
-	// siblings: a sub-project takes a branch the way a process does, and the
-	// rail runs on past the last process when one is still to come.
-	roots := m.byPlace[p.Path]
-	for i, n := range roots {
-		rows = append(rows, m.flattenProc(p, n, indent, i == len(roots)-1 && len(subs) == 0)...)
+	// siblings: a sub-project is indented the way a process is.
+	for _, n := range m.byPlace[p.Path] {
+		rows = append(rows, m.flattenProc(p, n, indent)...)
 	}
-	for i, sp := range subs {
-		srow := navRow{kind: rowSub, project: sp, prefix: indent, last: i == len(subs)-1}
+	for _, sp := range subs {
+		srow := navRow{kind: rowSub, project: sp, prefix: indent}
 		rows = append(rows, srow)
 		if m.collapsed[detailKey(srow)] {
 			continue
 		}
-		rail := indent + glyphRail + " "
-		if srow.last {
-			rail = indent + "  "
-		}
-		sroots := m.byPlace[sp.Path]
-		for i, n := range sroots {
-			rows = append(rows, m.flattenProc(sp, n, rail, i == len(sroots)-1)...)
+		for _, n := range m.byPlace[sp.Path] {
+			rows = append(rows, m.flattenProc(sp, n, indent+glyphIndent)...)
 		}
 	}
 	return rows
@@ -2377,7 +2335,7 @@ func (m model) matchingSubs(p Project) []Project {
 	return out
 }
 
-func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []navRow {
+func (m model) flattenProc(p Project, n *ProcNode, prefix string) []navRow {
 	// Walk down while there is nothing to choose between. The bound is for a
 	// process table that says a process started itself.
 	run := []*ProcNode{n}
@@ -2386,18 +2344,14 @@ func (m model) flattenProc(p Project, n *ProcNode, prefix string, last bool) []n
 		run = append(run, n)
 	}
 
-	row := navRow{kind: rowProc, project: p, run: run, node: nameOf(run), prefix: prefix, last: last}
+	row := navRow{kind: rowProc, project: p, run: run, node: nameOf(run), prefix: prefix}
 	rows := []navRow{row}
 	if m.collapsed[detailKey(row)] {
 		return rows
 	}
 
-	childPrefix := prefix + glyphRail + " "
-	if last {
-		childPrefix = prefix + "  "
-	}
-	for i, c := range row.leaf().Children {
-		rows = append(rows, m.flattenProc(p, c, childPrefix, i == len(row.leaf().Children)-1)...)
+	for _, c := range row.leaf().Children {
+		rows = append(rows, m.flattenProc(p, c, prefix+glyphIndent)...)
 	}
 	return rows
 }

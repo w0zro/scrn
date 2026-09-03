@@ -305,19 +305,6 @@ func lessPort(a, b string) bool {
 	return x < y
 }
 
-// procDirs reduces a process list to the distinct directories they run in.
-func procDirs(procs []Proc) []string {
-	seen := map[string]bool{}
-	var dirs []string
-	for _, p := range procs {
-		if !seen[p.Dir] {
-			seen[p.Dir] = true
-			dirs = append(dirs, p.Dir)
-		}
-	}
-	return dirs
-}
-
 // under reports whether dir is path itself or nested inside it.
 func under(dir, path string) bool {
 	return dir == path || strings.HasPrefix(dir, strings.TrimSuffix(path, "/")+"/")

@@ -72,8 +72,11 @@ func TestOpeningAShellHoldsItInAWindowOfItsOwn(t *testing.T) {
 	pid := onlyShell(t, m)
 
 	p := m.server.pane(pid)
-	if p == nil || p.win == "" {
-		t.Fatalf("pane = %+v, want the shell in a window the client can be taken to", p)
+	if p == nil {
+		t.Fatal("the shell's pane is not held")
+	}
+	if win, _ := tmuxCommand("display", "-p", "-t", p.id, "#{window_id}"); win == "" {
+		t.Fatalf("pane %s is in no window the client can be taken to", p.id)
 	}
 	out, _ := tmuxCommand("display", "-p", "-t", p.id, "#{pane_current_path}")
 	if out != "/tmp" && out != "/private/tmp" {

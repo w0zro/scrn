@@ -15,7 +15,7 @@ func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
 	s := newSession()
 	s.closed = true
 	s.run = func(args ...string) (string, error) {
-		return "%1\t@1\t700\t\t\t/somewhere/else\t\t\tshell", nil
+		return "%1\t700\t\t\t/somewhere/else\t\t\tshell", nil
 	}
 
 	s.refreshList()
@@ -33,10 +33,10 @@ func TestTheListingTellsTheNavigatorAndTheShownShellApart(t *testing.T) {
 	// it is the shell shown there; a window named for wanting is a chord's
 	// ask to show the shell in it — unless it is shown already.
 	held, nav := parseListing(strings.Join([]string{
-		"%0\t@0\t100\t\t\t/\t1\t1\tscrn",
-		"%1\t@0\t700\t/p/a\t\t/p/a\t\t1\tscrn",
-		"%2\t@2\t701\t/p/b\tweb\t/p/b\t\t\tshell",
-		"%3\t@3\t702\t/p/c\t\t/p/c\t\t\t" + wantName,
+		"%0\t100\t\t\t/\t1\t1\tscrn",
+		"%1\t700\t/p/a\t\t/p/a\t\t1\tscrn",
+		"%2\t701\t/p/b\tweb\t/p/b\t\t\tshell",
+		"%3\t702\t/p/c\t\t/p/c\t\t\t" + wantName,
 	}, "\n"))
 	if nav != "%0" {
 		t.Errorf("nav = %q, want the navigator's pane", nav)
@@ -50,6 +50,13 @@ func TestTheListingTellsTheNavigatorAndTheShownShellApart(t *testing.T) {
 	if held[0].wanted || held[1].wanted || !held[2].wanted {
 		t.Errorf("wanted = %v %v %v, want only the window named for it", held[0].wanted, held[1].wanted, held[2].wanted)
 	}
+}
+
+// idle says whether every ask of a latest has been done.
+func (l *latest[T]) idle() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.busy
 }
 
 // homeWith is a fake tmux for showPane: a home window holding the navigator
@@ -160,10 +167,7 @@ func TestArrangementsCoalesceToTheLastAsked(t *testing.T) {
 	s.preview(4)
 	close(release)
 	deadline := time.After(time.Second)
-	for {
-		if s.placing.idle() {
-			break
-		}
+	for !s.placing.idle() {
 		select {
 		case <-deadline:
 			t.Fatal("the arrangements never finished")
@@ -273,9 +277,9 @@ func TestTheSecondFirstShellJoinsTheSessionTheFirstMade(t *testing.T) {
 		case "new-session":
 			return "", errors.New("duplicate session: scrn")
 		case "new-window":
-			return "%1 @1 700", nil
+			return "%1 700", nil
 		case "list-panes":
-			return "%1\t@1\t700\t/tmp\t\t/tmp\t", nil
+			return "%1\t700\t/tmp\t\t/tmp\t", nil
 		}
 		return "", nil
 	}
@@ -316,7 +320,7 @@ func TestAShellIsToldTheTerminalAroundTmux(t *testing.T) {
 				return "TERM_PROGRAM_VERSION=1.3.1", nil
 			}
 		case "new-window":
-			return "%1 @1 700", nil
+			return "%1 700", nil
 		}
 		return "", nil
 	}
@@ -346,7 +350,7 @@ func TestAServerInsideAnotherTmuxHasNoTerminalToPassOn(t *testing.T) {
 			return "TERM_PROGRAM_VERSION=3.5a", nil
 		case "new-window":
 			opened = args
-			return "%1 @1 700", nil
+			return "%1 700", nil
 		}
 		return "", nil
 	}
@@ -373,7 +377,7 @@ func TestAGoneSessionIsRemadeAroundAPlaceholderThatGoes(t *testing.T) {
 		case "show-environment":
 			return "TERM_PROGRAM=ghostty", nil
 		case "new-window":
-			return "%1 @1 700", nil
+			return "%1 700", nil
 		}
 		return "", nil
 	}

@@ -23,15 +23,6 @@ func TestUnderMatchesRepoAndNested(t *testing.T) {
 	}
 }
 
-func TestProcDirsAreDistinct(t *testing.T) {
-	got := procDirs([]Proc{
-		{PID: 1, Dir: "/a"}, {PID: 2, Dir: "/a"}, {PID: 3, Dir: "/b"},
-	})
-	if len(got) != 2 {
-		t.Errorf("procDirs = %v, want 2 distinct dirs", got)
-	}
-}
-
 func TestRunningProcsFindsThisTest(t *testing.T) {
 	procs, err := runningProcs()
 	if err != nil {

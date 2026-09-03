@@ -213,15 +213,10 @@ func (m model) renderRow(r navRow, selected bool) string {
 
 	// A group or a repository sits on indent alone, naming a place the rows
 	// beneath are inside. What hangs off a repository — its processes and its
-	// sub-projects — is one family of siblings, a step further in, with a
-	// faint rail past a child that has siblings after it.
-	rules := r.prefix
+	// sub-projects — is one family of siblings, a step further in.
+	indent := r.prefix
 	if r.kind == rowProc || r.kind == rowSub {
-		branch := glyphBranch
-		if r.last {
-			branch = glyphLast
-		}
-		rules = r.prefix + branch + " "
+		indent += glyphIndent + " "
 	}
 	// A repository is cut from the left and a command from the right, because
 	// what identifies each is at that end: the repo name after its parents,
@@ -233,9 +228,9 @@ func (m model) renderRow(r navRow, selected bool) string {
 		fromLeft = false
 	}
 
-	// A column of gutter, the rules, and the marker's two columns come
+	// A column of gutter, the indent, and the marker's two columns come
 	// before the name.
-	room := navWidth - 3 - lipgloss.Width(rules) - lipgloss.Width(fold) -
+	room := navWidth - 3 - lipgloss.Width(indent) - lipgloss.Width(fold) -
 		lipgloss.Width(spinner) - lipgloss.Width(mark) - lipgloss.Width(me)
 
 	// While a query is at work the matched letters are lit, so the narrowed
@@ -251,7 +246,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 	}
 	// The marker stands beside the name it marks, in the indent, rather
 	// than at the edge of the column with the whole indent between them.
-	return " " + ruleStyle.Render(rules) + style.Render(marker) + " " + seg + selfStyle.Render(me) +
+	return " " + indent + style.Render(marker) + " " + seg + selfStyle.Render(me) +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 
