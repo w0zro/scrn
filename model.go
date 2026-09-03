@@ -1828,26 +1828,26 @@ func (m model) statusLine() statusText {
 	var t statusText
 	switch {
 	case m.pendingReplace:
-		t.mode = tmuxStyled(darkAttention, true, " CONFIRM ")
+		t.mode = statusChip(darkAttention, "CONFIRM")
 		t.msg = tmuxStyled(darkAttention, true, " end the server, and "+
 			plural(len(m.terms), "shell", "shells")+"? · R confirms")
 		return t
 
 	case m.pendingKill != nil:
-		t.mode = tmuxStyled(darkAttention, true, " CONFIRM ")
+		t.mode = statusChip(darkAttention, "CONFIRM")
 		t.msg = tmuxStyled(darkAttention, true, " kill "+m.pendingKill.subject+"? · x confirms")
 		return t
 
 	case m.resume != nil:
 		// The picker wears the filter's face: it is the same kind of
 		// typing, aimed at conversations instead of places.
-		t.mode = tmuxStyled(darkFg, false, " CONTINUE /"+m.resume.query+"█ ")
+		t.mode = statusChip(darkFg, "CONTINUE /"+m.resume.query+"█")
 
 	case m.typing:
-		t.mode = tmuxStyled(darkFg, false, " /"+m.filter+"█ ")
+		t.mode = statusChip(darkFg, "/"+m.filter+"█")
 
 	case m.filter != "":
-		t.mode = tmuxStyled(darkAccent, true, " /"+m.filter+" ")
+		t.mode = statusChip(darkAccent, "/"+m.filter)
 	}
 
 	// What was just reported stays beside the query being typed: acting

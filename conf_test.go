@@ -29,6 +29,9 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		// navigator's — and the navigator's message.
 		"#{?client_prefix,", "#{?pane_in_mode,", "#{?@scrn_nav,",
 		"#{?@scrn_mode,#{@scrn_mode},", "#{@scrn_msg}",
+		// Each mode is a chip on a dark ground of its color with the rest of
+		// the line washed in it, the commas escaped for the conditional.
+		"#[fg=#79C0FF#,bg=" + shade(darkAccent, chipDepth) + "#,bold] PROC #[fg=default#,bg=" + shade(darkAccent, washDepth) + "#,fill=" + shade(darkAccent, washDepth) + "]",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("the configuration lacks %q", want)

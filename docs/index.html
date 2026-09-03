@@ -75,7 +75,7 @@
  scrn
  <span class="t-dim">└─</span> go test ./...
 
-<span class="c-brand b"> NAV </span>                                         <span class="t-num">④</span></pre>
+<span class="chip-navigate"> NAV </span><span class="wash-navigate">                                         </span><span class="t-num">④</span></pre>
     </div>
     <div class="fig-cap">Fig. 1 — The navigator.</div>
   </div>
@@ -83,7 +83,7 @@
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
     <div class="note"><span class="marker">②</span><p>Marks beside an agent: turning, it is working; ◆, it is stopped on a question for you; ●, it has finished and waits for what you ask next.</p></div>
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .scrn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
-    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
+    <div class="note"><span class="marker">④</span><p>The status line is tmux's: the mode the keys are in, in that mode's color, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
   </div>
 </section>
 
@@ -183,13 +183,9 @@
 
   // The status line is tmux's: the mode the keys are in — the navigator,
   // a shell, the prefix while a chord hangs.
-  const MODE_CHIP = {
-    navigate: span('c-brand b', ' NAV '),
-    proc: span('c-sel b', ' SHELL '),
-    prefix: span('c-attn b', ' PREFIX '),
-  };
+  const MODE_WORD = { navigate: 'NAV', proc: 'PROC', prefix: 'PREFIX' };
   function statusLine(mode) {
-    return MODE_CHIP[mode];
+    return span('chip-' + mode, ' ' + MODE_WORD[mode] + ' ');
   }
 
   // The pane. A label and its value line up under the widest label in their
@@ -271,6 +267,7 @@
     while (lines.length < ROWS) lines.push('');
     pane.innerHTML = lines.join('\n');
     status.innerHTML = statusLine(b.mode);
+    status.className = 'scr-status wash-' + b.mode;
     cap.innerHTML = b.cap;
   }
 

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -67,6 +69,7 @@ func newPalette(dark bool) palette {
 // whatever the navigator learns. Named here so a color changes in one
 // place; the tmux configuration reads these.
 const (
+	darkBg         = "#0F1318"
 	darkBrand      = "#B9A7FF"
 	darkFg         = "#E6E6E6"
 	darkLabel      = "#8B949E"
@@ -76,6 +79,40 @@ const (
 	darkDanger     = "#F85149"
 	darkAccentWash = "#15294A"
 )
+
+// shade is a color part way from the dark ground toward hex: 1 is the
+// color itself, 0 the ground. The status line's chips and washes are
+// shades of the mode's color, so a mode reads in one hue at two depths.
+func shade(hex string, amount float64) string {
+	c, err := strconv.ParseUint(strings.TrimPrefix(hex, "#"), 16, 32)
+	g, gerr := strconv.ParseUint(strings.TrimPrefix(darkBg, "#"), 16, 32)
+	if err != nil || gerr != nil {
+		return hex
+	}
+	mix := func(shift uint) uint64 {
+		a, b := float64((c>>shift)&0xFF), float64((g>>shift)&0xFF)
+		return uint64(b + (a-b)*amount + 0.5)
+	}
+	return fmt.Sprintf("#%02X%02X%02X", mix(16), mix(8), mix(0))
+}
+
+// The status line's depths: how much of the mode's color the chip's
+// ground carries, and how much the rest of the line does.
+const (
+	chipDepth = 0.32
+	washDepth = 0.10
+)
+
+// statusChip is a mode on the status line: the word, bold in its color on
+// a dark ground of that color, and after it the rest of the line washed
+// with the faintest of it, which is what says the mode from across the
+// room. The word's # are doubled: tmux expands them otherwise.
+func statusChip(color, word string) string {
+	wash := shade(color, washDepth)
+	return "#[fg=" + color + ",bg=" + shade(color, chipDepth) + ",bold] " +
+		strings.ReplaceAll(word, "#", "##") +
+		" #[fg=default,bg=" + wash + ",fill=" + wash + "]"
+}
 
 // tmuxStyled wraps text for tmux's status line: its color and weight in
 // tmux's own style syntax, reset after. A # is tmux's to expand in a
