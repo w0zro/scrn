@@ -9,6 +9,8 @@ conn \- a terminal UI for working on projects at the command line
 .br
 .B conn ls
 .br
+.B conn restart
+.br
 .B conn
 .RB [ \-h | \-\-help | \-\-version ]
 .br
@@ -68,6 +70,22 @@ is the same server's state for a reader that is not a person: the held
 shells, one per line on stdout \(em pid, directory and name,
 tab\-separated, the name empty for a shell opened by hand. No server
 listening means nothing is held, which is an empty list, not an error.
+.PP
+.B conn restart
+is
+.B R
+and then
+.BR conn ,
+typed at a terminal outside the window: the server ended with every
+shell it holds \(em after asking, when it holds any \(em and brought up
+again under this build's configuration, with the terminal attached. It
+is the way to a fresh server for a raised
+.BR scrollback ,
+or on the day something wedges. From inside the window it refuses,
+since the pane running it would go with the server; that is what
+.B R
+is for. No server running is nothing to end, and the window opens the
+way it does on a first launch.
 .SH KEYS
 .B ?
 shows this list inside conn, in a popup over the whole window \(em from
@@ -341,9 +359,14 @@ is ignored. A root that only exists on another machine is fine.
 .TP
 .B scrollback
 transcript lines each shell keeps (default 10000). Written into the
-server's configuration at launch, so raising it takes
+server's configuration at launch, so raising it takes a fresh server
+\(em
 .B R
-\(em a fresh server \(em to reach anything.
+and then
+.BR conn ,
+or
+.B conn restart
+\(em to reach anything.
 .TP
 .B navWidth
 the navigator column's width, 16\(en60 (default 30)
@@ -422,7 +445,14 @@ The server lives exactly as long as it holds something: the home window
 brings it up, the last window closing takes it down. Upgrading conn never
 disturbs it \(em the server is not conn's binary, and the next
 .B conn
-sources the new build's configuration into the same server. Anything tmux
+sources the new build's configuration into the same server. A fresh
+server, when one is wanted, is
+.B R
+and then
+.BR conn ,
+or
+.B conn restart
+from a terminal outside the window. Anything tmux
 can do to the server, you can do to it:
 .EX
 tmux -S ~/.local/state/conn/tmux-<uid>.sock attach

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -35,6 +36,7 @@ const usage = `conn is a terminal UI for working on projects at the command line
 usage:
   conn             open the window: conn's tmux server, with the navigator
   conn ls          list the held shells: pid, directory, name
+  conn restart     end the server and every shell it holds, then open the window
   conn -h, --help  show this; help is the same word bare
   conn --version   report the version; version, bare, too
 
@@ -74,6 +76,16 @@ func main() {
 			if err := runLS(os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 				os.Exit(1)
+			}
+			return
+		case "restart":
+			// A no to the question is a clean exit: nothing failed, the
+			// server stands, and the answer is said back.
+			if err := runRestart(); err != nil {
+				fmt.Fprintf(os.Stderr, "conn: %v\n", err)
+				if !errors.Is(err, errKept) {
+					os.Exit(1)
+				}
 			}
 			return
 		case "nav":

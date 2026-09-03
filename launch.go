@@ -48,25 +48,9 @@ func connExe() string {
 // and this terminal attached. It returns only when it could not attach;
 // attached, the process is tmux's.
 func runLaunch() error {
-	// Refused before anything is started: a server brought up for a
-	// terminal that is not there would be left running behind a message
-	// that is tmux's, and does not say conn.
-	if !term.IsTerminal(os.Stdout.Fd()) {
-		return errors.New("stdout is not a terminal")
-	}
-	// Inside a tmux that is not conn's, attaching is nesting, which tmux
-	// refuses; said here, before anything is started. Inside conn's own,
-	// the terminal is attached already, and what is left to do is what
-	// every launch does first: give the server this build's configuration
-	// and navigator. That is the way to take an upgrade from a shell in
-	// the window.
-	inside := false
-	if t := os.Getenv("TMUX"); t != "" {
-		sock, _, _ := strings.Cut(t, ",")
-		if sock != socketPath() {
-			return errors.New("inside another tmux; unset TMUX to nest")
-		}
-		inside = true
+	inside, err := attachable()
+	if err != nil {
+		return err
 	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
@@ -115,6 +99,29 @@ func runLaunch() error {
 		return nil
 	}
 	return syscall.Exec(tmux, []string{"tmux", "-S", socketPath(), "attach", "-t", tmuxSession}, os.Environ())
+}
+
+// attachable says whether this terminal can be handed to the server, and
+// whether it is inside conn's own window already. Both are settled before
+// anything is started: a server brought up for a terminal that is not
+// there would be left running behind a message that is tmux's, and does
+// not say conn. Inside a tmux that is not conn's, attaching is nesting,
+// which tmux refuses. Inside conn's own, the terminal is attached
+// already, and what is left to do is what every launch does first: give
+// the server this build's configuration and navigator. That is the way to
+// take an upgrade from a shell in the window.
+func attachable() (inside bool, err error) {
+	if !term.IsTerminal(os.Stdout.Fd()) {
+		return false, errors.New("stdout is not a terminal")
+	}
+	if t := os.Getenv("TMUX"); t != "" {
+		sock, _, _ := strings.Cut(t, ",")
+		if sock != socketPath() {
+			return false, errors.New("inside another tmux; unset TMUX to nest")
+		}
+		inside = true
+	}
+	return inside, nil
 }
 
 // home is the home window, and the pane in it the navigator runs in.
