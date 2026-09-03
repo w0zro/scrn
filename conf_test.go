@@ -13,7 +13,7 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"set -g prefix C-Space",
 		"unbind -a",
 		"set -g mouse on",
-		`bind n run-shell "'/opt/my tools/it'\''s/scrn' home"`,
+		`bind - run-shell "'/opt/my tools/it'\''s/scrn' home"`,
 		`bind s run-shell "'/opt/my tools/it'\''s/scrn' shell '#{pane_current_path}'"`,
 		`bind j run-shell "'/opt/my tools/it'\''s/scrn' next"`,
 		"bind C-Space last-pane",

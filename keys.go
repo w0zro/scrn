@@ -34,7 +34,7 @@ var keyList = [][2]string{
 	{"gg · G", "top · bottom"},
 	{"R", "end the server, shells and all"},
 	{"q", "leave; the shells keep running"},
-	{"^spc n", "here, from any shell"},
+	{"^spc -", "here, from any shell"},
 	{"^spc j k", "next · previous shell"},
 	{"^spc ^spc", "between the list and the shell"},
 	{"^spc enter", "the next waiting agent"},
