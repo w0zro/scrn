@@ -213,9 +213,8 @@ type model struct {
 	status    string
 	statusErr bool
 
-	// blurred says the keys are in another pane. The cursor row is drawn
-	// quieter then: a lit cursor in a pane the keys have left would say
-	// the next letter goes to the list.
+	// blurred says the keys are in another pane, so nothing here should be
+	// waiting on the next one.
 	blurred bool
 
 	// ticks counts refresh cycles, so slower work can run every Nth one.

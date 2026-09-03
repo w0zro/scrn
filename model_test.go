@@ -3596,7 +3596,8 @@ func TestTheKeysLeavingForAShellDisarmsTheKillAndDimsTheCursor(t *testing.T) {
 	}
 
 	// The keys go to a shell: the kill's second key is not coming, so the
-	// kill is not waiting for it; and the cursor stops claiming the keys.
+	// kill is not waiting for it. The cursor row stays lit — it is the
+	// shell shown beside the list, and dim would read as out of reach.
 	next, _ := m.Update(tea.BlurMsg{})
 	m = next.(model)
 	if m.pendingKill != nil {
@@ -3605,14 +3606,8 @@ func TestTheKeysLeavingForAShellDisarmsTheKillAndDimsTheCursor(t *testing.T) {
 	if f := footer(m); strings.Contains(f, "kill") {
 		t.Errorf("footer = %q, want the prompt gone with the kill", f)
 	}
-	if got := m.rowStyle(row, true); got.GetForeground() == selStyle.GetForeground() {
-		t.Error("with the keys in a shell the cursor row should be quiet")
-	}
-
-	next, _ = m.Update(tea.FocusMsg{})
-	m = next.(model)
 	if got := m.rowStyle(row, true); got.GetForeground() != selStyle.GetForeground() {
-		t.Error("with the keys back the cursor row should be lit again")
+		t.Error("with the keys in a shell the cursor row should stay lit")
 	}
 }
 

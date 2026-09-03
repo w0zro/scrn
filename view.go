@@ -344,11 +344,9 @@ func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 		return faintStyle
 	}
 	if selected {
-		// With the keys in a shell the cursor marks the place without
-		// claiming them: found at a glance, not lit.
-		if m.blurred {
-			return offSelStyle
-		}
+		// Lit whether or not the keys are here: the row is the shell shown
+		// beside the list, and dim reads as out of reach. Which pane has
+		// the keys is the status line's to say.
 		return selStyle
 	}
 	return itemStyle
