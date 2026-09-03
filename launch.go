@@ -67,12 +67,17 @@ func runLaunch() error {
 			markHome(f[0], f[1])
 		}
 	} else {
-		// A server already running learns this build's bindings, and the
-		// home window comes back if it was closed.
+		// A server already running learns this build's bindings, the home
+		// window comes back if it was closed, and a navigator from an
+		// older build gives way to this one.
 		if _, err := tmuxCommand("source-file", conf); err != nil {
 			return err
 		}
-		if _, err := ensureHome(); err != nil {
+		h, err := ensureHome()
+		if err != nil {
+			return err
+		}
+		if err := refreshHome(h); err != nil {
 			return err
 		}
 	}
@@ -166,6 +171,25 @@ func ensureHome() (home, error) {
 	}
 	markHome(f[0], f[1])
 	return home{win: f[0], pane: f[1]}, nil
+}
+
+// refreshHome restarts the navigator in its pane when it is not this
+// build's: the configuration is re-read at every launch so the bindings
+// are always the build's, and the navigator should be too, or a fix in
+// it waits, unseen, behind a process started days ago. The pane stays —
+// its place in the layout, its id — and the program in it is replaced.
+// Only the launcher does this: a chord that restarted the navigator under
+// the keys would be a surprise.
+func refreshHome(h home) error {
+	out, err := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_start_command}")
+	if err != nil {
+		return err
+	}
+	if strings.Trim(strings.TrimSpace(out), `"`) == homeCommand() {
+		return nil
+	}
+	_, err = tmuxCommand("respawn-pane", "-k", "-t", h.pane, homeCommand())
+	return err
 }
 
 // runHome is `scrn home [key]`: to the navigator, and handed a key, that key

@@ -102,6 +102,45 @@ func TestASecondNavigatorIsALeftoverAndGoes(t *testing.T) {
 	}
 }
 
+func TestALaunchRestartsANavigatorFromAnOlderBuild(t *testing.T) {
+	// The navigator a launch finds may be an older build's; it is
+	// replaced in its pane, and one that is this build's is left alone.
+	tmuxOnSocket(t)
+	old := homeCommand
+	t.Cleanup(func() { homeCommand = old })
+	homeCommand = func() string { return "sh -c 'sleep 30' nav" }
+	out, err := tmuxCommand("new-session", "-d", "-s", tmuxSession, "-n", homeName,
+		"-P", "-F", "#{window_id}\t#{pane_id}", homeCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Split(out, "\t")
+	markHome(f[0], f[1])
+	h, err := ensureHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	was, _ := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_pid}")
+
+	if err := refreshHome(h); err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_pid}"); now != was {
+		t.Errorf("a navigator that is this build's was restarted: pid %s, was %s", now, was)
+	}
+
+	// A newer build: the pane keeps its place, the program in it is new.
+	homeCommand = func() string { return "sh -c 'sleep 31' nav" }
+	if err := refreshHome(h); err != nil {
+		t.Fatal(err)
+	}
+	now, _ := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_pid}\t#{pane_start_command}\t#{@scrn_nav}")
+	g := strings.Split(now, "\t")
+	if len(g) != 3 || g[0] == was || !strings.Contains(g[1], "sleep 31") || g[2] != "1" {
+		t.Errorf("after the newer build's launch the pane is %q, want a new process running the new command in the marked pane", now)
+	}
+}
+
 func TestTheNavigatorGoesBackOnTheLeftOfAHomeWindowThatLostIt(t *testing.T) {
 	tmuxOnSocket(t)
 	old := homeCommand
