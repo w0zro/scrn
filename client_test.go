@@ -10,8 +10,8 @@ import (
 )
 
 func TestTheListFallsBackToWhereThePaneWorks(t *testing.T) {
-	// A pane scrn never dressed — opened through a bare tmux attach — has no
-	// @scrn_dir; where it is working now is the honest answer.
+	// A pane conn never dressed — opened through a bare tmux attach — has no
+	// @conn_dir; where it is working now is the honest answer.
 	s := newSession()
 	s.closed = true
 	s.run = func(args ...string) (string, error) {
@@ -33,8 +33,8 @@ func TestTheListingTellsTheNavigatorAndTheShownShellApart(t *testing.T) {
 	// it is the shell shown there; a window named for wanting is a chord's
 	// ask to show the shell in it — unless it is shown already.
 	held, nav := parseListing(strings.Join([]string{
-		"%0\t100\t\t\t/\t1\t1\tscrn",
-		"%1\t700\t/p/a\t\t/p/a\t\t1\tscrn",
+		"%0\t100\t\t\t/\t1\t1\tconn",
+		"%1\t700\t/p/a\t\t/p/a\t\t1\tconn",
 		"%2\t701\t/p/b\tweb\t/p/b\t\t\tshell",
 		"%3\t702\t/p/c\t\t/p/c\t\t\t" + wantName,
 	}, "\n"))

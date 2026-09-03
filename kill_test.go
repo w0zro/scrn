@@ -17,7 +17,7 @@ func TestSignalRefusesDangerousTargets(t *testing.T) {
 	}{
 		{0, "refusing"},
 		{1, "refusing"},
-		{os.Getpid(), "scrn itself"},
+		{os.Getpid(), "conn itself"},
 	} {
 		err := signal(tc.pid)
 		if err == nil {

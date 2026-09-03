@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// Config is scrn's on-disk configuration.
+// Config is conn's on-disk configuration.
 type Config struct {
-	// ProjectsDir is the directory scrn searches for git repositories.
+	// ProjectsDir is the directory conn searches for git repositories.
 	// It may contain ~ or environment variables such as $HOME.
 	ProjectsDir string `json:"projectsDir"`
 
@@ -44,7 +44,7 @@ type Config struct {
 	Theme string `json:"theme,omitempty"`
 
 	// Agent names the kind of agent the a key starts — "claude" unless said
-	// otherwise. A name scrn does not know falls back to the default.
+	// otherwise. A name conn does not know falls back to the default.
 	Agent string `json:"agent,omitempty"`
 
 	// AgentRuns overrides what starting a kind runs, by the kind's name —
@@ -57,7 +57,7 @@ func defaultConfig() Config {
 	return Config{ProjectsDir: "$HOME/projects"}
 }
 
-// apply records what the config says for the parts of scrn that read it
+// apply records what the config says for the parts of conn that read it
 // before anything is drawn or started: the navigator's width, the shells'
 // scrollback, the agent a starts, and the side tmux draws for. Every way in
 // — the launcher, the navigator, a chord — applies it the same way.
@@ -106,13 +106,13 @@ func (c Config) skipSet() map[string]bool {
 // configPath returns the config file location, honoring XDG_CONFIG_HOME.
 func configPath() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "scrn", "config.json")
+		return filepath.Join(dir, "conn", "config.json")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "scrn", "config.json")
+	return filepath.Join(home, ".config", "conn", "config.json")
 }
 
-// loadConfig reads the config file. A missing file is not an error: scrn is
+// loadConfig reads the config file. A missing file is not an error: conn is
 // meant to work before it is configured, so the defaults stand in.
 func loadConfig() (Config, error) {
 	cfg := defaultConfig()

@@ -19,11 +19,11 @@ import (
 // shell under the cursor into the pane on the right and the last one back
 // out, taking the keys to a shell, and hearing when shells come and go.
 
-// socketPath is where scrn's tmux server listens. It is per user and outside
+// socketPath is where conn's tmux server listens. It is per user and outside
 // any project, because one server holds the shells for every repository. It
 // honors XDG_STATE_HOME the way the config honors XDG_CONFIG_HOME.
 func socketPath() string {
-	if p := os.Getenv("SCRN_SOCKET"); p != "" {
+	if p := os.Getenv("CONN_SOCKET"); p != "" {
 		return p
 	}
 	state := os.Getenv("XDG_STATE_HOME")
@@ -31,7 +31,7 @@ func socketPath() string {
 		home, _ := os.UserHomeDir()
 		state = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(state, "scrn", "tmux-"+strconv.Itoa(os.Getuid())+".sock")
+	return filepath.Join(state, "conn", "tmux-"+strconv.Itoa(os.Getuid())+".sock")
 }
 
 // sessionInfo is a shell the server is holding. Name is what the project
@@ -128,7 +128,7 @@ type placement struct {
 type session struct {
 	events chan tea.Msg
 
-	// run is one tmux command against scrn's server; a seam for the tests,
+	// run is one tmux command against conn's server; a seam for the tests,
 	// which put a recorder here.
 	run func(args ...string) (string, error)
 
@@ -291,20 +291,20 @@ func (s *session) notify(n ctlNote) {
 }
 
 // listFormat is the one line per pane the session reads the server's state
-// through. The directory a shell was opened in is a pane option scrn set;
-// a pane scrn never dressed — opened through a bare tmux attach — falls
+// through. The directory a shell was opened in is a pane option conn set;
+// a pane conn never dressed — opened through a bare tmux attach — falls
 // back to where it is working now. The navigator's own pane is told apart
 // by its option, and a pane in the home window beside it is the shell
 // shown there; the home window's option reaches its panes. A chord that
 // opened a shell to be shown says so in the window's name, the one mark
 // that is set in the same breath as the window is made — an option set
 // after would race the refresh the new window sets off.
-const listFormat = "#{pane_id}\t#{pane_pid}\t#{@scrn_dir}\t#{@scrn_name}\t#{pane_current_path}\t#{@scrn_nav}\t#{@scrn_home}\t#{window_name}"
+const listFormat = "#{pane_id}\t#{pane_pid}\t#{@conn_dir}\t#{@conn_name}\t#{pane_current_path}\t#{@conn_nav}\t#{@conn_home}\t#{window_name}"
 
 // wantName is the window name that asks the navigator to show the shell
 // in it; heldName is what the window is called once it has.
 const (
-	wantName = "scrn-want"
+	wantName = "conn-want"
 	heldName = "shell"
 )
 
@@ -326,7 +326,7 @@ func parseListing(out string) (held []*pane, nav string) {
 		if err != nil {
 			continue
 		}
-		// A pane scrn never dressed reports no directory of its own, and
+		// A pane conn never dressed reports no directory of its own, and
 		// falls back to where it is working now.
 		dir := f[2]
 		if dir == "" {
@@ -421,7 +421,7 @@ func nextEvent(s *session) tea.Cmd {
 // paneBirth is what an open asks for back: the pane and the shell's pid.
 const paneBirth = "#{pane_id} #{pane_pid}"
 
-// runner is one tmux command against scrn's server: a session's seam, or
+// runner is one tmux command against conn's server: a session's seam, or
 // tmuxCommand itself for a one-shot caller.
 type runner func(args ...string) (string, error)
 
@@ -431,14 +431,14 @@ type birth struct {
 	pid  int
 }
 
-// createWindow opens a window in scrn's session holding a shell — or, handed
+// createWindow opens a window in conn's session holding a shell — or, handed
 // a command, that command with a shell waiting behind it — in dir, and pins
 // the name and the opening directory on its pane so the list can tell a
 // plan's web apart from a shell that wandered there. The window is where
 // the shell waits until the navigator shows it; wanted asks the navigator
 // to, as soon as it sees the window. The launcher is what brings the
 // server up; a session that has gone in the meantime is made again around
-// the first shell, without a home window, which `scrn home` supplies when
+// the first shell, without a home window, which `conn home` supplies when
 // it is next asked for.
 func createWindow(run runner, dir, command, name string, wanted bool) (birth, error) {
 	cmd := ""
@@ -495,8 +495,8 @@ func createWindow(run runner, dir, command, name string, wanted bool) (birth, er
 	if err != nil {
 		return birth{}, errors.New("tmux said " + out)
 	}
-	_, _ = run("set", "-p", "-t", f[0], "@scrn_dir", dir, ";",
-		"set", "-p", "-t", f[0], "@scrn_name", name)
+	_, _ = run("set", "-p", "-t", f[0], "@conn_dir", dir, ";",
+		"set", "-p", "-t", f[0], "@conn_name", name)
 	return birth{pane: f[0], pid: pid}, nil
 }
 
@@ -653,7 +653,7 @@ func (s *session) arrange(p placement) error {
 // its window was made at the client's size. column is the navigator's
 // width, which the slot is the rest of the window past.
 func showPane(run runner, nav, target string, column int) error {
-	out, err := run("list-panes", "-t", nav, "-F", "#{pane_id}\t#{@scrn_nav}\t#{window_width}\t#{window_height}")
+	out, err := run("list-panes", "-t", nav, "-F", "#{pane_id}\t#{@conn_nav}\t#{window_width}\t#{window_height}")
 	if err != nil {
 		return err
 	}
@@ -717,14 +717,14 @@ func (s *session) help() {
 		return
 	}
 	go func() {
-		if err := showKeys(s.run, scrnExe(), ""); err != nil {
+		if err := showKeys(s.run, connExe(), ""); err != nil {
 			s.events <- serverErrorMsg{err: err}
 		}
 	}()
 }
 
 // leave detaches the client this navigator is drawn in. The shells keep
-// running; `scrn` attaches again.
+// running; `conn` attaches again.
 func (s *session) leave() {
 	if s == nil {
 		return
@@ -764,7 +764,7 @@ func (s *session) dress(pid int, name string) {
 	if p == nil {
 		return
 	}
-	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@scrn_title", name) }()
+	go func() { _, _ = s.run("set", "-p", "-t", p.id, "@conn_title", name) }()
 }
 
 // statusText is what the navigator has the status line read: the mode
@@ -783,8 +783,8 @@ func (s *session) say(t statusText) {
 		return
 	}
 	s.saying.ask(t, func(t statusText) {
-		_, _ = s.run("set", "-g", "@scrn_mode", t.mode, ";",
-			"set", "-g", "@scrn_msg", t.msg, ";",
+		_, _ = s.run("set", "-g", "@conn_mode", t.mode, ";",
+			"set", "-g", "@conn_msg", t.msg, ";",
 			"refresh-client", "-S")
 	})
 }
@@ -810,7 +810,7 @@ func applyScrollback(n int) {
 
 // bornName is the placeholder window a session is remade around, gone
 // as soon as the first shell is in.
-const bornName = "scrn-born"
+const bornName = "conn-born"
 
 // outerTerminal is the terminal around tmux, as the TERM_PROGRAM and
 // TERM_PROGRAM_VERSION the server was started under: the launcher's, kept

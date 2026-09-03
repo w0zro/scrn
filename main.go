@@ -1,4 +1,4 @@
-// Command scrn is a terminal UI for working on projects at the command line.
+// Command conn is a terminal UI for working on projects at the command line.
 package main
 
 import (
@@ -25,41 +25,41 @@ func versionString() string {
 	if v == "" {
 		v = "unknown"
 	}
-	return "scrn " + strings.TrimPrefix(v, "v")
+	return "conn " + strings.TrimPrefix(v, "v")
 }
 
-// usage is the whole of scrn's command line. The detail — keys, config,
+// usage is the whole of conn's command line. The detail — keys, config,
 // the server's life — belongs to the manual, not here.
-const usage = `scrn is a terminal UI for working on projects at the command line.
+const usage = `conn is a terminal UI for working on projects at the command line.
 
 usage:
-  scrn             open the window: scrn's tmux server, with the navigator
-  scrn ls          list the held shells: pid, directory, name
-  scrn -h, --help  show this; help is the same word bare
-  scrn --version   report the version; version, bare, too
+  conn             open the window: conn's tmux server, with the navigator
+  conn ls          list the held shells: pid, directory, name
+  conn -h, --help  show this; help is the same word bare
+  conn --version   report the version; version, bare, too
 
 the chords run these; they are not for typing:
-  scrn nav         the navigator, in the home window's left pane
-  scrn keys [c]    the keys, in a popup over the client c
-  scrn page        the page inside that popup
-  scrn home [key]  to the navigator, pressing key there
-  scrn shell [dir] a shell in dir, shown beside the navigator
-  scrn agent [dir] an agent in dir, shown beside the navigator
-  scrn run [dir]   the plan of the place holding dir
-  scrn jump        the next agent waiting on you
-  scrn next, prev  the next and previous shell
+  conn nav         the navigator, in the home window's left pane
+  conn keys [c]    the keys, in a popup over the client c
+  conn page        the page inside that popup
+  conn home [key]  to the navigator, pressing key there
+  conn shell [dir] a shell in dir, shown beside the navigator
+  conn agent [dir] an agent in dir, shown beside the navigator
+  conn run [dir]   the plan of the place holding dir
+  conn jump        the next agent waiting on you
+  conn next, prev  the next and previous shell
 
 files:
-  ~/.config/scrn/config.json  configuration
-  ~/.local/state/scrn/        the tmux server's socket and configuration
+  ~/.config/conn/config.json  configuration
+  ~/.local/state/conn/        the tmux server's socket and configuration
 
 environment:
-  SCRN_SOCKET  where that server listens, instead of the state directory
+  CONN_SOCKET  where that server listens, instead of the state directory
 `
 
 func main() {
 	if err := needHome(); err != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		os.Exit(1)
 	}
 	if len(os.Args) > 1 {
@@ -72,7 +72,7 @@ func main() {
 			return
 		case "ls":
 			if err := runLS(os.Stdout); err != nil {
-				fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+				fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 				os.Exit(1)
 			}
 			return
@@ -87,7 +87,7 @@ func main() {
 		default:
 			chord, ok := chords[os.Args[1]]
 			if !ok {
-				fmt.Fprintf(os.Stderr, "scrn: unknown argument %q\n\n%s", os.Args[1], usage)
+				fmt.Fprintf(os.Stderr, "conn: unknown argument %q\n\n%s", os.Args[1], usage)
 				os.Exit(2)
 			}
 			arg := ""
@@ -111,11 +111,11 @@ func main() {
 	// from opening. The navigator says it again, in view.
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 	}
 	cfg.apply()
 	if err := runLaunch(); err != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -123,10 +123,10 @@ func main() {
 // needHome refuses to run without a home directory to put the config and
 // the socket under, unless the environment has placed both elsewhere.
 // Without it the paths would be relative, and a socket made in whatever
-// directory scrn was started from would look like it worked.
+// directory conn was started from would look like it worked.
 func needHome() error {
 	placed := os.Getenv("XDG_CONFIG_HOME") != "" &&
-		(os.Getenv("SCRN_SOCKET") != "" || os.Getenv("XDG_STATE_HOME") != "")
+		(os.Getenv("CONN_SOCKET") != "" || os.Getenv("XDG_STATE_HOME") != "")
 	if placed {
 		return nil
 	}
@@ -146,7 +146,7 @@ var chords = map[string]func(arg string) error{
 	"jump":  func(string) error { return runJump() },
 	"next":  func(string) error { return runStep(1) },
 	"prev":  func(string) error { return runStep(-1) },
-	"keys":  func(client string) error { return showKeys(tmuxCommand, scrnExe(), client) },
+	"keys":  func(client string) error { return showKeys(tmuxCommand, connExe(), client) },
 }
 
 // runNav is the navigator: the program in the home window. The navigator's
@@ -165,7 +165,7 @@ func runNav() {
 		m.server.close()
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		os.Exit(1)
 	}
 }

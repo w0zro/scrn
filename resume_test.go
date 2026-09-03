@@ -25,13 +25,13 @@ func TestSuspendedConversationsAreNewestFirst(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
 	now := time.Now()
 
-	agedTranscript(t, claude, "/p/scrn", "aaaa-1111", now.Add(-2*time.Hour),
+	agedTranscript(t, claude, "/p/conn", "aaaa-1111", now.Add(-2*time.Hour),
 		`{"type":"last-prompt","lastPrompt":"fix the resize race","gitBranch":"main"}`)
-	agedTranscript(t, claude, "/p/scrn", "bbbb-2222", now.Add(-time.Minute),
+	agedTranscript(t, claude, "/p/conn", "bbbb-2222", now.Add(-time.Minute),
 		`{"type":"last-prompt","lastPrompt":"polish the picker","gitBranch":"picker"}`,
 		`{"type":"system","subtype":"away_summary","content":"laying out the pane"}`)
 
-	got := claudeSuspended([]string{"/p/scrn"}, nil)
+	got := claudeSuspended([]string{"/p/conn"}, nil)
 	if len(got) != 2 {
 		t.Fatalf("listed %d conversations, want 2", len(got))
 	}
@@ -44,7 +44,7 @@ func TestSuspendedConversationsAreNewestFirst(t *testing.T) {
 	if got[0].Summary != "laying out the pane" {
 		t.Errorf("summary = %q, want the away summary read back", got[0].Summary)
 	}
-	if got[0].Dir != "/p/scrn" {
+	if got[0].Dir != "/p/conn" {
 		t.Errorf("dir = %q, want the directory it was filed under", got[0].Dir)
 	}
 }
@@ -53,10 +53,10 @@ func TestARunningConversationIsNotSuspended(t *testing.T) {
 	claude := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
 
-	agedTranscript(t, claude, "/p/scrn", "aaaa-1111", time.Now(),
+	agedTranscript(t, claude, "/p/conn", "aaaa-1111", time.Now(),
 		`{"type":"last-prompt","lastPrompt":"still going"}`)
 
-	got := claudeSuspended([]string{"/p/scrn"}, map[string]bool{"aaaa-1111": true})
+	got := claudeSuspended([]string{"/p/conn"}, map[string]bool{"aaaa-1111": true})
 	if len(got) != 0 {
 		t.Fatalf("listed %d conversations, want the live one excluded", len(got))
 	}
@@ -66,9 +66,9 @@ func TestOnlyIdShapedFilesAreConversations(t *testing.T) {
 	claude := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
 
-	agedTranscript(t, claude, "/p/scrn", "aaaa-1111", time.Now(),
+	agedTranscript(t, claude, "/p/conn", "aaaa-1111", time.Now(),
 		`{"type":"last-prompt","lastPrompt":"the real one"}`)
-	pdir := filepath.Join(claude, "projects", encodePath("/p/scrn"))
+	pdir := filepath.Join(claude, "projects", encodePath("/p/conn"))
 	// A name that is not an id would end up on a shell command line; it is
 	// not a session, whatever it holds.
 	for _, name := range []string{"notes.txt", "evil;rm.jsonl", "aaaa-1111"} {
@@ -79,7 +79,7 @@ func TestOnlyIdShapedFilesAreConversations(t *testing.T) {
 		}
 	}
 
-	got := claudeSuspended([]string{"/p/scrn"}, nil)
+	got := claudeSuspended([]string{"/p/conn"}, nil)
 	if len(got) != 1 || got[0].ID != "aaaa-1111" {
 		t.Fatalf("listed %+v, want only the id-shaped transcript", got)
 	}
@@ -105,11 +105,11 @@ func TestConvoMetaFallsBackToAUserRecord(t *testing.T) {
 
 	// An old transcript predates the last-prompt records; what the user
 	// typed is still in it.
-	agedTranscript(t, claude, "/p/scrn", "aaaa-1111", time.Now(),
+	agedTranscript(t, claude, "/p/conn", "aaaa-1111", time.Now(),
 		`{"type":"user","message":{"content":"make the tests pass"}}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}`)
 
-	got := claudeSuspended([]string{"/p/scrn"}, nil)
+	got := claudeSuspended([]string{"/p/conn"}, nil)
 	if len(got) != 1 || got[0].Prompt != "make the tests pass" {
 		t.Fatalf("prompt = %+v, want the user record read back", got)
 	}
@@ -143,30 +143,30 @@ func TestShortAge(t *testing.T) {
 // pickerOn is a model standing on a repository with the picker open and a
 // listing already landed.
 func pickerOn(convos ...conversation) model {
-	m := withProcs(96, 14, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+	m := withProcs(96, 14, []Project{{Name: "conn", Path: "/p/conn"}}, nil)
 	for i := range convos {
 		if convos[i].Kind == "" {
 			convos[i].Kind = "claude" // stamped by the layer in earnest
 		}
 	}
-	m.resume = &resumeView{place: Project{Name: "scrn", Path: "/p/scrn"}, loaded: true, convos: convos}
+	m.resume = &resumeView{place: Project{Name: "conn", Path: "/p/conn"}, loaded: true, convos: convos}
 	return m
 }
 
 func TestAOpensThePickerOnThePlace(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "absent"))
-	m := withProcs(96, 14, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+	m := withProcs(96, 14, []Project{{Name: "conn", Path: "/p/conn"}}, nil)
 
 	next, cmd := m.Update(typed("A"))
 	m = next.(model)
-	if m.resume == nil || m.resume.place.Path != "/p/scrn" {
+	if m.resume == nil || m.resume.place.Path != "/p/conn" {
 		t.Fatalf("picker = %+v, want it open on the selected place", m.resume)
 	}
 	if cmd == nil {
 		t.Fatal("no listing was asked for")
 	}
 	msg, ok := cmd().(convosMsg)
-	if !ok || msg.place != "/p/scrn" {
+	if !ok || msg.place != "/p/conn" {
 		t.Fatalf("listing = %+v, want convosMsg for the place", msg)
 	}
 	next, _ = m.Update(msg)
@@ -178,8 +178,8 @@ func TestAOpensThePickerOnThePlace(t *testing.T) {
 
 func TestPickerTypingNarrowsAndEnterContinues(t *testing.T) {
 	m := pickerOn(
-		conversation{ID: "aaaa-1111", Dir: "/p/scrn", Prompt: "fix the resize race"},
-		conversation{ID: "bbbb-2222", Dir: "/p/scrn/docs", Prompt: "polish the site"},
+		conversation{ID: "aaaa-1111", Dir: "/p/conn", Prompt: "fix the resize race"},
+		conversation{ID: "bbbb-2222", Dir: "/p/conn/docs", Prompt: "polish the site"},
 	)
 	m, asked := pipeServer(t, m)
 
@@ -192,7 +192,7 @@ func TestPickerTypingNarrowsAndEnterContinues(t *testing.T) {
 
 	m = press(m, "enter")
 	got := askedFor(t, asked)
-	if got.Kind != kindOpen || got.Dir != "/p/scrn/docs" || got.Run != "claude --resume bbbb-2222" {
+	if got.Kind != kindOpen || got.Dir != "/p/conn/docs" || got.Run != "claude --resume bbbb-2222" {
 		t.Fatalf("asked %+v, want the conversation continued where it was had", got)
 	}
 	if m.resume != nil {
@@ -281,7 +281,7 @@ func TestPickerListsWhatCouldBeContinued(t *testing.T) {
 			Branch: "main", Prompt: "fix the resize race"},
 	)
 	pane := stripANSI(strings.Join(m.resumeLines(60, 12), "\n"))
-	for _, want := range []string{"scrn", "suspended conversations", "2h", "main", "fix the resize race"} {
+	for _, want := range []string{"conn", "suspended conversations", "2h", "main", "fix the resize race"} {
 		if !strings.Contains(pane, want) {
 			t.Errorf("pane = %q, missing %q", pane, want)
 		}
@@ -296,7 +296,7 @@ func TestPickerSaysWhenNothingAnswers(t *testing.T) {
 		t.Errorf("pane = %q, want it to say nothing answers", pane)
 	}
 
-	m.resume = &resumeView{place: Project{Name: "scrn"}, loaded: true}
+	m.resume = &resumeView{place: Project{Name: "conn"}, loaded: true}
 	pane = stripANSI(strings.Join(m.resumeLines(60, 12), "\n"))
 	if !strings.Contains(pane, "none to continue") {
 		t.Errorf("pane = %q, want it to say there is nothing suspended", pane)
@@ -315,11 +315,11 @@ func TestThePickerShowsTheSelectedConversationWhole(t *testing.T) {
 	// A row can only truncate the prompt; the block beneath the list says
 	// it whole, with the branch and the place it was had.
 	m := pickerOn(
-		conversation{ID: "aaaa-1111", Dir: "/p/scrn/docs", Branch: "site",
+		conversation{ID: "aaaa-1111", Dir: "/p/conn/docs", Branch: "site",
 			Prompt: "make the long prompt that a narrow row could never hold visible in full"},
 	)
 	pane := stripANSI(strings.Join(m.resumeLines(60, 24), "\n"))
-	for _, want := range []string{"hold visible in full", "site", "/p/scrn/docs"} {
+	for _, want := range []string{"hold visible in full", "site", "/p/conn/docs"} {
 		if !strings.Contains(pane, want) {
 			t.Errorf("pane missing %q:\n%s", want, pane)
 		}

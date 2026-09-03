@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-// scrn is a tmux client. The terminal attaches to scrn's private server the
+// conn is a tmux client. The terminal attaches to conn's private server the
 // way any tmux client does, and tmux draws the shells, holds the prefix and
-// keeps the status line; scrn is the program in the home window's left
+// keeps the status line; conn is the program in the home window's left
 // pane — the navigator — and the commands the prefix's chords run. The
 // shell under the navigator's cursor is the pane on its right; the rest
-// wait in windows of their own. What makes the server scrn's rather than a
+// wait in windows of their own. What makes the server conn's rather than a
 // stock tmux is this configuration, written at every launch and sourced
 // into a server already running, so the bindings are always the build's.
 
@@ -21,12 +21,12 @@ func confPath() string {
 	return filepath.Join(filepath.Dir(socketPath()), "tmux.conf")
 }
 
-// tmuxConf is the configuration for scrn's server. scrn is the path of this
+// tmuxConf is the configuration for conn's server. conn is the path of this
 // build, which the chords run; the path is quoted so a directory with a
 // space in its name still finds it. navWidth is the navigator's column,
 // which the layout holds through every resize.
-func tmuxConf(scrn string, scrollback, navWidth int) string {
-	exe := shellQuote(scrn)
+func tmuxConf(conn string, scrollback, navWidth int) string {
+	exe := shellQuote(conn)
 	run := func(args string) string {
 		return `run-shell "` + exe + ` ` + args + `"`
 	}
@@ -38,7 +38,7 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		}
 	}
 
-	w("# Written by scrn at every launch; edits do not survive one.",
+	w("# Written by conn at every launch; edits do not survive one.",
 		"",
 		"# The keys. ctrl-space is the prefix, and each chord keeps its letter's",
 		"# meaning: - is the navigator, j and k the next and previous shell, enter",
@@ -76,7 +76,7 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"set -g automatic-rename off",
 		"set -g allow-rename off",
 		"set -g set-titles on",
-		`set -g set-titles-string "#{?#{@scrn_nav},scrn,#{?#{@scrn_title},#{@scrn_title},#{pane_current_command}}}"`,
+		`set -g set-titles-string "#{?#{@conn_nav},conn,#{?#{@conn_title},#{@conn_title},#{pane_current_command}}}"`,
 		"set -g escape-time 10",
 		"set -g focus-events on",
 		"set -g default-terminal tmux-256color",
@@ -99,7 +99,7 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		"# under its cursor filling the right. The layout is re-applied on every",
 		"# resize, so the window's growth is the shell's.",
 		"set -g main-pane-width "+strconv.Itoa(navWidth),
-		`set-hook -g window-resized 'if -F "#{@scrn_home}" "select-layout main-vertical"'`,
+		`set-hook -g window-resized 'if -F "#{@conn_home}" "select-layout main-vertical"'`,
 		`set -g pane-border-style "fg=`+tp.bg1+`"`,
 		`set -g pane-active-border-style "fg=`+tp.bg1+`"`,
 		"set -g pane-border-indicators off",
@@ -131,9 +131,9 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 
 // statusLeft is the status line's format: the mode, then the message.
 // tmux knows most of the modes itself — the prefix, copy mode, which pane
-// the keys are in — and the navigator names its own in @scrn_mode, which
+// the keys are in — and the navigator names its own in @conn_mode, which
 // counts only while the keys are with it: a filter half-typed is not the
-// mode of a shell. What the navigator has to say is in @scrn_msg. Each
+// mode of a shell. What the navigator has to say is in @conn_msg. Each
 // mode is a chip in its color with the line washed one tone after it:
 // amber for the prefix, green for a process, cyan for copy mode, and the
 // navigator in ink — home is not a state.
@@ -145,7 +145,7 @@ func statusLeft() string {
 	}
 	mode := "#{?client_prefix," + chip(tp.amber, "PREFIX") +
 		",#{?pane_in_mode," + chip(tp.cyan, "COPY") +
-		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(tp.fg, "NAV") + "}," +
+		",#{?@conn_nav,#{?@conn_mode,#{@conn_mode}," + chip(tp.fg, "NAV") + "}," +
 		chip(tp.green, "PROC") + "}}}"
-	return mode + "#{@scrn_msg}"
+	return mode + "#{@conn_msg}"
 }

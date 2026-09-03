@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// claudeHome lays out a fake Claude Code state directory and points scrn at it.
+// claudeHome lays out a fake Claude Code state directory and points conn at it.
 func claudeHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -47,7 +47,7 @@ func writeTranscript(t *testing.T, dir, cwd, id string, records ...string) strin
 
 func TestEncodePathMatchesClaudesLayout(t *testing.T) {
 	cases := map[string]string{
-		"/Users/w0zro/projects/w0zro/scrn":       "-Users-w0zro-projects-w0zro-scrn",
+		"/Users/w0zro/projects/w0zro/conn":       "-Users-w0zro-projects-w0zro-conn",
 		"/Users/w0zro/projects/SkellyLabs, Inc.": "-Users-w0zro-projects-SkellyLabs--Inc-",
 		"/private/tmp/claude-501/x":              "-private-tmp-claude-501-x",
 	}
@@ -60,15 +60,15 @@ func TestEncodePathMatchesClaudesLayout(t *testing.T) {
 
 func TestSessionsAreKeyedByPID(t *testing.T) {
 	dir := claudeHome(t)
-	writeSession(t, dir, "4242.json", `{"pid":4242,"sessionId":"abc","cwd":"/p/scrn",
-		"name":"scrn-1f","status":"busy","statusUpdatedAt":`+recentMillis(90*time.Second)+`}`)
+	writeSession(t, dir, "4242.json", `{"pid":4242,"sessionId":"abc","cwd":"/p/conn",
+		"name":"conn-1f","status":"busy","statusUpdatedAt":`+recentMillis(90*time.Second)+`}`)
 
 	got := claudeSessions()
 	s, ok := got[4242]
 	if !ok {
 		t.Fatalf("sessions = %v, want one keyed by pid 4242", got)
 	}
-	if s.Name != "scrn-1f" || s.Status != "busy" || s.SessionID != "abc" {
+	if s.Name != "conn-1f" || s.Status != "busy" || s.SessionID != "abc" {
 		t.Errorf("session = %+v, want the name, status and id read", s)
 	}
 	if s.StatusFor < time.Minute || s.StatusFor > 5*time.Minute {
@@ -113,9 +113,9 @@ const (
 
 func TestTranscriptFillsInWhatTheSessionFileCannot(t *testing.T) {
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc", userRec, asstRec)
+	writeTranscript(t, dir, "/p/conn", "abc", userRec, asstRec)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if s.Model != "claude-opus-5" {
@@ -145,7 +145,7 @@ func TestTranscriptIsFoundAfterARename(t *testing.T) {
 
 func TestOnlyWhatTheUserTypedCountsAsAPrompt(t *testing.T) {
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"user","message":{"content":"the real question"}}`,
 		// A tool result: content is a list, not a string.
 		`{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}`,
@@ -156,7 +156,7 @@ func TestOnlyWhatTheUserTypedCountsAsAPrompt(t *testing.T) {
 		`{"type":"user","isSidechain":true,"message":{"content":"subagent instructions"}}`,
 	)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if s.Prompt != "the real question" {
@@ -167,10 +167,10 @@ func TestOnlyWhatTheUserTypedCountsAsAPrompt(t *testing.T) {
 func TestALongPromptIsCutDown(t *testing.T) {
 	dir := claudeHome(t)
 	long := strings.Repeat("word ", 200)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"user","message":{"content":"`+long+`"}}`)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if n := len([]rune(s.Prompt)); n > promptLimit+1 {
@@ -191,9 +191,9 @@ func TestOnlyTheTailOfAHugeTranscriptIsRead(t *testing.T) {
 		records = append(records, filler)
 	}
 	records = append(records, asstRec)
-	writeTranscript(t, dir, "/p/scrn", "abc", records...)
+	writeTranscript(t, dir, "/p/conn", "abc", records...)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if s.Model != "claude-opus-5" {
@@ -206,7 +206,7 @@ func TestOnlyTheTailOfAHugeTranscriptIsRead(t *testing.T) {
 
 func TestAPartialFirstLineIsDiscarded(t *testing.T) {
 	dir := claudeHome(t)
-	path := writeTranscript(t, dir, "/p/scrn", "abc", asstRec)
+	path := writeTranscript(t, dir, "/p/conn", "abc", asstRec)
 
 	// Read a window that starts mid-record; the broken line must not be used.
 	lines, err := tailLines(path, 20)
@@ -222,18 +222,18 @@ func TestAPartialFirstLineIsDiscarded(t *testing.T) {
 
 func TestMissingTranscriptLeavesTheSessionAlone(t *testing.T) {
 	claudeHome(t)
-	s := claudeSession{SessionID: "gone", Cwd: "/p/scrn", Name: "scrn-1f"}
+	s := claudeSession{SessionID: "gone", Cwd: "/p/conn", Name: "conn-1f"}
 	readTranscript(transcriptPath(s), &s)
 
-	if s.Name != "scrn-1f" || s.Model != "" {
+	if s.Name != "conn-1f" || s.Model != "" {
 		t.Errorf("session = %+v, want it untouched when there is no transcript", s)
 	}
 }
 
 func TestClaudeFieldsLeadWithTheSession(t *testing.T) {
 	fs := claudeFields(claudeSession{
-		Name: "scrn-1f", Status: "busy", StatusFor: 3 * time.Minute,
-		Summary: "building scrn", Model: "claude-opus-5", Context: 177664,
+		Name: "conn-1f", Status: "busy", StatusFor: 3 * time.Minute,
+		Summary: "building conn", Model: "claude-opus-5", Context: 177664,
 		Prompt: "make the spinner red",
 		Branch: "main", SessionID: "abc",
 	})
@@ -261,7 +261,7 @@ func TestClaudeFieldsNameWhatBlocksASession(t *testing.T) {
 	// "waiting" alone would send you looking for what it is waiting on, and
 	// the pane is where you would look.
 	fs := claudeFields(claudeSession{
-		Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt",
+		Name: "conn-1f", Status: waitingStatus, WaitingFor: "permission prompt",
 		StatusFor: 2 * time.Minute,
 	})
 	if v, _ := fieldValue(fs, "status"); v != "waiting on permission prompt  (2m)" {
@@ -270,7 +270,7 @@ func TestClaudeFieldsNameWhatBlocksASession(t *testing.T) {
 }
 
 func TestClaudeFieldsSkipWhatIsUnknown(t *testing.T) {
-	fs := pairsOf(claudeFields(claudeSession{Name: "scrn-1f", Status: "idle"}))
+	fs := pairsOf(claudeFields(claudeSession{Name: "conn-1f", Status: "idle"}))
 	for _, f := range fs {
 		if f.value == "" {
 			t.Errorf("field %q has no value; empty fields should be left out", f.label)
@@ -315,16 +315,16 @@ func recentMillis(ago time.Duration) string {
 
 func TestTheSessionSaysWhatItIsDoing(t *testing.T) {
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"system","subtype":"away_summary","content":"an older summary"}`,
 		`{"type":"system","subtype":"compact_boundary","content":"not a summary"}`,
-		`{"type":"system","subtype":"away_summary","content":"We're building scrn.  Just committed."}`,
+		`{"type":"system","subtype":"away_summary","content":"We're building conn.  Just committed."}`,
 		asstRec)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
-	if s.Summary != "We're building scrn. Just committed." {
+	if s.Summary != "We're building conn. Just committed." {
 		t.Errorf("Summary = %q, want the most recent one, flattened onto a line", s.Summary)
 	}
 }
@@ -333,12 +333,12 @@ func TestTheRecordedLastPromptWins(t *testing.T) {
 	// Claude Code records the last prompt itself; that beats reading back
 	// through the conversation for something that looks like one.
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"user","message":{"content":"an older question"}}`,
 		`{"type":"last-prompt","lastPrompt":"the recorded one"}`,
 		asstRec)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if s.Prompt != "the recorded one" {
@@ -348,10 +348,10 @@ func TestTheRecordedLastPromptWins(t *testing.T) {
 
 func TestReadingBackIsStillTheFallbackForAPrompt(t *testing.T) {
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"user","message":{"content":"no record of this one"}}`, asstRec)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if s.Prompt != "no record of this one" {
@@ -361,10 +361,10 @@ func TestReadingBackIsStillTheFallbackForAPrompt(t *testing.T) {
 
 func TestALongSummaryIsCutDown(t *testing.T) {
 	dir := claudeHome(t)
-	writeTranscript(t, dir, "/p/scrn", "abc",
+	writeTranscript(t, dir, "/p/conn", "abc",
 		`{"type":"system","subtype":"away_summary","content":"`+strings.Repeat("word ", 200)+`"}`)
 
-	s := claudeSession{SessionID: "abc", Cwd: "/p/scrn"}
+	s := claudeSession{SessionID: "abc", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 
 	if n := len([]rune(s.Summary)); n > summaryLimit+1 {
@@ -399,8 +399,8 @@ func withAgent(t *testing.T, dir, cwd, session, id, desc, kind string, age time.
 
 func agentsFor(t *testing.T, dir string, records ...string) []agentRun {
 	t.Helper()
-	writeTranscript(t, dir, "/p/scrn", "sess", records...)
-	s := claudeSession{SessionID: "sess", Cwd: "/p/scrn"}
+	writeTranscript(t, dir, "/p/conn", "sess", records...)
+	s := claudeSession{SessionID: "sess", Cwd: "/p/conn"}
 	readTranscript(transcriptPath(s), &s)
 	return s.Agents
 }
@@ -415,7 +415,7 @@ const (
 
 func TestAWaitedForAgentIsRunningUntilItAnswers(t *testing.T) {
 	dir := claudeHome(t)
-	withAgent(t, dir, "/p/scrn", "sess", "fg", "a", "Explore", 0)
+	withAgent(t, dir, "/p/conn", "sess", "fg", "a", "Explore", 0)
 
 	if got := agentsFor(t, dir, fgCall); len(got) != 1 || got[0].Description != "a" {
 		t.Errorf("agents = %+v, want the one still being waited for", got)
@@ -429,7 +429,7 @@ func TestABackgroundAgentIsNotFinishedByBeingStarted(t *testing.T) {
 	// It is answered the moment it starts, so its result says nothing about
 	// whether it is done. Reading that as finished hid every one of them.
 	dir := claudeHome(t)
-	withAgent(t, dir, "/p/scrn", "sess", "bg", "b", "general-purpose", 0)
+	withAgent(t, dir, "/p/conn", "sess", "bg", "b", "general-purpose", 0)
 
 	if got := agentsFor(t, dir, bgCall, bgStart); len(got) != 1 || got[0].Description != "b" {
 		t.Errorf("agents = %+v, want it still running after being launched", got)
@@ -443,7 +443,7 @@ func TestAnAgentThatStoppedWritingLongAgoIsNotRunning(t *testing.T) {
 	// The transcript is only read in a window, so a finish old enough to have
 	// fallen out of it would otherwise leave the agent listed for good.
 	dir := claudeHome(t)
-	withAgent(t, dir, "/p/scrn", "sess", "old", "c", "Explore", 2*agentStale)
+	withAgent(t, dir, "/p/conn", "sess", "old", "c", "Explore", 2*agentStale)
 
 	if got := agentsFor(t, dir, `{"type":"assistant","message":{"content":[]}}`); len(got) != 0 {
 		t.Errorf("agents = %+v, want nothing that went quiet long ago", got)

@@ -33,7 +33,7 @@ func TestRunningProcsFindsThisTest(t *testing.T) {
 	}
 
 	// The test binary runs in this package's directory, so that directory must
-	// show up — and this process itself must not, since scrn excludes its own.
+	// show up — and this process itself must not, since conn excludes its own.
 	cwd, _ := os.Getwd()
 	var sawCwd bool
 	for _, p := range procs {
@@ -142,9 +142,9 @@ func pidOfSelf() int { return os.Getpid() }
 func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o644) }
 
 func TestTheScanDoesNotReportItself(t *testing.T) {
-	// scrn's own children — the lsof running the scan, the git and ps behind
+	// conn's own children — the lsof running the scan, the git and ps behind
 	// the detail pane — inherit its working directory, so without filtering
-	// they flicker through the tree of whatever repo scrn was started in.
+	// they flicker through the tree of whatever repo conn was started in.
 	procs, err := runningProcs()
 	if err != nil {
 		t.Skipf("lsof unavailable: %v", err)
@@ -153,16 +153,16 @@ func TestTheScanDoesNotReportItself(t *testing.T) {
 	self := os.Getpid()
 	for _, p := range procs {
 		if p.PPID == self {
-			t.Errorf("the scan reported a child of scrn's own: %+v", p)
+			t.Errorf("the scan reported a child of conn's own: %+v", p)
 		}
 		if p.PID == self {
-			t.Errorf("the scan reported scrn itself: %+v", p)
+			t.Errorf("the scan reported conn itself: %+v", p)
 		}
 	}
 }
 
 func TestAFreshShellDoesNotSortBetweenTwoAgents(t *testing.T) {
-	// Every shell scrn holds is a zsh underneath. Sorted by raw command they
+	// Every shell conn holds is a zsh underneath. Sorted by raw command they
 	// are three ties settled by pid — claude, zsh, claude — while the rows
 	// wear the names of what runs inside. The order must follow the names.
 	agent := func(pid int) *ProcNode {

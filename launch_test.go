@@ -29,13 +29,13 @@ func TestTheHomeWindowIsMadeOnceAndFoundAfter(t *testing.T) {
 	if first != again {
 		t.Errorf("home = %+v then %+v, want the one window found again", first, again)
 	}
-	out, _ := tmuxCommand("list-windows", "-t", tmuxSession, "-F", "#{window_name}\t#{@scrn_home}")
+	out, _ := tmuxCommand("list-windows", "-t", tmuxSession, "-F", "#{window_name}\t#{@conn_home}")
 	if !strings.Contains(out, homeName+"\t1") || strings.Count(out, "\n") != 1 {
 		t.Errorf("windows = %q, want the shell and one home window", out)
 	}
-	out, _ = tmuxCommand("display", "-p", "-t", first.pane, "#{@scrn_nav}")
+	out, _ = tmuxCommand("display", "-p", "-t", first.pane, "#{@conn_nav}")
 	if out != "1" {
-		t.Errorf("the navigator's pane is not marked as it: @scrn_nav = %q", out)
+		t.Errorf("the navigator's pane is not marked as it: @conn_nav = %q", out)
 	}
 }
 
@@ -53,7 +53,7 @@ func TestAnOlderBuildsNavigatorIsAdoptedNotDoubled(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := strings.Split(out, "\t")
-	if _, err := tmuxCommand("set", "-w", "-t", f[0], "@scrn_home", "1"); err != nil {
+	if _, err := tmuxCommand("set", "-w", "-t", f[0], "@conn_home", "1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,7 +64,7 @@ func TestAnOlderBuildsNavigatorIsAdoptedNotDoubled(t *testing.T) {
 	if h.pane != f[1] {
 		t.Errorf("home = %+v, want the navigator already there, %s", h, f[1])
 	}
-	out, _ = tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{pane_id} #{@scrn_nav}")
+	out, _ = tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{pane_id} #{@conn_nav}")
 	if out != f[1]+" 1" {
 		t.Errorf("panes = %q, want the one navigator, marked", out)
 	}
@@ -134,7 +134,7 @@ func TestALaunchRestartsANavigatorFromAnOlderBuild(t *testing.T) {
 	if err := refreshHome(h); err != nil {
 		t.Fatal(err)
 	}
-	now, _ := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_pid}\t#{pane_start_command}\t#{@scrn_nav}")
+	now, _ := tmuxCommand("display", "-p", "-t", h.pane, "#{pane_pid}\t#{pane_start_command}\t#{@conn_nav}")
 	g := strings.Split(now, "\t")
 	if len(g) != 3 || g[0] == was || !strings.Contains(g[1], "sleep 31") || g[2] != "1" {
 		t.Errorf("after the newer build's launch the pane is %q, want a new process running the new command in the marked pane", now)
@@ -155,7 +155,7 @@ func TestTheNavigatorGoesBackOnTheLeftOfAHomeWindowThatLostIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := strings.Split(out, "\t")
-	if _, err := tmuxCommand("set", "-w", "-t", f[0], "@scrn_home", "1", ";",
+	if _, err := tmuxCommand("set", "-w", "-t", f[0], "@conn_home", "1", ";",
 		"set", "-g", "main-pane-width", "28"); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestTheNavigatorGoesBackOnTheLeftOfAHomeWindowThatLostIt(t *testing.T) {
 	if h.win != f[0] {
 		t.Errorf("home = %+v, want the navigator back in window %s", h, f[0])
 	}
-	out, _ = tmuxCommand("list-panes", "-t", f[0], "-F", "#{pane_id} #{pane_left} #{pane_width} #{@scrn_nav}")
+	out, _ = tmuxCommand("list-panes", "-t", f[0], "-F", "#{pane_id} #{pane_left} #{pane_width} #{@conn_nav}")
 	if !strings.Contains(out, h.pane+" 0 28 1") || !strings.Contains(out, f[1]+" 29 ") {
 		t.Errorf("panes:\n%s\nwant the navigator 28 wide on the left and the shell beside it", out)
 	}

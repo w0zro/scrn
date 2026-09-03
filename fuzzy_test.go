@@ -11,8 +11,8 @@ func TestAQueryFindsSubsequences(t *testing.T) {
 		want     bool
 	}{
 		{"tsl", "tressle-api", true},
-		{"scrn", "scrn", true},
-		{"SCRN", "scrn", true},
+		{"conn", "conn", true},
+		{"CONN", "conn", true},
 		{"mono api", "mono/services/api", true}, // tokens, each in order
 		{"api mono", "mono/services/api", true}, // whatever order they come
 		{"npmdev", "npm run dev", true},

@@ -9,7 +9,7 @@ import (
 
 // Working on a project usually means the same few processes every time: a dev
 // server, something watching the tests, a Claude. A project can say so, and
-// scrn can start what is missing rather than leaving it to memory.
+// conn can start what is missing rather than leaving it to memory.
 //
 // It is a list to run, not a promise to keep. Nothing here restarts anything:
 // if a dev server dies the row says so and you start it again.
@@ -23,7 +23,7 @@ type entry struct {
 // planFile is what a project writes when the convention is wrong for it. It is
 // Procfile format because that is the smallest thing that says what this needs
 // to say: a name and a command, one per line.
-const planFile = ".scrn"
+const planFile = ".conn"
 
 // plan is what a project needs, and where that was learned from.
 type plan struct {

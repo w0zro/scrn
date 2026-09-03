@@ -28,7 +28,7 @@ func TestTheConfigPicksTheKindTheAKeyStarts(t *testing.T) {
 		t.Errorf("startAgent = %q, want the config's kind", got)
 	}
 
-	// A name scrn does not know starts something rather than nothing.
+	// A name conn does not know starts something rather than nothing.
 	withKinds(t, kinds, "cursor", nil)
 	if got := startAgent(); got != "claude" {
 		t.Errorf("startAgent = %q, want the fallback to the first kind", got)

@@ -116,19 +116,19 @@ func TestDiscoverMissingRootErrors(t *testing.T) {
 }
 
 func TestNamesAreBareWhenUnique(t *testing.T) {
-	root := tree(t, "w0zro/scrn/.git", "w0zro/notebook/.git")
+	root := tree(t, "w0zro/conn/.git", "w0zro/notebook/.git")
 
 	got, _ := discoverProjects(root, nil)
-	if want := []string{"notebook", "scrn"}; !slices.Equal(names(got), want) {
+	if want := []string{"conn", "notebook"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v; unique names should not be qualified", names(got), want)
 	}
 }
 
 func TestCollidingNamesGainParent(t *testing.T) {
-	root := tree(t, "w0zro/site/.git", "archive/site/.git", "w0zro/scrn/.git")
+	root := tree(t, "w0zro/site/.git", "archive/site/.git", "w0zro/conn/.git")
 
 	got, _ := discoverProjects(root, nil)
-	want := []string{"archive/site", "scrn", "w0zro/site"}
+	want := []string{"archive/site", "conn", "w0zro/site"}
 	if !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
@@ -282,14 +282,14 @@ func TestAShortNameIsLeftAlone(t *testing.T) {
 }
 
 func TestDiscoverAllMergesRoots(t *testing.T) {
-	a := tree(t, "scrn/.git")
+	a := tree(t, "conn/.git")
 	b := tree(t, "mono/.git")
 
 	got, _, err := discoverAll([]string{a, b}, nil)
 	if err != nil {
 		t.Fatalf("discoverAll: %v", err)
 	}
-	if want := []string{"mono", "scrn"}; !slices.Equal(names(got), want) {
+	if want := []string{"conn", "mono"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v (both roots, one sorted list)", names(got), want)
 	}
 }
@@ -316,12 +316,12 @@ func TestDiscoverAllQualifiesAcrossRoots(t *testing.T) {
 func TestDiscoverAllToleratesARootFromAnotherMachine(t *testing.T) {
 	// The same config rides between machines; the work checkout not existing
 	// at home should not blank the home projects.
-	a := tree(t, "scrn/.git")
+	a := tree(t, "conn/.git")
 	got, _, err := discoverAll([]string{a, filepath.Join(t.TempDir(), "work-only")}, nil)
 	if err != nil {
 		t.Fatalf("discoverAll: %v", err)
 	}
-	if want := []string{"scrn"}; !slices.Equal(names(got), want) {
+	if want := []string{"conn"}; !slices.Equal(names(got), want) {
 		t.Errorf("names = %v, want %v", names(got), want)
 	}
 }
@@ -334,7 +334,7 @@ func TestDiscoverAllErrorsWhenEveryRootFails(t *testing.T) {
 
 func TestDiscoverAllDropsARepoListedByTwoRoots(t *testing.T) {
 	// One root nested inside another finds the same repository twice.
-	a := tree(t, "inner/scrn/.git")
+	a := tree(t, "inner/conn/.git")
 	got, _, err := discoverAll([]string{a, filepath.Join(a, "inner")}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +370,7 @@ func TestSubProjectsAreTheDirectoriesWithManifests(t *testing.T) {
 		"services/api/src/main.js",  // not a manifest
 		"tools/Procfile",            // an explicit plan
 		"rust/Cargo.toml",           // not just npm, of course
-		"notes/.scrn",               // untracked and personal still counts
+		"notes/.conn",               // untracked and personal still counts
 	)
 
 	got := subProjects(repo)
@@ -397,7 +397,7 @@ func TestSubProjectsRespectTheIgnoreRules(t *testing.T) {
 
 	got := subProjects(repo)
 	if want := []string{"web/app"}; !slices.Equal(names(got), want) {
-		t.Errorf("subs = %v, want %v; what git ignores, scrn ignores", names(got), want)
+		t.Errorf("subs = %v, want %v; what git ignores, conn ignores", names(got), want)
 	}
 }
 
@@ -441,7 +441,7 @@ func TestReposSharingAFolderAreGrouped(t *testing.T) {
 
 func TestAFolderWithOneRepoIsNotAGroup(t *testing.T) {
 	// A flat layout should not grow a header per repo.
-	root := tree(t, "w0zro/scrn/.git")
+	root := tree(t, "w0zro/conn/.git")
 
 	ps, groups, err := discoverAll([]string{root}, nil)
 	if err != nil {

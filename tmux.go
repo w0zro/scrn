@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// scrn holds its shells in tmux. The shells outlive any window because the
+// conn holds its shells in tmux. The shells outlive any window because the
 // tmux server does, a promise kept by twenty years of somebody else's
-// hardening. scrn owns the experience; a
-// private tmux server, on scrn's own socket where no .tmux.conf reaches,
+// hardening. conn owns the experience; a
+// private tmux server, on conn's own socket where no .tmux.conf reaches,
 // owns the ptys, the emulation, and the transcripts.
 //
 // The bridge speaks to it two ways, on purpose:
@@ -26,10 +26,10 @@ import (
 //     windows coming and going, panes moving, the server going. Nothing is
 //     ever written down it; the keys are tmux's own.
 
-// tmuxSession is the name of the one session scrn keeps its windows in.
-const tmuxSession = "scrn"
+// tmuxSession is the name of the one session conn keeps its windows in.
+const tmuxSession = "conn"
 
-// tmuxCommand runs one tmux command against scrn's server and returns its
+// tmuxCommand runs one tmux command against conn's server and returns its
 // stdout. From the root directory: the server inherits the working directory
 // of whoever starts it first, and a server filed under a repository would
 // stand in that repository's process tree. Bounded like the scans, for the
@@ -73,7 +73,7 @@ func tmuxCommand(args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), nil
 }
 
-// errNoServer says no tmux server holds scrn's socket, which is how "no
+// errNoServer says no tmux server holds conn's socket, which is how "no
 // shells anywhere" looks from outside.
 var errNoServer = errors.New("no server is running")
 
@@ -129,7 +129,7 @@ type ctlClient struct {
 	in  io.WriteCloser
 }
 
-// startCtl attaches a control-mode client to scrn's session and begins
+// startCtl attaches a control-mode client to conn's session and begins
 // feeding what it says to notify, one note per line, ending with noteExit
 // when the stream does. It fails when there is nothing to attach to, which
 // is not an error about tmux — a server with no session holds no shells.
@@ -163,7 +163,7 @@ func startCtl(notify func(ctlNote)) (*ctlClient, error) {
 // %error closing it. The body of a refused command is the reason it was
 // refused, and it comes before the %error that says so — so the body is
 // held until its closing line says which of the two it was. Every command
-// scrn sends over this stream answers with an empty body when it succeeds,
+// conn sends over this stream answers with an empty body when it succeeds,
 // which is why a body is only ever read as an error's text.
 func readCtl(r io.Reader, notify func(ctlNote)) {
 	sc := bufio.NewScanner(r)

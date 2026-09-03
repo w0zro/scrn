@@ -1,4 +1,4 @@
-/* scrn.w0zro.com — printed manual */
+/* conn.w0zro.com — printed manual */
 
 :root {
   --desk: #e7e3d8;
@@ -280,7 +280,7 @@ a:hover { color: var(--accent); }
 .hero-grid .sub { max-width: none; }
 .hero-copy > :first-child { margin-top: 0; }
 
-/* the window: scrn's two columns, drawn the way scrn draws them */
+/* the window: conn's two columns, drawn the way conn draws them */
 .scr {
   background: var(--term);
   color: #E6E6E6;

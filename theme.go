@@ -6,29 +6,29 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// How scrn looks, in one place: the palette names every color by its job, the
+// How conn looks, in one place: the palette names every color by its job, the
 // glyphs are the marks drawn beside and between the words, and the styles the
 // rest of the code reads are derived from them. An appearance change is a
 // change here; the render code asks for roles, not colors.
 //
-// scrn carries no colors of its own. It draws with the terminal's sixteen
+// conn carries no colors of its own. It draws with the terminal's sixteen
 // slots, so the list wears whatever the terminal wears — datum, in light or
 // dark — and the claude in the pane beside it, the tmux around both and the
 // list are one palette by construction. Hue is spent on state: amber for
 // working, green for finished and waiting on you, the orange-red for blocked
 // and for dying — and on one thing more: where you are, in the slot the
-// terminal's own cursor wears, so scrn's cursor and the terminal's are the
+// terminal's own cursor wears, so conn's cursor and the terminal's are the
 // same color. When nothing needs you, the list is ink and the cursor.
 
 // The slots, by the job each does here. The terminal's theme says what
-// color a slot is; scrn says what it means.
+// color a slot is; conn says what it means.
 const (
 	slotRed    = "1"  // blocked on an ask, dying, failed, destructive
 	slotGreen  = "2"  // alive and well; finished and waiting on you
-	slotSelf   = "4"  // scrn itself, where it shows up as a process
-	slotCursor = "5"  // here: the cursor, and scrn's own name — the terminal's cursor color
+	slotSelf   = "4"  // conn itself, where it shows up as a process
+	slotCursor = "5"  // here: the cursor, and conn's own name — the terminal's cursor color
 	slotCyan   = "6"  // found: the letters a query matched
-	slotGray   = "8"  // quiet: idle rows, labels, scrn's own asides
+	slotGray   = "8"  // quiet: idle rows, labels, conn's own asides
 	slotAmber  = "9"  // working, and an answer owed
 	slotPlace  = "12" // a place — a group, a repository, a sub-project: the frequent names, in a pastel
 )
@@ -50,10 +50,10 @@ func applyStyles() {
 	ink := lipgloss.NewStyle()
 
 	// The masthead and the cursor row are the two bold things on screen,
-	// and the two in the cursor's color: scrn's name, and where you are.
+	// and the two in the cursor's color: conn's name, and where you are.
 	titleStyle = slot(slotCursor).Bold(true)
 	selStyle = slot(slotCursor).Bold(true)
-	// selfStyle tags a process that is scrn itself, in a color nothing
+	// selfStyle tags a process that is conn itself, in a color nothing
 	// else wears: not the cursor's, not a state's.
 	selfStyle = slot(slotSelf)
 
@@ -66,7 +66,7 @@ func applyStyles() {
 	headingStyle = ink.Bold(true)
 
 	// One quiet gray, worn by content that is idle (faint), by the names of
-	// facts (label) and by scrn's own asides (hint) alike; asides in italic,
+	// facts (label) and by conn's own asides (hint) alike; asides in italic,
 	// the way an editor's aside is set apart from the text.
 	faintStyle = slot(slotGray)
 	labelStyle = slot(slotGray)
@@ -77,7 +77,7 @@ func applyStyles() {
 	// ground in whatever the ground is.
 	ruleStyle = ink.Faint(true)
 
-	// offSelStyle marks the selected row when that row is one scrn cannot
+	// offSelStyle marks the selected row when that row is one conn cannot
 	// step into: bold enough to find, dim enough to still read as unavailable.
 	offSelStyle = faintStyle.Bold(true)
 

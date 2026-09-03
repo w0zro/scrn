@@ -1,26 +1,26 @@
-.\" scrn(1) is written by hand in man(7) troff. The guide at
-.\" https://scrn.w0zro.com/guide tells the same story in walking order;
+.\" conn(1) is written by hand in man(7) troff. The guide at
+.\" https://conn.w0zro.com/guide tells the same story in walking order;
 .\" this page is the reference. Keep the two agreeing.
-.TH SCRN 1 2026-09-02 scrn "User Commands"
+.TH CONN 1 2026-09-02 conn "User Commands"
 .SH NAME
-scrn \- a terminal UI for working on projects at the command line
+conn \- a terminal UI for working on projects at the command line
 .SH SYNOPSIS
-.B scrn
+.B conn
 .br
-.B scrn ls
+.B conn ls
 .br
-.B scrn
+.B conn
 .RB [ \-h | \-\-help | \-\-version ]
 .br
-.B scrn
+.B conn
 .RB [ help | version ]
 .SH DESCRIPTION
-.B scrn
+.B conn
 shows every git repository under your project roots, what is running in
 each, and the shells you open there. The shells are panes in a
 .BR tmux (1)
-server of scrn's own, and
-.B scrn
+server of conn's own, and
+.B conn
 is a tmux client: it brings that server up under its own configuration,
 attaches the terminal to it, and runs the navigator down the left of the
 session's home window. The shell under the navigator's cursor is the pane
@@ -32,9 +32,9 @@ is where it was.
 There is nothing to set up beyond having tmux and
 .BR lsof (8)
 installed \(em the process list is read through lsof. The
-configuration is scrn's, written at every launch into the state directory
+configuration is conn's, written at every launch into the state directory
 and sourced into a server already running, so no .tmux.conf reaches the
-server and every window has this build's keys. By default scrn looks for
+server and every window has this build's keys. By default conn looks for
 repositories under
 .IR ~/projects ;
 the config points it elsewhere.
@@ -42,7 +42,7 @@ the config points it elsewhere.
 The navigator's left column is a tree, at most four levels deep: group,
 repository, sub\-project, process. A folder holding two or more
 repositories groups them. In a monorepo, a directory with a manifest
-.RI ( .scrn ,
+.RI ( .conn ,
 .IR Procfile ,
 .IR package.json ,
 .IR go.mod ,
@@ -53,9 +53,9 @@ innermost place they belong to and named by what you would call them \(em
 not
 .BR node .
 Dim rows are processes with no shell of their own to go to: those
-started outside scrn, and those a process in a shell started in turn
+started outside conn, and those a process in a shell started in turn
 \(em a claude's tools, say \(em which enter reaches only as far as the
-shell above them. All are listed and killable. One of them may be scrn itself \(em the launcher
+shell above them. All are listed and killable. One of them may be conn itself \(em the launcher
 become a tmux client, in the terminal it was started from \(em and that
 row says
 .B (me)
@@ -63,14 +63,14 @@ in a color of its own. The pane beside the list is the shell under the
 cursor, live; on a row with no shell the navigator has the window, and
 the pane says what is known about the row.
 .PP
-.B scrn ls
+.B conn ls
 is the same server's state for a reader that is not a person: the held
 shells, one per line on stdout \(em pid, directory and name,
 tab\-separated, the name empty for a shell opened by hand. No server
 listening means nothing is held, which is an empty list, not an error.
 .SH KEYS
 .B ?
-shows this list inside scrn, in a popup over the whole window \(em from
+shows this list inside conn, in a popup over the whole window \(em from
 the navigator, or with the prefix from any shell; the next key puts it
 away. The status line at the foot of the terminal is tmux's. It begins
 with the mode the keys are in:
@@ -87,7 +87,7 @@ stands,
 .B CONTINUE
 with the picker open, and
 .B CONFIRM
-while a kill waits on its second key. Then anything scrn has to say \(em
+while a kill waits on its second key. Then anything conn has to say \(em
 a report, an error, a confirmation \(em until the next key.
 .SS In the navigator
 .TP
@@ -152,7 +152,7 @@ end the server outright, and every shell it holds with it
 .B q
 leave: detach the terminal. The shells keep running, and the navigator
 keeps its place for the next
-.B scrn
+.B conn
 .PP
 Every kill asks first \(em
 .BR x ,
@@ -197,16 +197,16 @@ is a line like any other: it takes readline's editing keys \(em
 .BR ctrl\-u ,
 .BR ctrl\-h ,
 .B ctrl\-e
-and the rest \(em except the chords above, which are scrn's.
+and the rest \(em except the chords above, which are conn's.
 .SS In a shell
 Every keystroke is the shell's; the pane is tmux's, and it behaves the
-way a tmux pane behaves, with the navigator beside it. scrn keeps one key:
+way a tmux pane behaves, with the navigator beside it. conn keeps one key:
 .TP
 .B ctrl\-space
-the prefix \(em tmux's own, bound by scrn's configuration; it reaches scrn
+the prefix \(em tmux's own, bound by conn's configuration; it reaches conn
 from any shell
 .PP
-The mouse is tmux's, with tmux's own bindings and nothing of scrn's: the
+The mouse is tmux's, with tmux's own bindings and nothing of conn's: the
 wheel scrolls back through a pane's transcript, a drag selects and copies
 to the clipboard on release, a click takes the keys to the pane under it,
 and a program that speaks mouse gets its own clicks and wheel. Hold shift
@@ -263,9 +263,9 @@ Each shell keeps 10,000 lines of transcript unless the config says
 otherwise.
 .SH AGENTS
 .B a
-starts an agent in a shell like any other. scrn knows agents as kinds
+starts an agent in a shell like any other. conn knows agents as kinds
 \(em claude and ollama today \(em and each shows only what its tool
-advertises. Claude Code advertises everything; scrn reads the session
+advertises. Claude Code advertises everything; conn reads the session
 files it leaves behind, and marks each instance in the navigator: a
 spinner while it works, a diamond (\[u25C6]) when it is blocked mid\-turn on
 a permission prompt or a question, a filled dot (\[u25CF]) when it has
@@ -300,7 +300,7 @@ A kind that advertises nothing \(em an ollama REPL \(em is still an
 agent to start: its rows are plain processes, unmarked.
 .SH PLANS
 A project writes down its usual processes in
-.IR .scrn ,
+.IR .conn ,
 Procfile format, a name and a command per line:
 .PP
 .EX
@@ -324,7 +324,7 @@ its entry. It is a list to run, not a supervisor: nothing restarts on its
 own.
 .SH CONFIGURATION
 One JSON file, entirely optional, at
-.IR ~/.config/scrn/config.json .
+.IR ~/.config/conn/config.json .
 .TP
 .B projectsDir
 the directory searched for repositories (default
@@ -361,7 +361,7 @@ starts:
 .B claude
 (the default) or
 .BR ollama .
-A name scrn does not know falls back to the default
+A name conn does not know falls back to the default
 .TP
 .B agentRuns
 what starting a kind runs, by name, when its own answer is not the
@@ -377,14 +377,14 @@ list
 .IR target ,
 and the like)
 .SH THE SERVER
-The shells live in a tmux server of scrn's own: one server per user, for
-all projects, on a socket private to scrn. Every
-.B scrn
+The shells live in a tmux server of conn's own: one server per user, for
+all projects, on a socket private to conn. Every
+.B conn
 writes the server's configuration \(em the prefix and its chords, the
 status line, the transcript cap, the rest \(em into the state directory,
 brings the server up under it or sources it into one already running, and
 attaches. The session's first window is the home window: the navigator,
-.BR "scrn nav" ,
+.BR "conn nav" ,
 in the pane down its left, and the shell under the navigator's cursor in
 the pane beside it. Moving the cursor to another shell's row moves that
 shell in and the last one out to a window of its own, so the shells not
@@ -394,7 +394,7 @@ window. The navigator's pane is as wide as the config's
 through every resize. Closing the navigator is fine, and
 .B ctrl\-space \-
 makes it again, on the left. A
-.B scrn
+.B conn
 from a newer build than the navigator's restarts the navigator in its
 pane, the way it re\-reads the configuration: the server keeps the
 shells, and everything else is the build's. Run from a shell inside the
@@ -402,7 +402,7 @@ window, it does that and no more, the terminal being attached already.
 Inside any other tmux it refuses: attaching would be nesting.
 .PP
 The chords run
-.B scrn
+.B conn
 itself with a word \(em
 .BR home ,
 .BR shell ,
@@ -413,41 +413,41 @@ itself with a word \(em
 .BR prev ,
 .B keys
 \(em each a short command against the server; the navigator's pane runs
-.B scrn nav
+.B conn nav
 and the keys popup
-.BR "scrn page" .
+.BR "conn page" .
 None of them are for typing.
 .PP
 The server lives exactly as long as it holds something: the home window
-brings it up, the last window closing takes it down. Upgrading scrn never
-disturbs it \(em the server is not scrn's binary, and the next
-.B scrn
+brings it up, the last window closing takes it down. Upgrading conn never
+disturbs it \(em the server is not conn's binary, and the next
+.B conn
 sources the new build's configuration into the same server. Anything tmux
 can do to the server, you can do to it:
 .EX
-tmux -S ~/.local/state/scrn/tmux-<uid>.sock attach
+tmux -S ~/.local/state/conn/tmux-<uid>.sock attach
 .EE
 is what
-.B scrn
+.B conn
 does.
 .SH FILES
 .TP
-.I ~/.config/scrn/config.json
+.I ~/.config/conn/config.json
 configuration; see
 .B CONFIGURATION
 .TP
-.I ~/.local/state/scrn/tmux\-<uid>.sock
+.I ~/.local/state/conn/tmux\-<uid>.sock
 the socket of the tmux server holding the shells
 .TP
-.I ~/.local/state/scrn/tmux.conf
-the server's configuration, written by scrn at every launch
+.I ~/.local/state/conn/tmux.conf
+the server's configuration, written by conn at every launch
 .TP
-.I .scrn
+.I .conn
 a project's plan; see
 .B PLANS
 .SH ENVIRONMENT
 .TP
-.B SCRN_SOCKET
+.B CONN_SOCKET
 where the server listens, instead of the state directory
 .TP
 .B XDG_CONFIG_HOME
@@ -482,5 +482,5 @@ are honored too.
 where Claude Code's session files are read from, instead of
 .I ~/.claude
 .SH EXIT STATUS
-0 on a clean exit, 1 when scrn or its server fails, 2 for an argument it
+0 on a clean exit, 1 when conn or its server fails, 2 for an argument it
 does not understand.

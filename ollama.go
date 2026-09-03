@@ -16,7 +16,7 @@ var ollamaKind = agentKind{
 }
 
 // ollamaRun is the command that starts an ollama REPL. ollama run wants a
-// model named, and scrn is not the one to pick a favorite: the first model
+// model named, and conn is not the one to pick a favorite: the first model
 // the local daemon lists is the one already chosen by being pulled. With
 // nothing to ask or nothing pulled, the bare command runs and says its own
 // piece in the shell — which survives it, per the wrapper every run gets.

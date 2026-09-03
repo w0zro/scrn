@@ -1,11 +1,11 @@
 # goreleaser builds the release install.sh downloads from. The names are the
-# contract: scrn_<version>_<os>_<arch>.tar.gz holding scrn and its manpage,
+# contract: conn_<version>_<os>_<arch>.tar.gz holding conn and its manpage,
 # beside a checksums.txt — exactly what the hand-rolled workflow produced,
 # now with the changelog and the rest for free. `goreleaser release
 # --snapshot --clean` rehearses the whole thing locally.
 version: 2
 
-project_name: scrn
+project_name: conn
 
 builds:
   - env:
@@ -24,10 +24,10 @@ builds:
 
 archives:
   - formats: [tar.gz]
-    name_template: "scrn_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "conn_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
-      - src: man/scrn.1
-        dst: scrn.1
+      - src: man/conn.1
+        dst: conn.1
 
 checksum:
   name_template: checksums.txt

@@ -1,17 +1,17 @@
 #!/bin/sh
-# Install scrn: fetch the build made for this machine and put it on the path.
+# Install conn: fetch the build made for this machine and put it on the path.
 #
-#   curl -fsSL https://scrn.w0zro.com/install.sh | sh
+#   curl -fsSL https://conn.w0zro.com/install.sh | sh
 #
-# It lives in docs/ because that is what scrn.w0zro.com serves: one script,
+# It lives in docs/ because that is what conn.w0zro.com serves: one script,
 # one address, for macOS and Linux alike.
 #
-# SCRN_VERSION pins a release instead of taking the latest. SCRN_INSTALL_DIR
-# says where the binary goes, and SCRN_MAN_DIR where the manpage does.
+# CONN_VERSION pins a release instead of taking the latest. CONN_INSTALL_DIR
+# says where the binary goes, and CONN_MAN_DIR where the manpage does.
 set -eu
 
-repo=w0zro/scrn
-dir="${SCRN_INSTALL_DIR:-$HOME/.local/bin}"
+repo=w0zro/conn
+dir="${CONN_INSTALL_DIR:-$HOME/.local/bin}"
 
 die() {
 	printf 'install: %s\n' "$*" >&2
@@ -29,14 +29,14 @@ platform() {
 	case "$os" in
 	Darwin) os=darwin ;;
 	Linux) os=linux ;;
-	*) die "there is no scrn build for $os" ;;
+	*) die "there is no conn build for $os" ;;
 	esac
 
 	arch=$(uname -m)
 	case "$arch" in
 	arm64 | aarch64) arch=arm64 ;;
 	x86_64 | amd64) arch=amd64 ;;
-	*) die "there is no scrn build for $arch" ;;
+	*) die "there is no conn build for $arch" ;;
 	esac
 
 	printf '%s_%s\n' "$os" "$arch"
@@ -55,7 +55,7 @@ latest() {
 		die "could not reach github to ask for the latest release"
 	tag=${url##*/}
 	[ "$tag" != latest ] ||
-		die "$repo has no releases yet; name one with SCRN_VERSION"
+		die "$repo has no releases yet; name one with CONN_VERSION"
 	printf '%s\n' "$tag"
 }
 
@@ -73,20 +73,20 @@ need curl
 need tar
 
 target=$(platform)
-tag=${SCRN_VERSION:-$(latest)}
+tag=${CONN_VERSION:-$(latest)}
 case "$tag" in v*) ;; *) tag="v$tag" ;; esac
 version=${tag#v}
 
-asset="scrn_${version}_${target}.tar.gz"
+asset="conn_${version}_${target}.tar.gz"
 base="https://github.com/$repo/releases/download/$tag"
 
 # Staged beside where the binary will live, not in /tmp: the move into place
 # below is a rename only within one filesystem, and /tmp is often another.
 mkdir -p "$dir" || die "could not make $dir"
-tmp=$(mktemp -d "$dir/.scrn-install.XXXXXX")
+tmp=$(mktemp -d "$dir/.conn-install.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-printf 'downloading scrn %s for %s\n' "$version" "$target"
+printf 'downloading conn %s for %s\n' "$version" "$target"
 curl -fsSL -o "$tmp/$asset" "$base/$asset" ||
 	die "no $asset in release $tag"
 curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt" ||
@@ -99,26 +99,26 @@ got=$(sha256 "$tmp/$asset")
 [ "$want" = "$got" ] || die "$asset did not arrive intact: expected $want, got $got"
 
 tar -xzf "$tmp/$asset" -C "$tmp"
-[ -f "$tmp/scrn" ] || die "$asset does not hold a scrn binary"
+[ -f "$tmp/conn" ] || die "$asset does not hold a conn binary"
 
-chmod 755 "$tmp/scrn"
+chmod 755 "$tmp/conn"
 
-# Renamed into place rather than written over, so that a scrn already running
+# Renamed into place rather than written over, so that a conn already running
 # from this path keeps the binary it started with. A rename only, because the
 # staging directory is on the same filesystem as the destination.
-mv -f "$tmp/scrn" "$dir/scrn" ||
-	die "could not put scrn in $dir"
+mv -f "$tmp/conn" "$dir/conn" ||
+	die "could not put conn in $dir"
 
-printf 'installed scrn %s to %s/scrn\n' "$version" "$dir"
+printf 'installed conn %s to %s/conn\n' "$version" "$dir"
 
 # The manpage goes beside the binary in the way man expects: for a binary in
 # ~/.local/bin, man derives ~/.local/share/man from PATH on its own, so
-# `man scrn` works with nothing configured. Releases from before the manpage
+# `man conn` works with nothing configured. Releases from before the manpage
 # simply do not have one in the archive, and that is not a failure.
-if [ -f "$tmp/scrn.1" ]; then
-	mandir="${SCRN_MAN_DIR:-${dir%/bin}/share/man}"
-	if mkdir -p "$mandir/man1" && mv -f "$tmp/scrn.1" "$mandir/man1/scrn.1"; then
-		printf 'installed scrn.1 to %s/man1\n' "$mandir"
+if [ -f "$tmp/conn.1" ]; then
+	mandir="${CONN_MAN_DIR:-${dir%/bin}/share/man}"
+	if mkdir -p "$mandir/man1" && mv -f "$tmp/conn.1" "$mandir/man1/conn.1"; then
+		printf 'installed conn.1 to %s/man1\n' "$mandir"
 	else
 		printf 'could not install the manpage to %s/man1; the binary is unaffected\n' "$mandir" >&2
 	fi

@@ -103,13 +103,13 @@ func runningProcs() ([]Proc, error) {
 		case 'c':
 			cur.Command = value
 		case 'n':
-			// Neither scrn nor anything it started for itself is work
+			// Neither conn nor anything it started for itself is work
 			// happening in a repository. Its own children — the lsof that ran
 			// this scan, the git and ps behind the detail pane — inherit the
-			// directory scrn was started in, so without this they appear and
+			// directory conn was started in, so without this they appear and
 			// disappear in that repository's tree on every refresh.
 			//
-			// scrn has no children worth showing: the shells it opens belong
+			// conn has no children worth showing: the shells it opens belong
 			// to the tmux server, which is a different process and keeps its own
 			// working directory well away from any project.
 			if cur.PID == 0 || cur.PID == self || cur.PPID == self || !strings.HasPrefix(value, "/") {
@@ -208,7 +208,7 @@ func descends(a, b *ProcNode, byPID map[int]*ProcNode) bool {
 }
 
 // sortNodes orders each level by the name its row will wear, ties broken by
-// PID. The raw command is the wrong key: every shell scrn holds is a zsh
+// PID. The raw command is the wrong key: every shell conn holds is a zsh
 // underneath, whatever runs inside it, and sorting on that put a fresh shell
 // between two agents — three zsh ties, settled by pid. A name keeps its slot
 // when the process behind it is restarted under a new pid, which is when PID

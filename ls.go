@@ -8,7 +8,7 @@ import (
 	"slices"
 )
 
-// scrn ls is the faucet on the server's state: the shells it holds, one per
+// conn ls is the faucet on the server's state: the shells it holds, one per
 // line on stdout, for the reader that is not a person. The window shows the
 // same list dressed up; scripts, prompts and grep get it plain.
 

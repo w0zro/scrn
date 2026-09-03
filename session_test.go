@@ -179,10 +179,10 @@ func TestANamedShellCarriesItsName(t *testing.T) {
 
 func TestTheFirstShellMakesTheSocketsDirectory(t *testing.T) {
 	// tmux creates the socket but not the directory around it, and a machine
-	// that has never run scrn has no state directory. The first shell has to
+	// that has never run conn has no state directory. The first shell has to
 	// make it, or it is the one shell that can never open.
 	tmuxOnSocket(t)
-	t.Setenv("SCRN_SOCKET", filepath.Join(filepath.Dir(os.Getenv("SCRN_SOCKET")), "state", "scrn", "t.sock"))
+	t.Setenv("CONN_SOCKET", filepath.Join(filepath.Dir(os.Getenv("CONN_SOCKET")), "state", "conn", "t.sock"))
 	t.Cleanup(func() { _, _ = tmuxCommand("kill-server") })
 
 	s := newSession()
@@ -192,7 +192,7 @@ func TestTheFirstShellMakesTheSocketsDirectory(t *testing.T) {
 	m.server.open("/tmp", "", "")
 	pump(t, m, hasShell, 10*time.Second)
 
-	if _, err := os.Stat(os.Getenv("SCRN_SOCKET")); err != nil {
-		t.Errorf("the socket should be where scrn said: %v", err)
+	if _, err := os.Stat(os.Getenv("CONN_SOCKET")); err != nil {
+		t.Errorf("the socket should be where conn said: %v", err)
 	}
 }

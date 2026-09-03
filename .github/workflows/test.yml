@@ -4,7 +4,7 @@
 # the worst moment to learn of a break, because the tag is already cut. This is
 # the same check, run while it is still cheap to act on.
 #
-# macOS is where scrn is developed; Linux is where the cross-compiled builds
+# macOS is where conn is developed; Linux is where the cross-compiled builds
 # were shipped untested until this leg existed. Both read the process list
 # through lsof and hold their shells in a real tmux, so both runs mean what
 # they say.

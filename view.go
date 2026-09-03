@@ -36,7 +36,7 @@ func (m model) agentMark(r navRow, a agent) (string, lipgloss.Style) {
 // a shell is shown, this view is exactly the navigator's column, as wide as
 // its pane. With no shell to show the navigator has the whole window, and
 // the right becomes its own pane — what is known about the row, or the
-// picker. scrn's name and keys sit at the top and bottom of the left column
+// picker. conn's name and keys sit at the top and bottom of the left column
 // rather than spanning the window either way, so the right is the shell and
 // nothing else. A terminal made to give up its first and last rows to a
 // header and a footer is a terminal drawing something other than what it
@@ -71,7 +71,7 @@ func (m model) layout() string {
 	return strings.Join(lines, "\n")
 }
 
-// leftColumn is scrn's own column: its name and the navigator. What scrn
+// leftColumn is conn's own column: its name and the navigator. What conn
 // has to say is said on tmux's status line, not here; the column is the
 // list.
 func (m model) leftColumn(rows int) []string {
@@ -82,7 +82,7 @@ func (m model) leftColumn(rows int) []string {
 	// and spacing is the first thing a short window gives up — bodyHeight
 	// makes the same call, so the list and the layout agree.
 	lines := make([]string, 0, rows)
-	lines = append(lines, " "+titleStyle.Render("scrn"))
+	lines = append(lines, " "+titleStyle.Render("conn"))
 	if rows-2 > 0 {
 		lines = append(lines, "")
 	}
@@ -204,7 +204,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
-	// A process that is scrn itself says so, in a color of its own: the
+	// A process that is conn itself says so, in a color of its own: the
 	// launcher become a tmux client reads as a go or a tmux otherwise.
 	me := ""
 	if m.selfRun(r) {
@@ -351,9 +351,9 @@ var interpreters = map[string]bool{
 }
 
 // rowStyle decides how brightly a row is drawn. Brightness in this list means
-// the row can be stepped into: a repository opens a shell, and a shell scrn
+// the row can be stepped into: a repository opens a shell, and a shell conn
 // started can be returned to. Everything else is somebody else's process on
-// somebody else's terminal, which scrn cannot attach to, so it is drawn dim
+// somebody else's terminal, which conn cannot attach to, so it is drawn dim
 // rather than offered and then refused.
 func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 	// While a project is being looked up the list is a reference rather than
@@ -680,7 +680,7 @@ func pad(s string, width int) string {
 // Columns, not runes — a name in wide characters is as wide as the terminal
 // will draw it, which is the measure everything else in this file uses.
 //
-// A qualified name like "w0zro/archive/scrn" is cut from the left, because the
+// A qualified name like "w0zro/archive/conn" is cut from the left, because the
 // repo name at the end is the part that identifies it; the parent directories
 // are only there to break a tie. An unqualified name is cut from the right.
 func truncate(s string, width int) string {

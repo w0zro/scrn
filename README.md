@@ -1,7 +1,7 @@
-# scrn
+# conn
 
-A terminal UI for working on projects at the command line. scrn is a tmux
-client: `scrn` brings up a tmux server of its own under its own
+A terminal UI for working on projects at the command line. conn is a tmux
+client: `conn` brings up a tmux server of its own under its own
 configuration, attaches the terminal, and runs the navigator down the left
 of the home window. The shell under the navigator's cursor is the tmux pane
 beside it; the navigator lists, finds, starts and kills what runs in every
@@ -10,23 +10,23 @@ project.
 ## Install
 
 ```sh
-curl -fsSL https://scrn.w0zro.com/install.sh | sh
+curl -fsSL https://conn.w0zro.com/install.sh | sh
 ```
 
 That fetches the build for this machine, checks it against the release's
 checksums, and puts it in `~/.local/bin`, with the manpage under
-`~/.local/share/man` — `man scrn` is the reference. `SCRN_INSTALL_DIR`
-says where else to put the binary, `SCRN_MAN_DIR` the manpage, and
-`SCRN_VERSION` names a release other than the latest.
+`~/.local/share/man` — `man conn` is the reference. `CONN_INSTALL_DIR`
+says where else to put the binary, `CONN_MAN_DIR` the manpage, and
+`CONN_VERSION` names a release other than the latest.
 
 Builds are published for macOS and Linux, on both arm64 and amd64, and the
-test suite runs on both. scrn needs two neighbors installed: `tmux`, which
+test suite runs on both. conn needs two neighbors installed: `tmux`, which
 holds and draws the shells, and `lsof`, which is how the process list is read.
 
 ## Build it yourself
 
 ```sh
-go install github.com/w0zro/scrn@latest
+go install github.com/w0zro/conn@latest
 ```
 
 ## Releasing

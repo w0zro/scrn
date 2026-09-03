@@ -15,7 +15,7 @@ import (
 // with the prefix from any shell — and answer in a tmux popup over the
 // whole window, whichever pane the keys were in: the navigator's own pane
 // is a column, and a page needs the width. The popup runs this build as
-// `scrn page`, which draws the page, waits for a keystroke and goes.
+// `conn page`, which draws the page, waits for a keystroke and goes.
 
 // keyList is every key, in the order a reader wants them: the navigator's
 // first, then the chords.
@@ -129,10 +129,10 @@ func (keysModel) View() tea.View {
 	return v
 }
 
-// runKeys is `scrn page`: the page, in the popup.
+// runKeys is `conn page`: the page, in the popup.
 func runKeys() {
 	if _, err := tea.NewProgram(keysModel{}).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		os.Exit(1)
 	}
 }

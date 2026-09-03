@@ -31,7 +31,7 @@ func TestNotesAreReadFromTheStream(t *testing.T) {
 	}
 }
 
-// tmuxOnSocket points scrn at a private tmux server for one test, and tears
+// tmuxOnSocket points conn at a private tmux server for one test, and tears
 // the server down after. Skips when tmux is not installed. The socket lives
 // under /tmp rather than the test's own directory: sun_path holds 104 bytes,
 // and a test name is most of that on its own.
@@ -45,12 +45,12 @@ func tmuxOnSocket(t *testing.T) {
 		}
 		t.Skip("tmux is not installed")
 	}
-	dir, err := os.MkdirTemp("/tmp", "scrn-tmux")
+	dir, err := os.MkdirTemp("/tmp", "conn-tmux")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("SCRN_SOCKET", filepath.Join(dir, "t.sock"))
+	t.Setenv("CONN_SOCKET", filepath.Join(dir, "t.sock"))
 	t.Cleanup(func() { _, _ = tmuxCommand("kill-server") })
 }
 
@@ -117,7 +117,7 @@ func TestARefusedCommandIsReportedByItsReason(t *testing.T) {
 	stream := strings.Join([]string{
 		"%begin 1788307014 309 0",
 		"%end 1788307014 309 0",
-		"%session-changed $0 scrn",
+		"%session-changed $0 conn",
 		"%begin 1788307014 314 1",
 		"parse error: unknown command: nosuchcommand",
 		"%error 1788307014 314 1",
@@ -148,7 +148,7 @@ func TestAFailureTmuxOnlyMentionsIsStillAFailure(t *testing.T) {
 	// tmux exits zero after failing to create a socket, and says so only on
 	// stderr. Silence on stdout beside a complaint is a refusal.
 	tmuxOnSocket(t)
-	t.Setenv("SCRN_SOCKET", filepath.Join(filepath.Dir(os.Getenv("SCRN_SOCKET")), "missing", "t.sock"))
+	t.Setenv("CONN_SOCKET", filepath.Join(filepath.Dir(os.Getenv("CONN_SOCKET")), "missing", "t.sock"))
 
 	_, err := tmuxCommand("start-server")
 	if err == nil || !strings.Contains(err.Error(), "error creating") {

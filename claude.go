@@ -14,7 +14,7 @@ import (
 )
 
 // A running Claude Code instance says far more about what is happening in a
-// repository than "claude" and a pid do. It leaves two things behind that scrn
+// repository than "claude" and a pid do. It leaves two things behind that conn
 // can read without asking it anything:
 //
 //   - <claude>/sessions/<pid>.json, a small file keyed by process id, holding
@@ -25,7 +25,7 @@ import (
 //     is megabytes, so only its tail is read, and only for the row the cursor
 //     is on.
 
-// claudeSession is what scrn knows about one running Claude Code instance.
+// claudeSession is what conn knows about one running Claude Code instance.
 type claudeSession struct {
 	PID        int
 	Name       string
@@ -58,7 +58,7 @@ const busyStatus = "busy"
 const waitingStatus = "waiting"
 
 // claudeCommand starts a Claude Code instance. It is run through a shell, so
-// this is the name on the PATH rather than a path scrn has to find.
+// this is the name on the PATH rather than a path conn has to find.
 const claudeCommand = "claude"
 
 // claudeKind is Claude Code as a kind of agent — the first, and so the one
@@ -118,7 +118,7 @@ func claudeDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		// No home is no sessions, rather than a .claude wherever scrn
+		// No home is no sessions, rather than a .claude wherever conn
 		// happens to have been started.
 		return ""
 	}
@@ -126,7 +126,7 @@ func claudeDir() string {
 }
 
 // sessionFile is the on-disk shape of <claude>/sessions/<pid>.json. Only the
-// fields scrn shows are named; the rest of the file is left alone.
+// fields conn shows are named; the rest of the file is left alone.
 type sessionFile struct {
 	PID             int    `json:"pid"`
 	SessionID       string `json:"sessionId"`
@@ -419,7 +419,7 @@ func (p *agentProgress) done(toolUseID string) bool {
 // otherwise leave the agent listed forever.
 const agentStale = 10 * time.Minute
 
-// transcriptLine is the part of a transcript record scrn reads.
+// transcriptLine is the part of a transcript record conn reads.
 type transcriptLine struct {
 	Type        string `json:"type"`
 	Subtype     string `json:"subtype"`
@@ -429,7 +429,7 @@ type transcriptLine struct {
 
 	// Claude Code writes what it is doing as records of its own, rather than
 	// leaving it to be inferred from the conversation. Content is the body of
-	// a system record and is only a string on the ones scrn reads, so it is
+	// a system record and is only a string on the ones conn reads, so it is
 	// held raw until it is wanted.
 	LastPrompt string          `json:"lastPrompt"`
 	Content    json.RawMessage `json:"content"`

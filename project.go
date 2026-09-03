@@ -231,7 +231,7 @@ func discoverProjects(root string, skip map[string]bool) ([]Project, error) {
 // assignNames gives each project the shortest name that tells it apart from the
 // others: the repo directory alone, and for repos whose directory name is not
 // unique, as many parent directories as it takes. Qualifying only the ambiguous
-// names keeps the common case short — "scrn", not "w0zro/scrn".
+// names keeps the common case short — "conn", not "w0zro/conn".
 func assignNames(root string, ps []Project) {
 	segs := make([][]string, len(ps))
 	depth := make([]int, len(ps))
@@ -380,14 +380,14 @@ func isCacheDir(dir string) bool {
 // the services and apps inside it deserve what repositories get: a row, a
 // filter hit, a shell opened in the right place, a plan run there. A
 // directory inside a repository is one of those sub-projects when it carries
-// a manifest — a plan file of scrn's own, or the file a package manager runs
+// a manifest — a plan file of conn's own, or the file a package manager runs
 // the project by.
 
 // manifests are the files that mark a directory as a project of its own.
 // Explicit plans first, then the package managers' own files: most projects
 // run through one, and the manifest is where that is said.
 var manifests = []string{
-	".scrn", "Procfile",
+	".conn", "Procfile",
 	"package.json", "deno.json", "composer.json",
 	"go.mod", "Cargo.toml", "Gemfile", "mix.exs",
 	"pyproject.toml", "pom.xml", "build.gradle", "build.gradle.kts",
@@ -397,7 +397,7 @@ var manifests = []string{
 // within it. The repository's own index answers instead of a walk of the
 // tree: git ls-files reads what a work-sized checkout would take seconds to
 // crawl, in milliseconds, and already knows what is ignored. Untracked files
-// are included so a personal, unshared .scrn still marks its directory.
+// are included so a personal, unshared .conn still marks its directory.
 //
 // The repository root is not a sub-project of itself: its manifest is what
 // the repository's own row already stands for.

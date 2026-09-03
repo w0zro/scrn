@@ -113,7 +113,7 @@ func bodyRows(m model) []string {
 	return out
 }
 
-// navColumn returns the non-blank navigator rows under scrn's own name,
+// navColumn returns the non-blank navigator rows under conn's own name,
 // which heads that column and is not part of the list.
 func navColumn(m model) []string {
 	rows := bodyRows(m)
@@ -163,12 +163,12 @@ func lineAt(ls []string, i int) string {
 
 // --- layout ---------------------------------------------------------------
 
-func TestViewPutsScrnInTopLeft(t *testing.T) {
+func TestViewPutsConnInTopLeft(t *testing.T) {
 	lines := strings.Split(sized(80, 24).View().Content, "\n")
 	if got := len(lines); got != 24 {
 		t.Fatalf("view height = %d lines, want 24", got)
 	}
-	if !strings.HasPrefix(stripANSI(lines[0]), " scrn") {
+	if !strings.HasPrefix(stripANSI(lines[0]), " conn") {
 		t.Errorf("first line = %q, want the masthead in the gutter every row wears", lines[0])
 	}
 	if nav, _ := splitRow(stripANSI(lines[1])); strings.TrimSpace(nav) != "" {
@@ -251,14 +251,14 @@ func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 	// happening, and the row is named for the claude: the shell is what got
 	// there and the go is what it reached for.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
-			{PID: 30, PPID: 20, Command: "go", Dir: "/p/scrn/cmd"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/conn"},
+			{PID: 30, PPID: 20, Command: "go", Dir: "/p/conn/cmd"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      claude"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      claude"})
 
 	if r, _ := m.rows[1], 0; r.chain().PID != 10 {
 		t.Errorf("chain starts at %d, want the shell at the top of the run", r.chain().PID)
@@ -268,41 +268,41 @@ func TestARunThatNeverBranchesIsOneRow(t *testing.T) {
 func TestASameCommandForkingItselfIsStillOneRow(t *testing.T) {
 	// nvim starts a second nvim; that is one editor, not two.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/conn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      nvim"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      nvim"})
 }
 
 func TestARunStopsFoldingWhereItBranches(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
 		},
 	)
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      zsh", "        nvim", "        zig"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      zsh", "        nvim", "        zig"})
 }
 
 func TestNavIndentsSiblingsUnderTheirParent(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
-			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
-			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/conn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
+			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/conn"},
+			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/conn"},
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		" ▸ scrn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
+		" ▸ conn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
 	})
 }
 
@@ -323,7 +323,7 @@ func TestProcessesGoUnderTheInnermostRepo(t *testing.T) {
 
 func TestNavStartsNarrowedToRunningRepos(t *testing.T) {
 	if newModel().showAll {
-		t.Error("scrn should open on the repositories with something running")
+		t.Error("conn should open on the repositories with something running")
 	}
 
 	m := sized(80, 10)
@@ -466,8 +466,8 @@ func TestCursorCyclesAtBothEnds(t *testing.T) {
 
 func TestCursorWalksProcessesToo(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"}},
 	)
 	m = press(m, "down")
 
@@ -475,7 +475,7 @@ func TestCursorWalksProcessesToo(t *testing.T) {
 	if !ok || r.kind != rowProc || r.node.PID != 10 {
 		t.Errorf("selected = %+v, want the process row", r)
 	}
-	wantRows(t, navColumn(m), []string{"   scrn", "    ▸ zsh"})
+	wantRows(t, navColumn(m), []string{"   conn", "    ▸ zsh"})
 }
 
 func TestCursorOnEmptyListDoesNotPanic(t *testing.T) {
@@ -538,13 +538,13 @@ func TestDetailPaneDescribesTheSelectedRepo(t *testing.T) {
 
 func TestDetailPaneFollowsTheCursor(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"}},
 	)
-	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "scrn"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "conn"}}
 	m.details[detailKey(m.rows[1])] = []field{{label: "command", value: "zsh"}}
 
-	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "scrn") {
+	if !strings.Contains(strings.Join(detailColumn(m), "\n"), "conn") {
 		t.Error("detail should describe the repo while the repo is selected")
 	}
 	m = press(m, "down")
@@ -645,13 +645,13 @@ func isANSITerm(c byte) bool {
 // nestedTree is one repo with zsh → (vim → fmt, zig).
 func nestedTree(h int) model {
 	return withProcList(80, h,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
-			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/scrn"},
-			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "vim", Dir: "/p/conn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
+			{PID: 40, PPID: 20, Command: "fmt", Dir: "/p/conn"},
+			{PID: 50, PPID: 20, Command: "lint", Dir: "/p/conn"},
 		},
 	)
 }
@@ -659,13 +659,13 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		" ▸ scrn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
+		" ▸ conn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
 	})
 
 	// Move onto vim and fold it.
 	m = press(press(press(m, "down"), "down"), " ")
 	wantRows(t, navColumn(m), []string{
-		"   scrn", "      zsh", "      ▸ vim +2", "        zig",
+		"   conn", "      zsh", "      ▸ vim +2", "        zig",
 	})
 }
 
@@ -673,7 +673,7 @@ func TestSpaceCollapsesARepo(t *testing.T) {
 	m := press(nestedTree(12), " ")
 
 	col := navColumn(m)
-	wantRows(t, col, []string{" ▸ scrn +5"})
+	wantRows(t, col, []string{" ▸ conn +5"})
 	if len(col) != 1 {
 		t.Errorf("a collapsed repo should hide its whole tree, got:\n%s", strings.Join(col, "\n"))
 	}
@@ -692,7 +692,7 @@ func TestSpaceUnfoldsAgain(t *testing.T) {
 func TestCollapsedNodeReportsWhatItHides(t *testing.T) {
 	// zsh hides vim, zig and fmt.
 	m := press(press(nestedTree(12), "down"), " ")
-	wantRows(t, navColumn(m), []string{"   scrn", "    ▸ zsh +4"})
+	wantRows(t, navColumn(m), []string{"   conn", "    ▸ zsh +4"})
 }
 
 func TestSpaceOnALeafDoesNothing(t *testing.T) {
@@ -977,9 +977,9 @@ func TestKilledProcessDisappearsOnTheNextScan(t *testing.T) {
 
 	// The same scan without pid 40, as if it had exited.
 	next, _ := m.Update(procsMsg{procs: []Proc{
-		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/conn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
 	}})
 
 	col := strings.Join(navColumn(next.(model)), "\n")
@@ -997,9 +997,9 @@ func TestCursorHoldsItsPlaceWhenTheSelectionExits(t *testing.T) {
 	}
 
 	next, _ := m.Update(procsMsg{procs: []Proc{
-		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/conn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
 	}})
 
 	if c := next.(model).cursor; c == 0 {
@@ -1032,7 +1032,7 @@ func TestRefreshKeepsTheVisibleDetailCurrent(t *testing.T) {
 
 func TestRefreshDoesNotBlankTheDetailPane(t *testing.T) {
 	m := nestedTree(12)
-	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "scrn"}}
+	m.details[detailKey(m.rows[0])] = []field{{label: "name", value: "conn"}}
 
 	next, _ := m.Update(tickMsg{})
 	if strings.Contains(strings.Join(detailColumn(next.(model)), "\n"), "loading") {
@@ -1139,9 +1139,9 @@ func TestTheMarkerGoesWhenTheProcessDoes(t *testing.T) {
 
 	// The next scan without pid 40, as if it had acted on the signal.
 	next, _ = next.(model).Update(procsMsg{procs: []Proc{
-		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/scrn"},
-		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+		{PID: 20, PPID: 10, Command: "vim", Dir: "/p/conn"},
+		{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
 	}})
 	got := next.(model)
 
@@ -1302,7 +1302,7 @@ func TestXOnARepoTakesEverythingInIt(t *testing.T) {
 	if got, want := targets(m.pendingKill), []int{10, 20, 40, 50, 30}; !slices.Equal(got, want) {
 		t.Errorf("targets = %v, want every process in the repo %v", got, want)
 	}
-	if f := footer(m); !strings.Contains(f, "kill 5 processes in scrn?") {
+	if f := footer(m); !strings.Contains(f, "kill 5 processes in conn?") {
 		t.Errorf("footer = %q, want it to say what it is about to clear out", f)
 	}
 }
@@ -1320,13 +1320,13 @@ func TestLowercaseXOnARepoTakesEverythingInItToo(t *testing.T) {
 
 func TestXOnAnIdleRepoSaysThereIsNothingToKill(t *testing.T) {
 	for _, key := range []string{"x", "X"} {
-		m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+		m := withProcList(80, 12, []Project{{Name: "conn", Path: "/p/conn"}}, nil)
 		m = press(m, key)
 
 		if m.pendingKill != nil {
 			t.Errorf("%q on an idle repository should not arm a kill", key)
 		}
-		if f := footer(m); !strings.Contains(f, "nothing running in scrn") {
+		if f := footer(m); !strings.Contains(f, "nothing running in conn") {
 			t.Errorf("%q footer = %q, want it to explain why nothing happened", key, f)
 		}
 	}
@@ -1400,7 +1400,7 @@ func TestAPartlyRefusedTreeKillSaysSo(t *testing.T) {
 func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 	m := nestedTree(12)
 	next, _ := m.Update(killedMsg{
-		subject: "3 processes in scrn",
+		subject: "3 processes in conn",
 		results: []killResult{
 			{command: "zsh", pid: 10, err: errors.New("not permitted")},
 			{command: "vim", pid: 20, err: errors.New("not permitted")},
@@ -1409,7 +1409,7 @@ func TestAWhollyRefusedTreeKillReportsEachReasonOnce(t *testing.T) {
 	})
 	got := next.(model)
 
-	if f := footer(got); !strings.Contains(f, "could not kill 3 processes in scrn: already gone, not permitted") {
+	if f := footer(got); !strings.Contains(f, "could not kill 3 processes in conn: already gone, not permitted") {
 		t.Errorf("footer = %q, want each reason named once", f)
 	}
 	if got.spinning {
@@ -1429,8 +1429,8 @@ func TestTheKeysListTheTreeKill(t *testing.T) {
 // would have advertised for it.
 func withClaude(command string, sessions map[int]claudeSession) model {
 	m := withProcList(96, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 700, PPID: 1, Command: command, Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 700, PPID: 1, Command: command, Dir: "/p/conn"}})
 	m.agents = asAgents(sessions)
 	return m
 }
@@ -1439,7 +1439,7 @@ func TestABusyClaudeTurns(t *testing.T) {
 	// The difference between an instance thinking and one waiting on you is
 	// the thing worth crossing the room for, so it moves.
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: busyStatus},
+		700: {PID: 700, Name: "conn-1f", Status: busyStatus},
 	})
 
 	first := navColumn(m)[1]
@@ -1509,10 +1509,10 @@ func TestAFinishedTurnLightsItsRow(t *testing.T) {
 	// whisper it.
 	m := withClaude("claude", nil)
 	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: busyStatus},
+		700: {PID: 700, Name: "conn-1f", Status: busyStatus},
 	})})
 	next, _ = next.(model).Update(agentsMsg{agents: asAgents(map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: "idle"},
+		700: {PID: 700, Name: "conn-1f", Status: "idle"},
 	})})
 	m = next.(model)
 
@@ -1537,7 +1537,7 @@ func TestABlockedInstanceHoldsTheBrightDiamond(t *testing.T) {
 	// instance this window never saw working — the ask exists either way —
 	// so no working turn precedes it here.
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
+		700: {PID: 700, Name: "conn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
 	})
 
 	row := navColumn(m)[1]
@@ -1566,7 +1566,7 @@ func TestAnInstanceIdleSinceLaunchStaysQuiet(t *testing.T) {
 	// and is owed nothing: hollow marker, no highlight, and the chord passes
 	// it by.
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: "idle"},
+		700: {PID: 700, Name: "conn-1f", Status: "idle"},
 	})
 
 	row := navColumn(m)[1]
@@ -1748,13 +1748,13 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			return fmt.Sprintf("%s %d", id, nextPID), nil
 		case "set":
 			switch {
-			case has(args, "@scrn_title"):
+			case has(args, "@conn_title"):
 				asked <- message{Kind: kindDress, PID: target(args), Name: args[len(args)-1]}
-			case has(args, "@scrn_mode"):
+			case has(args, "@conn_mode"):
 				asked <- message{Kind: kindMode, Name: args[len(args)-1]}
-			case has(args, "@scrn_msg"):
+			case has(args, "@conn_msg"):
 				asked <- message{Kind: kindMsg, Name: args[len(args)-1]}
-			case has(args, "@scrn_name") && opening != nil:
+			case has(args, "@conn_name") && opening != nil:
 				// A pane's name lands right after its open, making the ask
 				// whole.
 				opening.Name = args[len(args)-1]
@@ -1874,7 +1874,7 @@ func TestPrefixEnterWithNothingWaitingSaysSo(t *testing.T) {
 func TestAReusedPIDIsNotDressedUpAsClaude(t *testing.T) {
 	// A session file can outlive its process; the command name settles it.
 	m := withClaude("vim", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+		700: {PID: 700, Name: "conn-1f", Status: "busy"},
 	})
 
 	row := navColumn(m)[1]
@@ -1908,7 +1908,7 @@ func TestTheMarkerLeavesRoomForTheName(t *testing.T) {
 
 func TestAgentDetailIsAskedForOnlyOnAnAgentRow(t *testing.T) {
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: "busy"},
+		700: {PID: 700, Name: "conn-1f", Status: "busy"},
 	})
 
 	repo, _ := m.rows[0], m.rows[1]
@@ -1918,7 +1918,7 @@ func TestAgentDetailIsAskedForOnlyOnAnAgentRow(t *testing.T) {
 	m.cursor = 1
 	proc, _ := m.selected()
 	got, ok := m.agentFor(proc).(claudeSession)
-	if !ok || got.Name != "scrn-1f" {
+	if !ok || got.Name != "conn-1f" {
 		t.Errorf("agentFor(claude row) = %+v, want the session", m.agentFor(proc))
 	}
 }
@@ -1941,11 +1941,11 @@ func TestTheDetailPaneNamesTheWholeRun(t *testing.T) {
 	// The shell that started this is not on screen anywhere else once the run
 	// is folded, so the detail pane is where it has to be said.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/conn"},
 		})
 	m.cursor = 1
 
@@ -1963,11 +1963,11 @@ func TestTheDetailPaneNamesTheWholeRun(t *testing.T) {
 
 func TestARowThatFoldedNothingHasNoRun(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 30, PPID: 10, Command: "zig", Dir: "/p/conn"},
 		})
 	m.cursor = 2 // nvim, which folded nothing because zsh branches
 
@@ -1979,17 +1979,17 @@ func TestARowThatFoldedNothingHasNoRun(t *testing.T) {
 
 func TestDashShowsEveryProcess(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/conn"},
 		})
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      nvim"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      nvim"})
 
 	m = press(m, "-")
 	wantRows(t, navColumn(m), []string{
-		" ▸ scrn", "      zsh", "        nvim", "          nvim",
+		" ▸ conn", "      zsh", "        nvim", "          nvim",
 	})
 }
 
@@ -2002,11 +2002,11 @@ func TestDashFoldsThemBackAgain(t *testing.T) {
 
 func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
+			{PID: 21, PPID: 20, Command: "nvim", Dir: "/p/conn"},
 		})
 	m.cursor = 1 // the folded row, named for nvim 20
 
@@ -2022,7 +2022,7 @@ func TestUnfoldingKeepsTheCursorOnItsProcess(t *testing.T) {
 // running in any of them.
 func manyProjects(w, h int) model {
 	return withProcList(w, h, []Project{
-		{Name: "scrn", Path: "/p/w0zro/scrn"},
+		{Name: "conn", Path: "/p/w0zro/conn"},
 		{Name: "hsg", Path: "/p/hsg/hsg"},
 		{Name: "brand", Path: "/p/hsg/brand"},
 		{Name: "tressle-api", Path: "/p/node/tressle-api"},
@@ -2058,7 +2058,7 @@ func TestFilterReachesProcessesByCommand(t *testing.T) {
 	// the ones named for it — at work the question is as often "where is that
 	// running" as "where is that checked out".
 	m := withProcList(90, 14, []Project{
-		{Name: "scrn", Path: "/p/scrn"},
+		{Name: "conn", Path: "/p/conn"},
 		{Name: "brand", Path: "/p/brand"},
 	}, []Proc{{PID: 100, PPID: 1, Command: "claude", Dir: "/p/brand"}})
 
@@ -2175,12 +2175,12 @@ func TestFilterMatchesThePathAsWellAsTheName(t *testing.T) {
 }
 
 func TestFilterIgnoresCase(t *testing.T) {
-	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "SCRN")
-	wantRows(t, navColumn(m), []string{" ▸ scrn"})
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "CONN")
+	wantRows(t, navColumn(m), []string{" ▸ conn"})
 }
 
 func TestKeysGoToTheFilterWhileItIsBeingTyped(t *testing.T) {
-	// A project called "scrn" must be typeable without s opening a shell.
+	// A project called "conn" must be typeable without s opening a shell.
 	m := press(narrowed(manyProjects(90, 14)), "/")
 	m = typeFilter(m, "s")
 
@@ -2280,7 +2280,7 @@ func TestEscWhileTypingPutsTheCursorBack(t *testing.T) {
 	}
 	was := detailKey(r)
 
-	m = typeFilter(press(m, "/"), "scrn")
+	m = typeFilter(press(m, "/"), "conn")
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 
@@ -2360,7 +2360,7 @@ func TestTheSearchHoldsUntilTheShellActuallyLands(t *testing.T) {
 func TestEnteringSomethingClearsTheSearchAtOnce(t *testing.T) {
 	// Nothing has to be waited for: the project already holds the shell.
 	m := withProcList(90, 14,
-		[]Project{{Name: "brand", Path: "/p/hsg/brand"}, {Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "brand", Path: "/p/hsg/brand"}, {Name: "conn", Path: "/p/conn"}},
 		[]Proc{{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/hsg/brand"}})
 	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/hsg/brand"}}
 	m, _ = pipeServer(t, m)
@@ -2398,21 +2398,21 @@ func TestSlashListsEveryProjectBeforeAnythingIsTyped(t *testing.T) {
 	m = press(m, "/")
 	// Alphabetical, the order the scan delivers and topPlaces keeps.
 	wantRows(t, navColumn(m), []string{
-		" ▸ brand", "   flocking-pixi", "   hsg", "   scrn", "   tressle-api",
+		" ▸ brand", "   conn", "   flocking-pixi", "   hsg", "   tressle-api",
 	})
 }
 
 func TestThePickerShowsProjectsWithoutTheirProcesses(t *testing.T) {
 	// The names are what is being scanned; what is running would bury them.
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}, {Name: "hsg", Path: "/p/hsg"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}, {Name: "hsg", Path: "/p/hsg"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
 		})
 
 	m = press(m, "/")
-	wantRows(t, navColumn(m), []string{" ▸ hsg", "   scrn"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "   hsg"})
 	if len(m.rows) != 2 {
 		t.Errorf("rows = %d, want only the two projects", len(m.rows))
 	}
@@ -2446,14 +2446,14 @@ func TestTypingNarrowsThePicker(t *testing.T) {
 
 func TestLeavingThePickerBringsTheProcessesBack(t *testing.T) {
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"}})
 
 	m = press(m, "/")
-	wantRows(t, navColumn(m), []string{" ▸ scrn"})
+	wantRows(t, navColumn(m), []string{" ▸ conn"})
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	wantRows(t, navColumn(next.(model)), []string{" ▸ scrn", "      zsh"})
+	wantRows(t, navColumn(next.(model)), []string{" ▸ conn", "      zsh"})
 }
 
 func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
@@ -2461,39 +2461,39 @@ func TestARunIsNamedForTheProcessThatMatters(t *testing.T) {
 	// below it. Naming the run after its deepest process would call this a
 	// caffeinate and hide the claude entirely.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
-			{PID: 30, PPID: 20, Command: "caffeinate", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "claude", Dir: "/p/conn"},
+			{PID: 30, PPID: 20, Command: "caffeinate", Dir: "/p/conn"},
 		})
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      claude"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      claude"})
 }
 
 func TestATransientChildDoesNotRenameTheRow(t *testing.T) {
 	// A claude reaching for a tool and finishing with it should not rename the
 	// row it is on, twice, while you are looking at it.
 	procs := []Proc{
-		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-		{PID: 20, PPID: 10, Command: "claude", Dir: "/p/scrn"},
+		{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+		{PID: 20, PPID: 10, Command: "claude", Dir: "/p/conn"},
 	}
-	m := withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, procs)
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      claude"})
+	m := withProcList(80, 12, []Project{{Name: "conn", Path: "/p/conn"}}, procs)
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      claude"})
 
 	next, _ := m.Update(procsMsg{procs: append(procs,
-		Proc{PID: 40, PPID: 20, Command: "rg", Dir: "/p/scrn"})})
-	wantRows(t, navColumn(next.(model)), []string{" ▸ scrn", "      claude"})
+		Proc{PID: 40, PPID: 20, Command: "rg", Dir: "/p/conn"})})
+	wantRows(t, navColumn(next.(model)), []string{" ▸ conn", "      claude"})
 }
 
 func TestARunOfNothingButShellsIsNamedForTheLast(t *testing.T) {
 	// That is the one you would be typing into.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "bash", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "bash", Dir: "/p/conn"},
 		})
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      bash"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      bash"})
 }
 
 func TestALoginShellIsStillAShell(t *testing.T) {
@@ -2542,7 +2542,7 @@ func TestTheKeysPageFitsItsPopup(t *testing.T) {
 		}
 		return "", nil
 	}
-	if err := showKeys(run, "/opt/scrn", "c0"); err != nil {
+	if err := showKeys(run, "/opt/conn", "c0"); err != nil {
 		t.Fatal(err)
 	}
 	if len(popup) < 10 || popup[6] != "-w" || popup[8] != "-h" {
@@ -2576,7 +2576,7 @@ func TestThePopupIsCutToAShortClient(t *testing.T) {
 		}
 		return "", nil
 	}
-	if err := showKeys(run, "/opt/scrn", ""); err != nil {
+	if err := showKeys(run, "/opt/conn", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(popup) < 10 || popup[3] != "c1" || popup[9] != "20" {
@@ -2620,7 +2620,7 @@ func TestTheNavigatorHoldsItsColumnWhileAShellIsShown(t *testing.T) {
 
 func TestTheQueryIsALineWithReadlinesKeys(t *testing.T) {
 	// The line the query is typed on is a text input, so it has every
-	// editing key a line has and scrn owns none of them: a word back, a
+	// editing key a line has and conn owns none of them: a word back, a
 	// letter back, the cursor moved into the line and typing there.
 	m := typeFilter(press(manyProjects(90, 14), "/"), "mono api")
 	ctrl := func(m model, r rune) model {
@@ -2646,17 +2646,17 @@ func TestTheQueryIsALineWithReadlinesKeys(t *testing.T) {
 	}
 }
 
-func TestAProcessThatIsScrnSaysMe(t *testing.T) {
-	// The launcher becomes a tmux client on scrn's socket; under `go run .`
+func TestAProcessThatIsConnSaysMe(t *testing.T) {
+	// The launcher becomes a tmux client on conn's socket; under `go run .`
 	// the row folds the go and the client together. Either way the row is
-	// scrn looking at itself, and says so.
-	t.Setenv("SCRN_SOCKET", "/tmp/scrn-me-test.sock")
+	// conn looking at itself, and says so.
+	t.Setenv("CONN_SOCKET", "/tmp/conn-me-test.sock")
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 700, PPID: 1, Command: "go", Argv: "go run .", Dir: "/p/scrn"},
-			{PID: 701, PPID: 700, Command: "tmux", Argv: "tmux -S /tmp/scrn-me-test.sock attach -t scrn", Dir: "/p/scrn"},
-			{PID: 702, PPID: 1, Command: "go", Argv: "go test ./...", Dir: "/p/scrn"},
+			{PID: 700, PPID: 1, Command: "go", Argv: "go run .", Dir: "/p/conn"},
+			{PID: 701, PPID: 700, Command: "tmux", Argv: "tmux -S /tmp/conn-me-test.sock attach -t conn", Dir: "/p/conn"},
+			{PID: 702, PPID: 1, Command: "go", Argv: "go test ./...", Dir: "/p/conn"},
 		})
 	rows := navColumn(m)
 	if len(rows) < 3 || !strings.Contains(rows[1], "go run .") || !strings.Contains(rows[1], "(me)") {
@@ -2774,7 +2774,7 @@ func TestTheEndsScrollTheWindow(t *testing.T) {
 }
 
 func TestTheEndsOfAnEmptyListAreHarmless(t *testing.T) {
-	m := narrowed(withProcList(80, 12, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil))
+	m := narrowed(withProcList(80, 12, []Project{{Name: "conn", Path: "/p/conn"}}, nil))
 	if len(m.rows) != 0 {
 		t.Fatalf("setup: rows = %d, want none", len(m.rows))
 	}
@@ -2844,19 +2844,19 @@ func TestCtrlNAndCtrlPMoveWhileTyping(t *testing.T) {
 }
 
 func TestTypingStillNarrowsAfterMoving(t *testing.T) {
-	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "s")
+	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "c")
 	next, _ := m.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
-	m = typeFilter(next.(model), "crn")
+	m = typeFilter(next.(model), "onn")
 
-	if m.filter != "scrn" {
+	if m.filter != "conn" {
 		t.Errorf("filter = %q, want the letters to have gone on narrowing it", m.filter)
 	}
-	wantRows(t, navColumn(m), []string{" ▸ scrn"})
+	wantRows(t, navColumn(m), []string{" ▸ conn"})
 }
 
 func TestLettersAreStillLettersWhileTyping(t *testing.T) {
-	// The actions are on chords because a project called "scrn" has to be
-	// typeable without s doing something.
+	// The actions are on chords because a project called "scratch" has to
+	// be typeable without s, r and a doing things.
 	m := typeFilter(press(narrowed(manyProjects(90, 14)), "/"), "sarx")
 	if m.filter != "sarx" {
 		t.Errorf("filter = %q, want every letter typed into it", m.filter)
@@ -2879,27 +2879,27 @@ func TestThePidIsOnlyShownWhenEveryProcessIs(t *testing.T) {
 	// Folded, the list is about what is happening and the pid is a number
 	// beside every row that never helps you read it.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 20, PPID: 10, Command: "nvim", Dir: "/p/conn"},
 		})
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      nvim"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      nvim"})
 
 	m = press(m, "-")
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      zsh 10", "        nvim 20"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      zsh 10", "        nvim 20"})
 }
 
 func TestTwoOfTheSameCommandAreStillToldApartUnfolded(t *testing.T) {
 	// Which is the point of the pid: unfolded it is what tells them apart.
 	m := withProcList(80, 12,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 10, PPID: 1, Command: "nvim", Dir: "/p/scrn"},
-			{PID: 11, PPID: 1, Command: "nvim", Dir: "/p/scrn"},
+			{PID: 10, PPID: 1, Command: "nvim", Dir: "/p/conn"},
+			{PID: 11, PPID: 1, Command: "nvim", Dir: "/p/conn"},
 		})
 	m = press(m, "-")
-	wantRows(t, navColumn(m), []string{" ▸ scrn", "      nvim 10", "      nvim 11"})
+	wantRows(t, navColumn(m), []string{" ▸ conn", "      nvim 10", "      nvim 11"})
 }
 
 func TestAProcessListeningNowhereSaysNothingAboutPorts(t *testing.T) {
@@ -3235,7 +3235,7 @@ func groupedModel(procs ...Proc) model {
 	m.projects = []Project{
 		{Name: "api", Path: "/p/checklists.org/api", Group: "/p/checklists.org"},
 		{Name: "web", Path: "/p/checklists.org/web", Group: "/p/checklists.org"},
-		{Name: "scrn", Path: "/p/scrn"},
+		{Name: "conn", Path: "/p/conn"},
 	}
 	m.groups = []Project{{Name: "checklists.org", Path: "/p/checklists.org"}}
 	m.procs = procs
@@ -3251,7 +3251,7 @@ func TestAGroupHoldsItsRepositories(t *testing.T) {
 		" ▸ checklists.org",
 		"     api",
 		"     web",
-		"   scrn",
+		"   conn",
 	})
 }
 
@@ -3263,7 +3263,7 @@ func TestWorkInARepositoryLiftsItsGroupIntoView(t *testing.T) {
 		"        node",
 	})
 	for _, row := range navColumn(m) {
-		if strings.Contains(row, "web") || strings.Contains(row, "scrn") {
+		if strings.Contains(row, "web") || strings.Contains(row, "conn") {
 			t.Errorf("row %q has no work and should not be listed", row)
 		}
 	}
@@ -3286,7 +3286,7 @@ func TestTheFilterFindsTheGroupByName(t *testing.T) {
 		t.Fatalf("rows = %v, want the group found by its name", rows)
 	}
 	for _, row := range rows {
-		if strings.Contains(row, "scrn") {
+		if strings.Contains(row, "conn") {
 			t.Errorf("row %q does not answer to the query", row)
 		}
 	}
@@ -3530,7 +3530,7 @@ func TestTheJumpToAWaitingAgentLeavesTheFilter(t *testing.T) {
 	// agent used to be invisible to it: the chord said nothing was owed
 	// while a diamond stood in plain sight.
 	m := withClaude("claude", map[int]claudeSession{
-		700: {PID: 700, Name: "scrn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
+		700: {PID: 700, Name: "conn-1f", Status: waitingStatus, WaitingFor: "permission prompt"},
 	})
 	m = press(m, "/")
 
@@ -3584,12 +3584,12 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 	// and marks it the way its row is marked, so the line reads as the
 	// list's leaves from any shell.
 	m := withProcList(96, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
-			{PID: 701, PPID: 700, Command: "claude", Dir: "/p/scrn"},
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/conn"},
+			{PID: 701, PPID: 700, Command: "claude", Dir: "/p/conn"},
 		})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/scrn"}}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/conn"}}
 	m, asked := pipeServer(t, m)
 
 	next, _ := m.Update(agentsMsg{agents: asAgents(map[int]claudeSession{
@@ -3597,7 +3597,7 @@ func TestAShellsWindowWearsItsPlaceAndItsAgentsMark(t *testing.T) {
 	})})
 	m = next.(model)
 
-	if got := askedForKind(t, asked, kindDress); got.PID != 700 || got.Name != "scrn: claude ◆" {
+	if got := askedForKind(t, asked, kindDress); got.PID != 700 || got.Name != "conn: claude ◆" {
 		t.Errorf("dressed %+v, want pane 700 named for its place and claude, marked ◆", got)
 	}
 
@@ -3700,12 +3700,12 @@ func TestJReachesAShellOutsideEveryPlace(t *testing.T) {
 	// A shell opened somewhere no project holds has no row, but it is held
 	// and shown like any other: J steps to it, and the keys go to it.
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Project{{Name: "conn", Path: "/p/conn"}},
 		[]Proc{
-			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/scrn"},
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/conn"},
 			{PID: 701, PPID: 1, Command: "zsh", Dir: "/tmp"},
 		})
-	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/scrn"}, 701: {pid: 701, dir: "/tmp"}}
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/conn"}, 701: {pid: 701, dir: "/tmp"}}
 	m, asked := pipeServer(t, m)
 	m = press(m, "down")
 	askedForKind(t, asked, kindShow)
@@ -3723,7 +3723,7 @@ func TestJReachesAShellOutsideEveryPlace(t *testing.T) {
 	// that as the cursor asking for 700 back.
 	next, _ := m.Update(procsMsg{procs: m.procs})
 	m = next.(model)
-	next, _ = m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/p/scrn"}, {PID: 701, Dir: "/tmp", Shown: true}}})
+	next, _ = m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 700, Dir: "/p/conn"}, {PID: 701, Dir: "/tmp", Shown: true}}})
 	m = next.(model)
 	select {
 	case got := <-asked:

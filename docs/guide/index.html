@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#e7e3d8">
-<title>Guide — scrn</title>
-<meta name="description" content="Installing and using scrn: the navigator, shells, agents, plans, killing, configuration, and the tmux server.">
-<meta property="og:title" content="Guide — scrn">
-<meta property="og:description" content="Installing and using scrn: the navigator, shells, agents, plans, killing, configuration, and the server.">
-<meta property="og:url" content="https://scrn.w0zro.com/guide">
+<title>Guide — conn</title>
+<meta name="description" content="Installing and using conn: the navigator, shells, agents, plans, killing, configuration, and the tmux server.">
+<meta property="og:title" content="Guide — conn">
+<meta property="og:description" content="Installing and using conn: the navigator, shells, agents, plans, killing, configuration, and the server.">
+<meta property="og:url" content="https://conn.w0zro.com/guide">
 <meta property="og:type" content="article">
-<meta property="og:site_name" content="scrn">
-<meta property="og:image" content="https://scrn.w0zro.com/og.png">
+<meta property="og:site_name" content="conn">
+<meta property="og:image" content="https://conn.w0zro.com/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="scrn: every project, and everything running in it, in one window.">
+<meta property="og:image:alt" content="conn: every project, and everything running in it, in one window.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,12 +28,12 @@
 <div class="sheet">
 
 <header class="nav sticky">
-  <a class="brand" href="/">scrn</a>
+  <a class="brand" href="/">conn</a>
   <nav class="nav-links">
     <span class="accent" aria-current="page">guide</span>
     <a href="/#keys">keys</a>
     <a href="#install">install</a>
-    <a class="accent" href="https://github.com/w0zro/scrn">github ↗</a>
+    <a class="accent" href="https://github.com/w0zro/conn">github ↗</a>
   </nav>
 </header>
 
@@ -57,33 +57,33 @@
 <article class="doc">
 
 <h1>Guide<span class="accent">.</span></h1>
-<p class="intro">Everything scrn does, in the order you'll meet it.</p>
+<p class="intro">Everything conn does, in the order you'll meet it.</p>
 
 <section id="install">
   <div class="kicker">§ 1</div>
   <h2>Install</h2>
   <div class="cmd" role="group" aria-label="install command">
     <span class="prompt" aria-hidden="true">$</span>
-    <code>curl -fsSL https://scrn.w0zro.com/install.sh | sh</code>
-    <button class="copy" data-copy="curl -fsSL https://scrn.w0zro.com/install.sh | sh">[copy]</button>
+    <code>curl -fsSL https://conn.w0zro.com/install.sh | sh</code>
+    <button class="copy" data-copy="curl -fsSL https://conn.w0zro.com/install.sh | sh">[copy]</button>
   </div>
-  <p>scrn needs two neighbors: <code class="chip">tmux</code>, which holds the shells, and <code class="chip">lsof</code>, which reads the process list. macOS ships lsof; add tmux with <code class="chip">brew install tmux</code>. On Linux both come from the package manager:</p>
+  <p>conn needs two neighbors: <code class="chip">tmux</code>, which holds the shells, and <code class="chip">lsof</code>, which reads the process list. macOS ships lsof; add tmux with <code class="chip">brew install tmux</code>. On Linux both come from the package manager:</p>
   <div class="cmd flush mb14"><code>apt install tmux lsof   <span class="dim"># or dnf, pacman, apk…</span></code></div>
-  <p>The script fetches the release built for this machine, checks it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code> and the manpage under <code class="chip">~/.local/share/man</code>; <code class="chip">man scrn</code> is the reference. Three variables override the script:</p>
+  <p>The script fetches the release built for this machine, checks it against the release's <code class="chip">checksums.txt</code>, and puts the binary in <code class="chip">~/.local/bin</code> and the manpage under <code class="chip">~/.local/share/man</code>; <code class="chip">man conn</code> is the reference. Three variables override the script:</p>
   <div class="def mb14">
-    <div class="def-row"><span class="term w170">SCRN_INSTALL_DIR</span><span class="desc">install somewhere else</span></div>
-    <div class="def-row"><span class="term w170">SCRN_MAN_DIR</span><span class="desc">the manpage somewhere else</span></div>
-    <div class="def-row"><span class="term w170">SCRN_VERSION</span><span class="desc">a release other than the latest</span></div>
+    <div class="def-row"><span class="term w170">CONN_INSTALL_DIR</span><span class="desc">install somewhere else</span></div>
+    <div class="def-row"><span class="term w170">CONN_MAN_DIR</span><span class="desc">the manpage somewhere else</span></div>
+    <div class="def-row"><span class="term w170">CONN_VERSION</span><span class="desc">a release other than the latest</span></div>
   </div>
   <p class="mb10">Building from source works too, with Go 1.25 or later:</p>
-  <div class="cmd flush"><code>go install github.com/w0zro/scrn@latest</code></div>
+  <div class="cmd flush"><code>go install github.com/w0zro/conn@latest</code></div>
 </section>
 
 <section id="first-run">
   <div class="kicker">§ 2</div>
   <h2>First run</h2>
-  <div class="cmd lead"><code>scrn</code></div>
-  <p>There is nothing to set up. <code class="chip">scrn</code> brings up a tmux server of its own, attaches the terminal to it, and opens the navigator down the left of the session's first window; the shell under its cursor is the pane beside it. The status line at the foot is tmux's, with the mode the keys are in. scrn looks for repositories under <code class="chip">~/projects</code>; the <a class="accent" href="#configuration">config</a> points it elsewhere.</p>
+  <div class="cmd lead"><code>conn</code></div>
+  <p>There is nothing to set up. <code class="chip">conn</code> brings up a tmux server of its own, attaches the terminal to it, and opens the navigator down the left of the session's first window; the shell under its cursor is the pane beside it. The status line at the foot is tmux's, with the mode the keys are in. conn looks for repositories under <code class="chip">~/projects</code>; the <a class="accent" href="#configuration">config</a> points it elsewhere.</p>
   <p class="mb8">The list opens showing what is running, so on a quiet machine it may say <code class="chip">nothing running</code>. Two keys from there:</p>
   <div class="def">
     <div class="def-row"><span class="term w60">.</span><span class="desc">show every repository, running or not</span></div>
@@ -100,7 +100,7 @@
   <h3>Groups</h3>
   <p>A folder inside a root that holds two or more repositories groups them. The group is a place of its own: <b>s</b> opens a shell at the folder, <b>r</b> runs the folder's plan, <b>x</b> covers everything beneath it.</p>
   <h3>Sub-projects</h3>
-  <p>In a monorepo, a directory with a manifest is a project of its own and gets a row under its repository. Manifests, in the order they are trusted: <code>.scrn</code>, <code>Procfile</code>, <code>package.json</code>, <code>deno.json</code>, <code>composer.json</code>, <code>go.mod</code>, <code>Cargo.toml</code>, <code>Gemfile</code>, <code>mix.exs</code>, <code>pyproject.toml</code>, <code>pom.xml</code>, <code>build.gradle</code>, <code>build.gradle.kts</code>. Ignored directories are skipped, and an untracked <code>.scrn</code> still counts.</p>
+  <p>In a monorepo, a directory with a manifest is a project of its own and gets a row under its repository. Manifests, in the order they are trusted: <code>.conn</code>, <code>Procfile</code>, <code>package.json</code>, <code>deno.json</code>, <code>composer.json</code>, <code>go.mod</code>, <code>Cargo.toml</code>, <code>Gemfile</code>, <code>mix.exs</code>, <code>pyproject.toml</code>, <code>pom.xml</code>, <code>build.gradle</code>, <code>build.gradle.kts</code>. Ignored directories are skipped, and an untracked <code>.conn</code> still counts.</p>
   <h3>Processes</h3>
   <p class="mb10">Each place lists the processes running in it, attributed to the innermost place they belong to, and named by what you would call them — <code>npm run dev</code>, not <code>node</code>. Keys that shape the list:</p>
   <div class="def">
@@ -108,7 +108,7 @@
     <div class="def-row"><span class="term w60">-</span><span class="desc">fold or unfold everything; unfolded rows also show pids</span></div>
     <div class="def-row"><span class="term w60">.</span><span class="desc">toggle between everything and only what's running</span></div>
   </div>
-  <p>Dim rows are processes with no shell of their own to go to: those started outside scrn, and those a process in a shell started in turn — a claude's tools, say — which <b>enter</b> reaches only as far as the shell above them. All are listed and killable. The pane beside the list is the shell under the cursor, live; on a row with no shell, the navigator has the window and the pane says what is known about the row.</p>
+  <p>Dim rows are processes with no shell of their own to go to: those started outside conn, and those a process in a shell started in turn — a claude's tools, say — which <b>enter</b> reaches only as far as the shell above them. All are listed and killable. The pane beside the list is the shell under the cursor, live; on a row with no shell, the navigator has the window and the pane says what is known about the row.</p>
   <p><b>/</b> finds places and processes: a query lists the processes whose command answers it, under the places they run, pruned to the branches that answer. <b>enter</b> steps into a found shell, and <b>ctrl-x</b> asks to kill what the cursor is on, without leaving the look. An empty query lists places alone.</p>
   <p>Matching is fuzzy: each word of the query appears in order, not contiguously — <code class="chip">tsl</code> finds tressle-api, <code class="chip">mono api</code> finds the api inside mono — and the letters that matched are lit in the rows.</p>
 </section>
@@ -116,12 +116,12 @@
 <section id="shells">
   <div class="kicker">§ 4</div>
   <h2>Shells</h2>
-  <p><b>s</b> opens a shell at the selected place, beside the navigator, and puts the keys in it. <b>enter</b> on a shell's row does the same for that shell. From then on every keystroke is the shell's: the pane is tmux's, and it behaves the way a tmux pane behaves, with the navigator still down the left. scrn keeps one key: <b>ctrl-space</b>, the prefix — tmux's own, bound by scrn's configuration — which reaches scrn from any shell. <b>ctrl-space -</b> is back to the navigator; <b>ctrl-space j</b> and <b>k</b> are the next and previous shell, <b>ctrl-space ctrl-space</b> switches between the navigator and the shell, <b>ctrl-space q</b> leaves, and <b>?</b> — in the navigator, or after the prefix from any shell — lists the rest in a popup over the whole window. Every key tmux would otherwise bind is unbound.</p>
+  <p><b>s</b> opens a shell at the selected place, beside the navigator, and puts the keys in it. <b>enter</b> on a shell's row does the same for that shell. From then on every keystroke is the shell's: the pane is tmux's, and it behaves the way a tmux pane behaves, with the navigator still down the left. conn keeps one key: <b>ctrl-space</b>, the prefix — tmux's own, bound by conn's configuration — which reaches conn from any shell. <b>ctrl-space -</b> is back to the navigator; <b>ctrl-space j</b> and <b>k</b> are the next and previous shell, <b>ctrl-space ctrl-space</b> switches between the navigator and the shell, <b>ctrl-space q</b> leaves, and <b>?</b> — in the navigator, or after the prefix from any shell — lists the rest in a popup over the whole window. Every key tmux would otherwise bind is unbound.</p>
   <p>The pane beside the navigator is the shell under its cursor: move the cursor to another shell's row and that shell moves in, the last one out to a tmux window of its own, where it keeps running. <b>J</b> and <b>K</b> step through the shells in the list's order, keys and all. On a row with no shell the navigator has the whole window.</p>
   <p>The status line at the foot is tmux's. It begins with the mode the keys are in — <b>NAV</b> or <b>PROC</b> for the pane that has them, each a chip in its own color with the line washed one tone after it, <b>PREFIX</b> while a chord hangs, <b>COPY</b> in copy mode, the query while one is typed and the filter while one stands, <b>CONTINUE</b> with the picker open, <b>CONFIRM</b> while a kill waits on its second key — and then anything the navigator has to say: a report, an error, a confirmation, until the next key.</p>
-  <p>Shells keep running when the terminal closes. <b>q</b> in the navigator, or <b>ctrl-space q</b> anywhere, detaches; quit the terminal, come back, run <code class="chip">scrn</code>, and everything is where it was.</p>
+  <p>Shells keep running when the terminal closes. <b>q</b> in the navigator, or <b>ctrl-space q</b> anywhere, detaches; quit the terminal, come back, run <code class="chip">conn</code>, and everything is where it was.</p>
   <p><b>ctrl-space v</b> reads back through what has scrolled away: tmux's copy mode, with vi keys. <b>v</b> marks, <b>y</b> copies the marked text to the system clipboard, <b>q</b> leaves. Each shell keeps 10,000 lines of transcript by default — <code class="chip">scrollback</code> in the config raises it.</p>
-  <p>The mouse is tmux's, with tmux's own bindings and nothing of scrn's: the wheel scrolls back through a pane's transcript, a drag selects and copies to the clipboard on release, a click takes the keys to the pane under it, and a program that speaks mouse gets its own clicks and wheel. Hold shift to drag a selection the terminal's own way. A program that copies for itself — vim's clipboard yank, anything speaking OSC 52 — reaches the system clipboard through tmux.</p>
+  <p>The mouse is tmux's, with tmux's own bindings and nothing of conn's: the wheel scrolls back through a pane's transcript, a drag selects and copies to the clipboard on release, a click takes the keys to the pane under it, and a program that speaks mouse gets its own clicks and wheel. Hold shift to drag a selection the terminal's own way. A program that copies for itself — vim's clipboard yank, anything speaking OSC 52 — reaches the system clipboard through tmux.</p>
 </section>
 
 <section id="agents">
@@ -143,14 +143,14 @@
 <section id="plans">
   <div class="kicker">§ 6</div>
   <h2>Plans</h2>
-  <p>Working on a project usually means the same processes every time: the dev server, the test watcher, an agent. A project writes them down in <code class="chip">.scrn</code> — Procfile format, a name and a command per line:</p>
-  <div class="code-cap">.scrn</div>
+  <p>Working on a project usually means the same processes every time: the dev server, the test watcher, an agent. A project writes them down in <code class="chip">.conn</code> — Procfile format, a name and a command per line:</p>
+  <div class="code-cap">.conn</div>
   <div class="codeblock">
 <pre><span class="t-key">dev:</span>   npm run dev
 <span class="t-key">api:</span>   go run ./cmd/api
 <span class="t-key">agent:</span> claude</pre>
   </div>
-  <p>Without one, scrn reads the conventions in this order: a <code>Procfile</code> means every line is a process; a <code>package.json</code> contributes only its <code>dev</code> or <code>start</code> script, whichever exists first.</p>
+  <p>Without one, conn reads the conventions in this order: a <code>Procfile</code> means every line is a process; a <code>package.json</code> contributes only its <code>dev</code> or <code>start</code> script, whichever exists first.</p>
   <p><b>r</b> starts the plan's entries that aren't running, each in its own window named for its entry. It is a list to run, not a supervisor: nothing restarts on its own. A process that has exited leaves the list, and the pane's checklist shows its entry as down until you press <b>r</b> again.</p>
 </section>
 
@@ -162,14 +162,14 @@
     <div class="def-row"><span class="term w170">X</span><span class="desc">kill it and everything under it</span></div>
     <div class="def-row"><span class="term w170">x on a repo or group</span><span class="desc">kill everything running in it</span></div>
   </div>
-  <p>Every kill asks first — <b>x</b>, <b>y</b> or <b>enter</b> confirms, anything else cancels. Processes get SIGTERM, and a signalled row wears a red marker until a rescan actually observes the exit; the list never claims an exit it hasn't seen. Kills work on any listed process, including ones scrn didn't start.</p>
+  <p>Every kill asks first — <b>x</b>, <b>y</b> or <b>enter</b> confirms, anything else cancels. Processes get SIGTERM, and a signalled row wears a red marker until a rescan actually observes the exit; the list never claims an exit it hasn't seen. Kills work on any listed process, including ones conn didn't start.</p>
 </section>
 
 <section id="configuration">
   <div class="kicker">§ 8</div>
   <h2>Configuration</h2>
-  <p>One JSON file, entirely optional. It lives at <code class="chip">~/.config/scrn/config.json</code> (<code>XDG_CONFIG_HOME</code> is honored).</p>
-  <div class="code-cap">~/.config/scrn/config.json</div>
+  <p>One JSON file, entirely optional. It lives at <code class="chip">~/.config/conn/config.json</code> (<code>XDG_CONFIG_HOME</code> is honored).</p>
+  <div class="code-cap">~/.config/conn/config.json</div>
   <div class="codeblock">
 <pre>{
   <span class="t-key">"projectsDirs"</span>: [<span class="t-str">"~/projects"</span>, <span class="t-str">"~/work/mono"</span>],
@@ -182,7 +182,7 @@
     <div class="fields-head"><span>FIELD</span><span>DEFAULT</span><span></span></div>
     <div class="fields-row"><span class="f-name">projectsDir</span><span class="f-default">$HOME/projects</span><span class="f-desc">the directory searched for repositories; ~ and $VARS expand</span></div>
     <div class="fields-row"><span class="f-name">projectsDirs</span><span class="f-default">—</span><span class="f-desc">several roots; when set, projectsDir is ignored. A root that only exists on another machine is fine</span></div>
-    <div class="fields-row"><span class="f-name">scrollback</span><span class="f-default">10000</span><span class="f-desc">transcript lines each shell keeps. Written into the server's configuration at launch, so raising it takes a fresh server: <b>R</b>, then <code>scrn</code> again</span></div>
+    <div class="fields-row"><span class="f-name">scrollback</span><span class="f-default">10000</span><span class="f-desc">transcript lines each shell keeps. Written into the server's configuration at launch, so raising it takes a fresh server: <b>R</b>, then <code>conn</code> again</span></div>
     <div class="fields-row"><span class="f-name">navWidth</span><span class="f-default">30</span><span class="f-desc">the navigator column's width, 16–60</span></div>
     <div class="fields-row"><span class="f-name">theme</span><span class="f-default">dark</span><span class="f-desc">the side tmux draws for, dark or light; the navigator draws with the terminal's own sixteen colors</span></div>
     <div class="fields-row"><span class="f-name">agent</span><span class="f-default">claude</span><span class="f-desc">the kind of agent <b>a</b> starts: claude or ollama</span></div>
@@ -194,10 +194,10 @@
 <section id="server">
   <div class="kicker">§ 9</div>
   <h2>The server</h2>
-  <p>The shells live in a tmux server of scrn's own, one per user for all projects, on a socket at <code class="chip">~/.local/state/scrn/tmux-&lt;uid&gt;.sock</code> (<code>SCRN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). Every <code class="chip">scrn</code> writes the server's configuration — the prefix and its chords, the status line, the transcript cap — to <code class="chip">~/.local/state/scrn/tmux.conf</code>, brings the server up under it or sources it into one already running, and attaches. No .tmux.conf reaches it. The session's first window is the home window: the navigator in the pane down its left, at the config's <code class="chip">navWidth</code> through every resize, and the shell under its cursor beside it; the shells not shown wait in windows of their own. Close the navigator and <b>ctrl-space -</b> makes it again, on the left. A <code class="chip">scrn</code> from a newer build than the navigator's restarts the navigator in its pane, the way it re-reads the configuration: the server keeps the shells, and everything else is the build's. Run from a shell inside the window, it does that and no more, the terminal being attached already; inside any other tmux it refuses, since attaching would be nesting.</p>
-  <p>The chords run <code>scrn</code> itself with a word — home, shell, agent, run, jump, next, prev, keys — each a short command against the server; the navigator's pane runs <code>scrn nav</code> and the keys popup <code>scrn page</code>. None of them are for typing.</p>
-  <p>Upgrading scrn does not touch the server: install the new binary, and the next <code class="chip">scrn</code> sources the new configuration into the same server. <b>R</b> ends the server and every shell it holds, after asking; it is the way to a fresh server when one is wanted, for a raised <code class="chip">scrollback</code> or on the day something wedges. Anything tmux can do to the server, you can do to it — <code class="chip">tmux -S ~/.local/state/scrn/tmux-&lt;uid&gt;.sock attach</code> is what <code>scrn</code> does.</p>
-  <p><code class="chip">scrn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No server listening is an empty list, not an error.</p>
+  <p>The shells live in a tmux server of conn's own, one per user for all projects, on a socket at <code class="chip">~/.local/state/conn/tmux-&lt;uid&gt;.sock</code> (<code>CONN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). Every <code class="chip">conn</code> writes the server's configuration — the prefix and its chords, the status line, the transcript cap — to <code class="chip">~/.local/state/conn/tmux.conf</code>, brings the server up under it or sources it into one already running, and attaches. No .tmux.conf reaches it. The session's first window is the home window: the navigator in the pane down its left, at the config's <code class="chip">navWidth</code> through every resize, and the shell under its cursor beside it; the shells not shown wait in windows of their own. Close the navigator and <b>ctrl-space -</b> makes it again, on the left. A <code class="chip">conn</code> from a newer build than the navigator's restarts the navigator in its pane, the way it re-reads the configuration: the server keeps the shells, and everything else is the build's. Run from a shell inside the window, it does that and no more, the terminal being attached already; inside any other tmux it refuses, since attaching would be nesting.</p>
+  <p>The chords run <code>conn</code> itself with a word — home, shell, agent, run, jump, next, prev, keys — each a short command against the server; the navigator's pane runs <code>conn nav</code> and the keys popup <code>conn page</code>. None of them are for typing.</p>
+  <p>Upgrading conn does not touch the server: install the new binary, and the next <code class="chip">conn</code> sources the new configuration into the same server. <b>R</b> ends the server and every shell it holds, after asking; it is the way to a fresh server when one is wanted, for a raised <code class="chip">scrollback</code> or on the day something wedges. Anything tmux can do to the server, you can do to it — <code class="chip">tmux -S ~/.local/state/conn/tmux-&lt;uid&gt;.sock attach</code> is what <code>conn</code> does.</p>
+  <p><code class="chip">conn ls</code> is the same state for scripts: the held shells, one per line on stdout — pid, directory and name, tab-separated. No server listening is an empty list, not an error.</p>
 </section>
 
 </article>
@@ -205,11 +205,11 @@
 </div>
 
 <footer class="footer rule-top">
-  <span>scrn</span>
+  <span>conn</span>
   <nav class="foot-links">
     <a href="/">home</a>
-    <a href="https://github.com/w0zro/scrn">github</a>
-    <a href="https://github.com/w0zro/scrn/releases">releases</a>
+    <a href="https://github.com/w0zro/conn">github</a>
+    <a href="https://github.com/w0zro/conn/releases">releases</a>
   </nav>
 </footer>
 

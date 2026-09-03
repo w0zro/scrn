@@ -168,7 +168,7 @@ type model struct {
 	// running: the point of it is to reach a project you are not working in.
 	// typing says the keys are going into the filter rather than at the list.
 	// query is the line the filter is typed on: a text input with the
-	// editing keys every other line has — readline's — which scrn does not
+	// editing keys every other line has — readline's — which conn does not
 	// own a case of. filter mirrors its value for everything that reads it.
 	filter string
 	typing bool
@@ -181,7 +181,7 @@ type model struct {
 
 	// showAll toggles the navigator between every repository and only those
 	// with a process running in them. It starts off: the repositories with
-	// something running in them are the ones worth opening scrn to see.
+	// something running in them are the ones worth opening conn to see.
 	showAll bool
 
 	// rows is the flattened navigator, rebuilt whenever its inputs change;
@@ -207,7 +207,7 @@ type model struct {
 
 	// dying holds the processes that have been signalled and are still listed.
 	// They keep their place, marked, until a rescan finds them gone: a row that
-	// vanished on the keystroke would claim an exit scrn has not seen yet.
+	// vanished on the keystroke would claim an exit conn has not seen yet.
 	// spinning says whether the frame chain is running and frame is its count.
 	dying    map[int]dyingProc
 	spinning bool
@@ -694,7 +694,7 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	}
 
 	// The filter takes every key while it is being typed, so a repository
-	// called "scrn" can be typed without s opening a shell halfway through.
+	// called "scratch" can be typed without s opening a shell halfway through.
 	if m.typing {
 		return m, m.filterKey(msg)
 	}
@@ -746,7 +746,7 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	case "s":
 		return m, m.start("")
 	case "a":
-		// An agent scrn owns, so it survives the window and can be
+		// An agent conn owns, so it survives the window and can be
 		// stepped back into, unlike the ones it can only watch. Which
 		// kind is the config's call; claude is the default.
 		return m, m.start(startAgent())
@@ -795,7 +795,7 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	case "esc":
 		// Esc closes whatever is open — the filter here, and the modal
 		// and the transcript where they take the keys — and it never
-		// closes scrn. Leaving is q's word alone: one reflexive esc too
+		// closes conn. Leaving is q's word alone: one reflexive esc too
 		// many, a beat after the filter it was meant for has already
 		// gone, must not take the window with it.
 		if m.filter != "" {
@@ -806,7 +806,7 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	case "q", "ctrl+c":
 		// Leaving the window, not the shells: the client detaches and
 		// the navigator keeps its place in the home window for the
-		// next `scrn`.
+		// next `conn`.
 		m.server.leave()
 		return m, nil
 	}
@@ -879,7 +879,7 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	// Everything else is the line's: a letter is a letter — a project called
-	// "scrn" has to be typeable without s doing something; the actions are
+	// "scratch" has to be typeable without s doing something; the actions are
 	// on the chords, which no name contains — and the editing keys are the
 	// ones every line has.
 	before := m.query.Value()
@@ -1020,7 +1020,7 @@ func (m *model) jump(i int) tea.Cmd {
 }
 
 // jumpWaiting goes to the next agent waiting on its user, in row order from
-// the cursor, wrapping. Going to an agent scrn holds means taking the client
+// the cursor, wrapping. Going to an agent conn holds means taking the client
 // to its window; one it can only watch gets the cursor instead, which is as
 // far as enter could take it either.
 func (m *model) jumpWaiting() tea.Cmd {
@@ -1126,9 +1126,9 @@ func (m *model) stepShell(delta int) tea.Cmd {
 	return nil
 }
 
-// isSelf reports whether a process is scrn itself: this build, by its
-// path, or a tmux on scrn's socket — the client the launcher becomes, the
-// server, the navigator. A `go run .` in this repository is not scrn by
+// isSelf reports whether a process is conn itself: this build, by its
+// path, or a tmux on conn's socket — the client the launcher becomes, the
+// server, the navigator. A `go run .` in this repository is not conn by
 // its own command line, but the tmux client it turns into is, and the row
 // folds the two together.
 func isSelf(p Proc) bool {
@@ -1136,10 +1136,10 @@ func isSelf(p Proc) bool {
 		return true
 	}
 	exe, _, _ := strings.Cut(p.Argv, " ")
-	return exe != "" && exe == scrnExe()
+	return exe != "" && exe == connExe()
 }
 
-// selfRun reports whether a row is scrn itself: the process, or any in the
+// selfRun reports whether a row is conn itself: the process, or any in the
 // run folded into it.
 func (m model) selfRun(r navRow) bool {
 	if r.kind != rowProc {
@@ -1246,7 +1246,7 @@ func (m *model) move(delta int) tea.Cmd {
 // the row under the cursor.
 //
 // A folded run is rarely a shell itself — the row is named for what the shell
-// started — so the run is walked for the shell scrn holds in it. That shell's
+// started — so the run is walked for the shell conn holds in it. That shell's
 // pane is where the thing the row is named for is drawing.
 func (m model) paneTerm() *remoteTerm {
 	r, ok := m.selected()
@@ -1265,7 +1265,7 @@ func (m model) paneTerm() *remoteTerm {
 }
 
 // attachable reports whether enter takes you to the row. A repository opens
-// a shell there, and a process is reached through the shell scrn holds
+// a shell there, and a process is reached through the shell conn holds
 // around it — which reaches the process only when the shell is running it:
 // the row that stands for the shell, or one the shell started. What those
 // started in turn — the tool a claude is running, the shells it runs them
@@ -1287,7 +1287,7 @@ func (m model) attachable(r navRow) bool {
 	return ok
 }
 
-// owningTerm is the shell scrn holds that a process is running inside: itself,
+// owningTerm is the shell conn holds that a process is running inside: itself,
 // or the nearest ancestor that is one.
 //
 // A claude started with c is a child of the shell that ran it, so entering the
@@ -1307,7 +1307,7 @@ func (m model) owningTerm(pid int) *remoteTerm {
 // newShell starts a shell wherever the cursor is, whatever the cursor is on.
 //
 // This is the one way to put a process into the tree, so it cannot be reserved
-// for the rows that happen to be enterable: standing on a process scrn does not
+// for the rows that happen to be enterable: standing on a process conn does not
 // own is a perfectly good reason to want a shell where that process is working.
 // Attaching to a foreign process is impossible; opening a shell beside it is
 // not, and the two are different questions.
@@ -1349,7 +1349,7 @@ func (m *model) openShell() tea.Cmd {
 		if t == nil {
 			// The row is already drawn dim to say so; this is the reminder for
 			// pressing enter on it anyway, not a failure.
-			m.status, m.statusErr = "scrn did not start "+procLabel(r.node), false
+			m.status, m.statusErr = "conn did not start "+procLabel(r.node), false
 			return nil
 		}
 		m.show(t)
@@ -1360,10 +1360,10 @@ func (m *model) openShell() tea.Cmd {
 
 // runKill carries out a confirmed kill, splitting it by who owns the target.
 //
-// A shell scrn holds is hung up through the server rather than signalled: an
+// A shell conn holds is hung up through the server rather than signalled: an
 // interactive shell ignores SIGTERM, so signalling one leaves it sitting there
-// and scrn reporting that it would not go. Everything else is somebody else's
-// process, and a signal is all scrn has.
+// and conn reporting that it would not go. Everything else is somebody else's
+// process, and a signal is all conn has.
 func (m *model) runKill(req *killRequest) tea.Cmd {
 	var hungUp []killResult
 	var signalled []*ProcNode
@@ -1379,7 +1379,7 @@ func (m *model) runKill(req *killRequest) tea.Cmd {
 	return killTree(&killRequest{subject: req.subject, nodes: signalled}, hungUp)
 }
 
-// shellAround is the shell scrn holds that a process is running inside, if it
+// shellAround is the shell conn holds that a process is running inside, if it
 // is not that shell itself.
 func (m model) shellAround(n *ProcNode) *ProcNode {
 	t := m.owningTerm(n.PID)
@@ -1536,7 +1536,7 @@ func (m *model) askKill(tree bool) tea.Cmd {
 		nodes := []*ProcNode{r.node}
 		subject := procLabel(r.node)
 
-		// A process running in a shell scrn holds takes the shell with it.
+		// A process running in a shell conn holds takes the shell with it.
 		// Quitting a Claude instance yourself leaves you at the prompt, which
 		// is what the shell is there for; killing it from here means being
 		// done with the whole thing, and leaving an empty shell behind would
@@ -1561,7 +1561,7 @@ func (m *model) askKill(tree bool) tea.Cmd {
 }
 
 // ended names what was actually done, because a kill is not one thing: a shell
-// scrn holds is hung up and everything else is signalled, and a subtree can be
+// conn holds is hung up and everything else is signalled, and a subtree can be
 // both at once.
 func ended(results []killResult) string {
 	var hungUp, signalled int
@@ -1701,7 +1701,7 @@ func (m *model) pruneDying() {
 	}
 }
 
-// bodyHeight is the number of navigator rows that fit under scrn's name,
+// bodyHeight is the number of navigator rows that fit under conn's name,
 // which is what the cursor scrolls within.
 func (m model) bodyHeight() int {
 	// Two rows at the top — the masthead and the blank beneath it — though
@@ -2475,7 +2475,7 @@ func (m model) awaiting(r navRow) agent {
 
 // syncPreview keeps the pane beside the navigator holding the shell under
 // the cursor: the cursor has moved, or the world has changed under it. A
-// row with no held shell — a place, a process scrn only watches — and the
+// row with no held shell — a place, a process conn only watches — and the
 // picker both ask for the window whole, so the shown shell goes back to a
 // window of its own.
 func (m *model) syncPreview() {

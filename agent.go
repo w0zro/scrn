@@ -12,7 +12,7 @@ import (
 )
 
 // An agent is an AI assistant working in a repository: a process like any
-// other, plus what it advertises about itself. scrn reads agents through this
+// other, plus what it advertises about itself. conn reads agents through this
 // seam — what any kind can say, not what Claude happens to write down — so
 // that other tools slot in as kinds of their own.
 //
@@ -73,7 +73,7 @@ func runs(a agent, n *ProcNode) bool {
 	return false
 }
 
-// agentKind is one kind of agent scrn knows: how to spot its processes, what
+// agentKind is one kind of agent conn knows: how to spot its processes, what
 // to run to start one, and — where the kind has anything to say — how to
 // read what its instances advertise and pick their conversations back up.
 type agentKind struct {
@@ -112,7 +112,7 @@ type conversation struct {
 	Summary string // what it said it was doing, when it said
 }
 
-// agentKinds is every kind of agent scrn knows how to read. The first is the
+// agentKinds is every kind of agent conn knows how to read. The first is the
 // default the a key starts when the config names none.
 var agentKinds = []agentKind{claudeKind, ollamaKind}
 

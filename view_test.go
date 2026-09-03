@@ -81,7 +81,7 @@ func TestACommandIsCutFromTheEnd(t *testing.T) {
 	if got := truncateTail("go test -count=1 -timeout 180s", 12); got != "go test -co…" {
 		t.Errorf("truncateTail = %q, want the start kept", got)
 	}
-	if got := truncate("w0zro/archive/scrn", 12); got != "…rchive/scrn" {
+	if got := truncate("w0zro/archive/conn", 12); got != "…rchive/conn" {
 		t.Errorf("truncate = %q, want the end kept", got)
 	}
 }

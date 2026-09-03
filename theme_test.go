@@ -20,7 +20,7 @@ func TestTheConfigNamesTmuxsSide(t *testing.T) {
 	// says light.
 	t.Cleanup(func() { applyTheme("") })
 	applyTheme("light")
-	if tp != tmuxLight || !strings.Contains(tmuxConf("/opt/scrn", 100, 28), "bg="+tmuxLight.bg1) {
+	if tp != tmuxLight || !strings.Contains(tmuxConf("/opt/conn", 100, 28), "bg="+tmuxLight.bg1) {
 		t.Error("theme light should have tmux draw the light side")
 	}
 	applyTheme("anything else")

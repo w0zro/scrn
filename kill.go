@@ -19,7 +19,7 @@ type killRequest struct {
 }
 
 // killResult is what became of one process a kill was aimed at. hungUp marks
-// the ones scrn ended by taking their terminal away rather than by signalling
+// the ones conn ended by taking their terminal away rather than by signalling
 // them, so the report can say what actually happened.
 type killResult struct {
 	command string
@@ -30,7 +30,7 @@ type killResult struct {
 
 // killedMsg reports the outcome of a kill. One process and a whole subtree are
 // reported the same way, because a subtree routinely comes back mixed: it can
-// span processes scrn is not allowed to signal, and ones that exited between
+// span processes conn is not allowed to signal, and ones that exited between
 // the scan and the keystroke.
 type killedMsg struct {
 	subject string
@@ -46,7 +46,7 @@ const spinRate = 100 * time.Millisecond
 // outstanding. An lsof sweep is far too expensive to run at the spinner's rate.
 const rescanFrames = 4
 
-// killLinger is how many frames a signalled process is given before scrn stops
+// killLinger is how many frames a signalled process is given before conn stops
 // saying it is on its way out. A process that has not acted on SIGTERM in five
 // seconds is not dying, it is refusing, and the marker should stop implying
 // otherwise.
@@ -146,7 +146,7 @@ func reused(n *ProcNode, started map[int]string) bool {
 }
 
 // subtree lists a node and everything below it, parents first. It reads the
-// tree scrn last scanned, so a process started since is not in it — the kill
+// tree conn last scanned, so a process started since is not in it — the kill
 // covers what the user was looking at.
 func subtree(n *ProcNode) []*ProcNode {
 	out := []*ProcNode{n}
@@ -171,7 +171,7 @@ func signal(pid int) error {
 	case pid <= 1:
 		return errors.New("refusing to signal pid " + strconv.Itoa(pid))
 	case pid == os.Getpid():
-		return errors.New("refusing to signal scrn itself")
+		return errors.New("refusing to signal conn itself")
 	}
 
 	err := syscall.Kill(pid, syscall.SIGTERM)

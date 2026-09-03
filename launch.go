@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-// The launcher and the chords. `scrn` brings the server up under scrn's
+// The launcher and the chords. `conn` brings the server up under conn's
 // configuration, makes sure the home window exists with the navigator down
 // its left, and hands the terminal to tmux. The chords the configuration
 // binds run this same binary with a word — home, shell, agent, run, jump,
@@ -21,12 +21,12 @@ import (
 // so a failure is said through display-message.
 
 // homeName is what the home window is called.
-const homeName = "scrn"
+const homeName = "conn"
 
 // homeCommand is what the navigator's pane runs: this build, as the
 // navigator. A variable so the tests can put something inert there.
 var homeCommand = func() string {
-	return shellQuote(scrnExe()) + " nav"
+	return shellQuote(connExe()) + " nav"
 }
 
 // shellQuote is s as one word to a POSIX shell, whatever is in it.
@@ -34,28 +34,28 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// scrnExe is the path of this build, for the configuration and the home
+// connExe is the path of this build, for the configuration and the home
 // window to run. When it cannot be known, the name on the PATH has to do.
-func scrnExe() string {
+func connExe() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "scrn"
+		return "conn"
 	}
 	return exe
 }
 
-// runLaunch is `scrn`: the server under its configuration, the home window,
+// runLaunch is `conn`: the server under its configuration, the home window,
 // and this terminal attached. It returns only when it could not attach;
 // attached, the process is tmux's.
 func runLaunch() error {
 	// Refused before anything is started: a server brought up for a
 	// terminal that is not there would be left running behind a message
-	// that is tmux's, and does not say scrn.
+	// that is tmux's, and does not say conn.
 	if !term.IsTerminal(os.Stdout.Fd()) {
 		return errors.New("stdout is not a terminal")
 	}
-	// Inside a tmux that is not scrn's, attaching is nesting, which tmux
-	// refuses; said here, before anything is started. Inside scrn's own,
+	// Inside a tmux that is not conn's, attaching is nesting, which tmux
+	// refuses; said here, before anything is started. Inside conn's own,
 	// the terminal is attached already, and what is left to do is what
 	// every launch does first: give the server this build's configuration
 	// and navigator. That is the way to take an upgrade from a shell in
@@ -72,14 +72,14 @@ func runLaunch() error {
 	if err != nil {
 		return errors.New("tmux is not installed")
 	}
-	// The socket's directory is scrn's to make: tmux creates the socket but
-	// not the directory around it, and a machine that has never run scrn
-	// has no ~/.local/state/scrn to put it in.
+	// The socket's directory is conn's to make: tmux creates the socket but
+	// not the directory around it, and a machine that has never run conn
+	// has no ~/.local/state/conn to put it in.
 	if err := os.MkdirAll(filepath.Dir(socketPath()), 0o700); err != nil {
 		return err
 	}
 	conf := confPath()
-	if err := os.WriteFile(conf, []byte(tmuxConf(scrnExe(), scrollbackLines, navWidth)), 0o600); err != nil {
+	if err := os.WriteFile(conf, []byte(tmuxConf(connExe(), scrollbackLines, navWidth)), 0o600); err != nil {
 		return err
 	}
 
@@ -111,7 +111,7 @@ func runLaunch() error {
 	}
 
 	if inside {
-		fmt.Println("scrn: attached here already; the server has this build's configuration and navigator")
+		fmt.Println("conn: attached here already; the server has this build's configuration and navigator")
 		return nil
 	}
 	return syscall.Exec(tmux, []string{"tmux", "-S", socketPath(), "attach", "-t", tmuxSession}, os.Environ())
@@ -127,8 +127,8 @@ type home struct {
 // pane apart from the rest: the window's reaches every pane in it, which is
 // how a shell shown beside the navigator is known to be shown.
 func markHome(win, pane string) {
-	_, _ = tmuxCommand("set", "-w", "-t", win, "@scrn_home", "1", ";",
-		"set", "-p", "-t", pane, "@scrn_nav", "1")
+	_, _ = tmuxCommand("set", "-w", "-t", win, "@conn_home", "1", ";",
+		"set", "-p", "-t", pane, "@conn_nav", "1")
 }
 
 // isNavCommand reports whether a pane's start command is the navigator's:
@@ -142,10 +142,10 @@ func isNavCommand(cmd string) bool {
 // down the left of a home window that lost it, or a new home window. A
 // navigator is known by its pane's mark, or — a server an older build
 // started, whose navigator wears only the window's mark — by what the pane
-// runs, and is marked then. A second navigator is scrn's own leftover,
+// runs, and is marked then. A second navigator is conn's own leftover,
 // holding no work, and goes.
 func ensureHome() (home, error) {
-	out, err := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@scrn_nav}\t#{@scrn_home}\t#{pane_start_command}")
+	out, err := tmuxCommand("list-panes", "-s", "-t", tmuxSession, "-F", "#{window_id}\t#{pane_id}\t#{@conn_nav}\t#{@conn_home}\t#{pane_start_command}")
 	if err != nil {
 		return home{}, err
 	}
@@ -224,7 +224,7 @@ func refreshHome(h home) error {
 	return err
 }
 
-// runHome is `scrn home [key]`: to the navigator, and handed a key, that key
+// runHome is `conn home [key]`: to the navigator, and handed a key, that key
 // pressed there — / to start looking, ? for the keys, A for the picker.
 func runHome(key string) error {
 	h, err := ensureHome()
@@ -254,7 +254,7 @@ func tell(key string) error {
 	return err
 }
 
-// runShellAt is `scrn shell [dir]` and `scrn agent [dir]`: a shell — or a
+// runShellAt is `conn shell [dir]` and `conn agent [dir]`: a shell — or a
 // command with a shell waiting behind it — in dir, opened in a window of
 // its own and wanted, which the navigator answers by showing it beside
 // itself and taking the keys there. The navigator is made sure of after,
@@ -270,7 +270,7 @@ func runShellAt(dir, command string) error {
 	return err
 }
 
-// runPlanAt is `scrn run [dir]`: the plan of the place holding dir, started
+// runPlanAt is `conn run [dir]`: the plan of the place holding dir, started
 // where it is not already running, each entry in a window of its own.
 func runPlanAt(dir string) error {
 	if dir == "" {
@@ -331,14 +331,14 @@ func report(err error) bool {
 	if err == nil {
 		return true
 	}
-	if _, told := tmuxCommand("display-message", "scrn: "+err.Error()); told != nil {
-		fmt.Fprintf(os.Stderr, "scrn: %v\n", err)
+	if _, told := tmuxCommand("display-message", "conn: "+err.Error()); told != nil {
+		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		return false
 	}
 	return true
 }
 
-// runJump is `scrn jump`: the next agent waiting on you, which is the
+// runJump is `conn jump`: the next agent waiting on you, which is the
 // navigator's tab — it knows the marks, and it shows the shell and takes
 // the keys there. With nothing waiting the navigator says so at its foot,
 // which is in view from every shell.
@@ -346,7 +346,7 @@ func runJump() error {
 	return tell("Tab")
 }
 
-// runStep is `scrn next` and `scrn prev`: the shell after or before the one
+// runStep is `conn next` and `conn prev`: the shell after or before the one
 // shown, in the navigator's order, which is the navigator's J and K.
 func runStep(delta int) error {
 	if delta < 0 {

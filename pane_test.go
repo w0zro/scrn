@@ -39,10 +39,10 @@ func dimmed(m model, r navRow, selected bool) bool {
 	return m.rowStyle(r, selected).GetForeground() == faintStyle.GetForeground()
 }
 
-func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
+func TestEnterOnAProcessConnDidNotStartSaysSo(t *testing.T) {
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/conn"}})
 	m.cursor = 1
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -53,13 +53,13 @@ func TestEnterOnAProcessScrnDidNotStartSaysSo(t *testing.T) {
 	}
 }
 
-func TestAProcessScrnDidNotStartIsDimmed(t *testing.T) {
+func TestAProcessConnDidNotStartIsDimmed(t *testing.T) {
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/conn"}})
 
 	if !dimmed(m, m.rows[1], false) {
-		t.Error("a process scrn did not start should be drawn dim")
+		t.Error("a process conn did not start should be drawn dim")
 	}
 	if !dimmed(m, m.rows[1], true) {
 		t.Error("selecting it should not make it look available")
@@ -68,7 +68,7 @@ func TestAProcessScrnDidNotStartIsDimmed(t *testing.T) {
 
 func TestARepositoryIsNotDimmed(t *testing.T) {
 	// Enter on a repository opens a shell, so it is somewhere you can go.
-	m := withProcList(90, 14, []Project{{Name: "scrn", Path: "/p/scrn"}}, nil)
+	m := withProcList(90, 14, []Project{{Name: "conn", Path: "/p/conn"}}, nil)
 
 	if dimmed(m, m.rows[0], false) {
 		t.Error("a repository can be stepped into and should read that way")
@@ -77,8 +77,8 @@ func TestARepositoryIsNotDimmed(t *testing.T) {
 
 func TestTheSelectedRowIsStillFindableWhenDimmed(t *testing.T) {
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/conn"}})
 	m.cursor = 1
 
 	row := stripANSI(m.renderRow(m.rows[1], true))
@@ -94,8 +94,8 @@ func TestRefusingToAttachIsNotAnError(t *testing.T) {
 	// The dim row already says it cannot be entered; pressing enter anyway is
 	// a reminder, not a failure.
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/scrn"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "vim", Dir: "/p/conn"}})
 	m.cursor = 1
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -113,13 +113,13 @@ func TestANewShellStartsWhereTheWorkIs(t *testing.T) {
 	// A build running in a subdirectory should give you a shell there, not at
 	// the top of the repository.
 	m := withProcList(90, 14,
-		[]Project{{Name: "scrn", Path: "/p/scrn"}},
-		[]Proc{{PID: 900, PPID: 1, Command: "go", Dir: "/p/scrn/internal/deep"}})
+		[]Project{{Name: "conn", Path: "/p/conn"}},
+		[]Proc{{PID: 900, PPID: 1, Command: "go", Dir: "/p/conn/internal/deep"}})
 
-	if got := m.shellDir(m.rows[1]); got != "/p/scrn/internal/deep" {
+	if got := m.shellDir(m.rows[1]); got != "/p/conn/internal/deep" {
 		t.Errorf("shellDir = %q, want the directory the process works in", got)
 	}
-	if got := m.shellDir(m.rows[0]); got != "/p/scrn" {
+	if got := m.shellDir(m.rows[0]); got != "/p/conn" {
 		t.Errorf("shellDir on a repo = %q, want the repository", got)
 	}
 }
@@ -150,7 +150,7 @@ func TestTheProcessAShellRunsIsBrightAndWhatItStartedIsDim(t *testing.T) {
 		switch r.node.Command {
 		case "claude":
 			if dim {
-				t.Errorf("row %q is dim, but it is the shell scrn holds", stripANSI(m.renderRow(r, false)))
+				t.Errorf("row %q is dim, but it is the shell conn holds", stripANSI(m.renderRow(r, false)))
 			}
 		case "rg", "sed":
 			if !dim {
@@ -203,7 +203,7 @@ func TestAProcessOutsideAnyOwnedShellIsStillOutOfReach(t *testing.T) {
 		t.Fatal("setup: the unrelated process is not listed")
 	}
 	if !dimmed(m, vim, false) {
-		t.Error("a process in no shell scrn holds should still be dim")
+		t.Error("a process in no shell conn holds should still be dim")
 	}
 	if m.attachable(vim) {
 		t.Error("enter should not claim to reach it")
@@ -224,7 +224,7 @@ func TestAProcessTableThatLoopsDoesNotHangTheWalk(t *testing.T) {
 }
 
 func TestAProcessInNobodysShellIsJustItself(t *testing.T) {
-	// scrn cannot end a shell it does not hold, so there is nothing to take.
+	// conn cannot end a shell it does not hold, so there is nothing to take.
 	m := withProcList(90, 14,
 		[]Project{{Name: "tmp", Path: "/tmp"}},
 		[]Proc{
@@ -259,7 +259,7 @@ func TestAShellIsNotItsOwnShell(t *testing.T) {
 }
 
 func TestTheReportSaysWhatWasActuallyDone(t *testing.T) {
-	// A kill is not one thing: a shell scrn holds is hung up, everything else
+	// A kill is not one thing: a shell conn holds is hung up, everything else
 	// is signalled, and a subtree can be both at once.
 	cases := []struct {
 		name    string

@@ -1,10 +1,10 @@
 # Pushing a v* tag runs the tests and hands the build to goreleaser, which
-# produces what install.sh expects — scrn_<version>_<os>_<arch>.tar.gz with
+# produces what install.sh expects — conn_<version>_<os>_<arch>.tar.gz with
 # the manpage inside, beside a checksums.txt — plus the changelog. The
 # artifact names are .goreleaser.yaml's contract; rehearse changes to it with
 # `goreleaser release --snapshot --clean`.
 #
-# The tests run on macOS because that is where scrn is developed; the push
+# The tests run on macOS because that is where conn is developed; the push
 # workflow has already run them on Linux by the time any tag is cut.
 name: release
 

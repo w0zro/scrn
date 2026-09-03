@@ -77,12 +77,12 @@ func TestLoadConfigSaysWhereAValueIsTheWrongKind(t *testing.T) {
 
 func TestExpandPath(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	t.Setenv("SCRN_TEST_ROOT", "/opt/x")
+	t.Setenv("CONN_TEST_ROOT", "/opt/x")
 
 	for _, tc := range []struct{ in, want string }{
 		{"$HOME/projects", filepath.Join(home, "projects")},
 		{"~/projects", filepath.Join(home, "projects")},
-		{"$SCRN_TEST_ROOT/y", "/opt/x/y"},
+		{"$CONN_TEST_ROOT/y", "/opt/x/y"},
 		{"/absolute", "/absolute"},
 	} {
 		if got := expandPath(tc.in); got != tc.want {
@@ -93,7 +93,7 @@ func TestExpandPath(t *testing.T) {
 
 func writeConfig(t *testing.T, dir, body string) {
 	t.Helper()
-	path := filepath.Join(dir, "scrn", "config.json")
+	path := filepath.Join(dir, "conn", "config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +118,8 @@ func TestRootsFallBackToProjectsDir(t *testing.T) {
 }
 
 func TestRootsExpandAndSkipBlanks(t *testing.T) {
-	t.Setenv("SCRN_TEST_ROOT", "/opt/x")
-	cfg := Config{ProjectsDirs: []string{"$SCRN_TEST_ROOT/code", "  ", ""}}
+	t.Setenv("CONN_TEST_ROOT", "/opt/x")
+	cfg := Config{ProjectsDirs: []string{"$CONN_TEST_ROOT/code", "  ", ""}}
 	if got := cfg.roots(); len(got) != 1 || got[0] != "/opt/x/code" {
 		t.Errorf("roots = %v, want the blank entries dropped and the rest expanded", got)
 	}
