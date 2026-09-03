@@ -33,10 +33,13 @@ go install github.com/w0zro/conn@latest
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests on macOS,
 cross-compiles the four builds, and publishes them with a `checksums.txt` that
-`install.sh` reads. The script is served from `docs/`, with the site.
+`install.sh` reads. The script is served from `docs/`, with the site, which
+GitHub Pages rebuilds on a push to main — but not on a push that carries a
+tag along with it, so main goes first, and the tag on its own.
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git push origin main
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 ## License
