@@ -31,7 +31,11 @@ is where it was.
 .PP
 There is nothing to set up beyond having tmux and
 .BR lsof (8)
-installed \(em the process list is read through lsof. The
+installed \(em the process list is read through lsof. What a program
+says to the terminal around tmux \(em the progress an agent reports as it
+works, the notification when it is done \(em passes through from every
+shell the server holds, shown or not, so the terminal's bar means an
+agent is working somewhere in the window. The
 configuration is scrn's, written at every launch into the state directory
 and sourced into a server already running, so no .tmux.conf reaches the
 server and every window has this build's keys. By default scrn looks for

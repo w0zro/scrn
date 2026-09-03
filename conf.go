@@ -91,8 +91,12 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 		// done — reaches it only wrapped for passing through, and only
 		// where the server allows the wrapping. Every pane is told the
 		// outer terminal's name when it opens (outerTerminal), so a
-		// program knows there is one to speak to.
-		"set -g allow-passthrough on",
+		// program knows there is one to speak to. From every pane, not
+		// only the visible ones: a shell not under the cursor is parked
+		// in a window of its own, and Ghostty takes the bar down after
+		// fifteen seconds without a fresh report, so an agent working
+		// out of view would go quiet as soon as the cursor moved off it.
+		"set -g allow-passthrough all",
 		"set -g display-time 3000",
 		"",
 		"# The home window: the navigator down the left at its width, the shell",
