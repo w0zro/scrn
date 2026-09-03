@@ -123,7 +123,7 @@ func tmuxConf(scrn string, scrollback, navWidth int) string {
 // counts only while the keys are with it: a filter half-typed is not the
 // mode of a shell. What the navigator has to say is in @scrn_msg. Each
 // mode is a chip in its color with the line washed after it: amber for
-// the prefix, the navigator's purple, the accent blue of a process.
+// the prefix, blue for the navigator, green for a process.
 func statusLeft() string {
 	// A chip stands inside a conditional, where a comma would split the
 	// alternatives, so the styles' commas are escaped.
@@ -132,7 +132,7 @@ func statusLeft() string {
 	}
 	mode := "#{?client_prefix," + chip(darkAttention, "PREFIX") +
 		",#{?pane_in_mode," + chip(darkLabel, "COPY") +
-		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(darkBrand, "NAV") + "}," +
-		chip(darkAccent, "PROC") + "}}}"
+		",#{?@scrn_nav,#{?@scrn_mode,#{@scrn_mode}," + chip(darkAccent, "NAV") + "}," +
+		chip(darkSuccess, "PROC") + "}}}"
 	return mode + "#{@scrn_msg}"
 }

@@ -52,7 +52,7 @@ func newPalette(dark bool) palette {
 		border: c("#D8DEE4", darkBorder),
 		accent: c("#0550AE", darkAccent),
 
-		success:   c("#1A7F37", "#3FB950"),
+		success:   c("#1A7F37", darkSuccess),
 		attention: c("#9A6700", darkAttention),
 		urgent:    c("#BF3989", "#F778BA"),
 		danger:    c("#CF222E", darkDanger),
@@ -75,6 +75,7 @@ const (
 	darkLabel      = "#8B949E"
 	darkBorder     = "#30363D"
 	darkAccent     = "#79C0FF"
+	darkSuccess    = "#3FB950"
 	darkAttention  = "#D29922"
 	darkDanger     = "#F85149"
 	darkAccentWash = "#15294A"

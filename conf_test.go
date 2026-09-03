@@ -31,7 +31,8 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"#{?@scrn_mode,#{@scrn_mode},", "#{@scrn_msg}",
 		// Each mode is a chip on a dark ground of its color with the rest of
 		// the line washed in it, the commas escaped for the conditional.
-		"#[fg=#79C0FF#,bg=" + shade(darkAccent, chipDepth) + "#,bold] PROC #[fg=default#,bg=" + shade(darkAccent, washDepth) + "#,fill=" + shade(darkAccent, washDepth) + "]",
+		"#[fg=#3FB950#,bg=" + shade(darkSuccess, chipDepth) + "#,bold] PROC #[fg=default#,bg=" + shade(darkSuccess, washDepth) + "#,fill=" + shade(darkSuccess, washDepth) + "]",
+		"#[fg=#79C0FF#,bg=" + shade(darkAccent, chipDepth) + "#,bold] NAV ",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("the configuration lacks %q", want)

@@ -315,10 +315,10 @@ a:hover { color: var(--accent); }
 .c-note   { color: #5C6570; font-style: italic; }
 /* The status line: a mode chip on a dark ground of its color, the rest of
    the line washed with the faintest of it — the same shades tmux draws. */
-.chip-navigate { color: #B9A7FF; background: #49425C; font-weight: 600; }
-.wash-navigate { background: #252228; }
-.chip-proc { color: #79C0FF; background: #344A5C; font-weight: 600; }
-.wash-proc { background: #1E2428; }
+.chip-navigate { color: #79C0FF; background: #344A5C; font-weight: 600; }
+.wash-navigate { background: #1E2428; }
+.chip-proc { color: #3FB950; background: #224824; font-weight: 600; }
+.wash-proc { background: #182416; }
 .chip-prefix { color: #D29922; background: #513E16; font-weight: 600; }
 .wash-prefix { background: #272012; }
 
