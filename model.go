@@ -1847,7 +1847,8 @@ func (m model) statusLine() statusText {
 		t.mode = statusChip(darkFg, "/"+m.filter+"█")
 
 	case m.filter != "":
-		t.mode = statusChip(darkAccent, "/"+m.filter)
+		// A standing filter is the navigator's mode still, in its color.
+		t.mode = statusChip(darkAttention, "/"+m.filter)
 	}
 
 	// What was just reported stays beside the query being typed: acting
