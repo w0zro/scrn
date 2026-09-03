@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/charmbracelet/x/term"
 )
 
 // The launcher and the chords. `scrn` brings the server up under scrn's
@@ -46,6 +48,12 @@ func scrnExe() string {
 // and this terminal attached. It returns only when it could not attach;
 // attached, the process is tmux's.
 func runLaunch() error {
+	// Refused before anything is started: a server brought up for a
+	// terminal that is not there would be left running behind a message
+	// that is tmux's, and does not say scrn.
+	if !term.IsTerminal(os.Stdout.Fd()) {
+		return errors.New("stdout is not a terminal")
+	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		return errors.New("tmux is not installed")

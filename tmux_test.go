@@ -38,6 +38,11 @@ func TestNotesAreReadFromTheStream(t *testing.T) {
 func tmuxOnSocket(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
+		// A machine without tmux skips these; CI, which promised one,
+		// does not get to.
+		if os.Getenv("CI") != "" {
+			t.Fatal("tmux is not installed, and CI runs the server tests")
+		}
 		t.Skip("tmux is not installed")
 	}
 	dir, err := os.MkdirTemp("/tmp", "scrn-tmux")

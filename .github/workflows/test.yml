@@ -33,6 +33,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -y -q tmux lsof
 
+      - name: Neighbors (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux
+
       - name: Format
         run: |
           unformatted=$(gofmt -l .)
@@ -58,3 +62,5 @@ jobs:
           go-version-file: go.mod
 
       - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2

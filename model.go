@@ -396,6 +396,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.InterruptMsg:
+		// A signal is q: the client detaches and the shells stay held.
+		m.server.leave()
+		return m, nil
+
 	case tea.BlurMsg:
 		// The keys have gone to a shell. What was pending here was about
 		// the next key, and the next key is not coming: a kill left armed
