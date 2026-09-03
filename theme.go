@@ -36,7 +36,7 @@ var (
 	titleStyle, hintStyle, ruleStyle, itemStyle, selStyle  lipgloss.Style
 	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
 	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
-	offSelStyle, noteStyle, matchStyle                     lipgloss.Style
+	offSelStyle, noteStyle, matchStyle, selfStyle          lipgloss.Style
 )
 
 func init() { applyStyles() }
@@ -50,6 +50,8 @@ func applyStyles() {
 	// and the two in the cursor's color: scrn's name, and where you are.
 	titleStyle = slot(slotCursor).Bold(true)
 	selStyle = slot(slotCursor).Bold(true)
+	// selfStyle tags a process that is scrn itself, in scrn's own color.
+	selfStyle = slot(slotCursor)
 	itemStyle = ink
 	headingStyle = ink.Bold(true)
 

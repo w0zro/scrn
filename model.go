@@ -1125,6 +1125,36 @@ func (m *model) stepShell(delta int) tea.Cmd {
 	return nil
 }
 
+// isSelf reports whether a process is scrn itself: this build, by its
+// path, or a tmux on scrn's socket — the client the launcher becomes, the
+// server, the navigator. A `go run .` in this repository is not scrn by
+// its own command line, but the tmux client it turns into is, and the row
+// folds the two together.
+func isSelf(p Proc) bool {
+	if strings.Contains(p.Argv, socketPath()) {
+		return true
+	}
+	exe, _, _ := strings.Cut(p.Argv, " ")
+	return exe != "" && exe == scrnExe()
+}
+
+// selfRun reports whether a row is scrn itself: the process, or any in the
+// run folded into it.
+func (m model) selfRun(r navRow) bool {
+	if r.kind != rowProc {
+		return false
+	}
+	if isSelf(r.node.Proc) {
+		return true
+	}
+	for _, n := range r.run {
+		if isSelf(n.Proc) {
+			return true
+		}
+	}
+	return false
+}
+
 // heldOrder is every held shell in the order the navigator lists them: by
 // place as the places are listed, then by age. It is the order J and K
 // step through, and it does not depend on what is folded or filtered — a

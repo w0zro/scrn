@@ -204,6 +204,13 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
+	// A process that is scrn itself says so, in scrn's own color: the
+	// launcher become a tmux client reads as a go or a tmux otherwise.
+	me := ""
+	if m.selfRun(r) {
+		me = " (me)"
+	}
+
 	// A group or a repository sits on indent alone, naming a place the rows
 	// beneath are inside. What hangs off a repository — its processes and its
 	// sub-projects — is one family of siblings, a step further in, with a
@@ -229,7 +236,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 	// A column of gutter, the rules, and the marker's two columns come
 	// before the name.
 	room := navWidth - 3 - lipgloss.Width(rules) - lipgloss.Width(fold) -
-		lipgloss.Width(spinner) - lipgloss.Width(mark)
+		lipgloss.Width(spinner) - lipgloss.Width(mark) - lipgloss.Width(me)
 
 	// While a query is at work the matched letters are lit, so the narrowed
 	// list always shows why it narrowed. The styled label is cut ansi-aware;
@@ -244,7 +251,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 	}
 	// The marker stands beside the name it marks, in the indent, rather
 	// than at the edge of the column with the whole indent between them.
-	return " " + ruleStyle.Render(rules) + style.Render(marker) + " " + seg +
+	return " " + ruleStyle.Render(rules) + style.Render(marker) + " " + seg + selfStyle.Render(me) +
 		markStyle.Render(mark) + errStyle.Render(spinner) + faintStyle.Render(fold)
 }
 

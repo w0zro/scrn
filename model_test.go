@@ -2662,6 +2662,27 @@ func TestTheQueryIsALineWithReadlinesKeys(t *testing.T) {
 	}
 }
 
+func TestAProcessThatIsScrnSaysMe(t *testing.T) {
+	// The launcher becomes a tmux client on scrn's socket; under `go run .`
+	// the row folds the go and the client together. Either way the row is
+	// scrn looking at itself, and says so.
+	t.Setenv("SCRN_SOCKET", "/tmp/scrn-me-test.sock")
+	m := withProcList(90, 14,
+		[]Project{{Name: "scrn", Path: "/p/scrn"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "go", Argv: "go run .", Dir: "/p/scrn"},
+			{PID: 701, PPID: 700, Command: "tmux", Argv: "tmux -S /tmp/scrn-me-test.sock attach -t scrn", Dir: "/p/scrn"},
+			{PID: 702, PPID: 1, Command: "go", Argv: "go test ./...", Dir: "/p/scrn"},
+		})
+	rows := navColumn(m)
+	if len(rows) < 3 || !strings.Contains(rows[1], "go run .") || !strings.Contains(rows[1], "(me)") {
+		t.Errorf("rows = %q, want the go run row tagged (me)", rows)
+	}
+	if strings.Contains(rows[2], "(me)") {
+		t.Errorf("rows = %q, want the go test row untagged", rows)
+	}
+}
+
 func TestEscapeWithNothingOpenDoesNothing(t *testing.T) {
 	m := manyProjects(90, 14)
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil {
