@@ -25,6 +25,7 @@ import (
 const (
 	slotRed    = "1" // blocked on an ask, dying, failed, destructive
 	slotGreen  = "2" // alive and well; finished and waiting on you
+	slotSelf   = "4" // scrn itself, where it shows up as a process
 	slotCursor = "5" // here: the cursor, and scrn's own name — the terminal's cursor color
 	slotCyan   = "6" // found: the letters a query matched
 	slotGray   = "8" // quiet: idle rows, labels, scrn's own asides
@@ -50,8 +51,9 @@ func applyStyles() {
 	// and the two in the cursor's color: scrn's name, and where you are.
 	titleStyle = slot(slotCursor).Bold(true)
 	selStyle = slot(slotCursor).Bold(true)
-	// selfStyle tags a process that is scrn itself, in scrn's own color.
-	selfStyle = slot(slotCursor)
+	// selfStyle tags a process that is scrn itself, in a color nothing
+	// else wears: not the cursor's, not a state's.
+	selfStyle = slot(slotSelf)
 	itemStyle = ink
 	headingStyle = ink.Bold(true)
 

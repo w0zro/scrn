@@ -204,7 +204,7 @@ func (m model) renderRow(r navRow, selected bool) string {
 		}
 	}
 
-	// A process that is scrn itself says so, in scrn's own color: the
+	// A process that is scrn itself says so, in a color of its own: the
 	// launcher become a tmux client reads as a go or a tmux otherwise.
 	me := ""
 	if m.selfRun(r) {
