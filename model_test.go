@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -2213,6 +2215,52 @@ func TestEnterKeepsTheFilterSoTheProjectStays(t *testing.T) {
 		t.Errorf("filter = %q, want it still applied", m.filter)
 	}
 	wantRows(t, navColumn(m), []string{" ▸ brand"})
+}
+
+func TestAMoveEndsTheHoldARunPutsOnTheCursor(t *testing.T) {
+	// A run holds the cursor on the project until its processes land, so
+	// the rows settling under it does not carry it off. A move in that gap
+	// is the cursor being wanted elsewhere: the server re-listing its panes
+	// — which a move onto a shell row makes it do — must not snap it back.
+	root := t.TempDir()
+	repo := filepath.Join(root, "conn")
+	docs := filepath.Join(repo, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, ".conn"), []byte("web: python3 -m http.server\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := withProcList(90, 14, []Project{{Name: "conn", Path: repo}}, nil)
+	m.subs = map[string][]Project{repo: {{Name: "docs", Path: docs}}}
+	m = narrowed(m)
+	m, _ = pipeServer(t, m)
+
+	m = typeFilter(press(m, "/"), "docs")
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = next.(model)
+	if m.status != "started web" {
+		t.Fatalf("status = %q, want the plan started", m.status)
+	}
+	// The shell lands; the process scan has not seen what it runs yet.
+	next, _ = m.Update(termOpenedMsg{pid: 901, dir: docs, name: "web"})
+	m = next.(model)
+	next, _ = m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 901, Dir: docs, Name: "web"}}})
+	m = next.(model)
+	if m.wantProject == "" {
+		t.Fatal("setup: the hold should still be on before the process lands")
+	}
+
+	m = press(m, "k")
+	moved := m.cursor
+	next, _ = m.Update(sessionsMsg{sessions: []sessionInfo{{PID: 901, Dir: docs, Name: "web"}}})
+	m = next.(model)
+	if m.cursor != moved {
+		t.Errorf("cursor = %d after the re-list, want it left at %d where k put it", m.cursor, moved)
+	}
+	if m.wantProject != "" {
+		t.Error("the move should have ended the hold")
+	}
 }
 
 func TestOnceAcceptedTheOrdinaryKeysWorkAgain(t *testing.T) {

@@ -1008,6 +1008,7 @@ func (m *model) jump(i int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
+	m.letGo()
 	switch {
 	case i < 0:
 		i = 0
@@ -1031,6 +1032,7 @@ func (m *model) jumpWaiting() tea.Cmd {
 		m.typing = false
 		m.setFilter("")
 	}
+	m.letGo()
 	for step := 1; step <= len(m.rows); step++ {
 		i := (m.cursor + step) % len(m.rows)
 		r := m.rows[i]
@@ -1115,6 +1117,7 @@ func (m *model) stepShell(delta int) tea.Cmd {
 		m.status, m.statusErr = "no shell is open", false
 		return nil
 	}
+	m.letGo()
 	at := -1
 	for i, pid := range order {
 		if pid == m.previewing {
@@ -1233,10 +1236,20 @@ func (m model) placeAt(dir string) (Project, bool) {
 }
 
 // move steps the cursor, wrapping at both ends so the list cycles.
+// letGo ends the hold a run puts on the cursor. The hold is for the scans
+// between the key and the processes landing, so the cursor is still on the
+// project when they do; a move in that gap is the cursor being wanted
+// somewhere else, and a hold that snapped it back on the next rebuild read
+// as the keys not working.
+func (m *model) letGo() {
+	m.wantProject = ""
+}
+
 func (m *model) move(delta int) tea.Cmd {
 	if len(m.rows) == 0 {
 		return nil
 	}
+	m.letGo()
 	m.cursor = (m.cursor + delta + len(m.rows)) % len(m.rows)
 	m.scrollToCursor()
 	return m.detailCmd()
