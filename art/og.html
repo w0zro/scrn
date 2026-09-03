@@ -15,15 +15,18 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&family=Space+Grotesk:wght@700&display=swap">
 <style>
   :root {
-    --space: #05070c;
+    --space: #03050a;
     --hull: #090d16;
     --panel: #0d1220;
+    --raised: #121a2c;
+    --steel: #161f33;
     --line: #1c2536;
     --line-strong: #2a3650;
     --text: #dfe5f0;
     --text-2: #a9b3c6;
     --muted: #6b778e;
     --brand: #b9a7ff;
+    --nav: #79c0ff;
     --good: #3fb950;
     --display: 'Space Grotesk', system-ui, sans-serif;
     --sans: 'IBM Plex Sans', system-ui, sans-serif;
@@ -31,50 +34,80 @@
   }
   * { box-sizing: border-box; margin: 0; }
   body {
-    width: 1200px; height: 630px; overflow: hidden;
+    width: 1200px; height: 630px; overflow: hidden; position: relative;
     background: var(--space);
     background-image:
-      radial-gradient(900px 520px at 18% -10%, rgba(90, 63, 217, 0.26), transparent 60%),
-      radial-gradient(700px 420px at 92% 8%, rgba(121, 192, 255, 0.12), transparent 60%),
-      radial-gradient(1.5px 1.5px at 8% 70%, rgba(255,255,255,0.6) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 94% 84%, rgba(185,167,255,0.7) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 96% 40%, rgba(255,255,255,0.45) 50%, transparent 51%),
-      linear-gradient(rgba(150,170,220,0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(150,170,220,0.05) 1px, transparent 1px);
-    background-size: auto, auto, auto, auto, auto, 48px 48px, 48px 48px;
+      radial-gradient(1100px 700px at 15% -20%, rgba(90, 63, 217, 0.24), transparent 60%),
+      radial-gradient(900px 600px at 95% 10%, rgba(121, 192, 255, 0.12), transparent 60%);
   }
+  canvas { position: absolute; inset: 0; }
 
-  /* the site's console: a hull between two rails, running the full height */
+  /* the site's ship: a hull between two rails, the bridge open to space */
   .sheet {
     position: absolute; inset: 0 56px;
-    background: var(--hull); color: var(--text);
+    color: var(--text);
     border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong);
     display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .planet {
+    position: absolute; left: 50%; top: 100%; width: 3000px; height: 3000px;
+    margin-left: -1500px; margin-top: -120px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #101a33 0, #070b16 18%, #03050a 40%);
+    box-shadow:
+      0 0 0 1.5px rgba(121, 192, 255, 0.3),
+      0 -3px 30px 3px rgba(121, 192, 255, 0.4),
+      0 -30px 160px 30px rgba(90, 63, 217, 0.3),
+      0 -80px 300px 80px rgba(121, 192, 255, 0.1);
+  }
+  .orbit {
+    position: absolute; left: -10%; top: 40%; width: 120%; height: 100%;
+    border: 1.5px solid rgba(121, 192, 255, 0.12); border-radius: 50%; transform: rotate(-8deg);
+  }
+  .orbit::after {
+    content: ''; position: absolute; top: -5px; left: 26%; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--nav); box-shadow: 0 0 14px var(--nav);
   }
 
   .nav {
+    position: relative;
     display: flex; justify-content: space-between; align-items: center;
     padding: 0 56px; height: 76px; border-bottom: 1px solid var(--line-strong);
-    background: linear-gradient(180deg, rgba(255,255,255,0.025), transparent);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent), var(--hull);
   }
   .brand { display: flex; align-items: center; gap: 14px; font: 600 24px var(--mono); }
-  .brand .mark { width: 13px; height: 13px; background: var(--brand); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .brand .mark { width: 13px; height: 13px; background: var(--brand); clip-path: polygon(0 0, 100% 50%, 0 100%); filter: drop-shadow(0 0 6px rgba(185,167,255,0.8)); }
   .brand .ident {
     font: 500 15px var(--mono); letter-spacing: 0.18em; color: var(--muted);
     padding-left: 18px; border-left: 1px solid var(--line-strong);
   }
-  .site { font: 500 17px var(--mono); color: var(--muted); letter-spacing: 0.06em; }
+  .tele { display: flex; align-items: center; gap: 22px; font: 500 14px var(--mono); letter-spacing: 0.14em; color: var(--muted); }
+  .tele .sys { display: inline-flex; align-items: center; gap: 9px; color: var(--good); }
+  .tele .sys::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); }
 
-  .hero { flex: 1; display: flex; align-items: center; gap: 54px; padding: 0 56px 30px; }
-  .mark-box { flex: none; position: relative; }
-  .mark-box::before, .mark-box::after, .mark-box i::before, .mark-box i::after {
-    content: ''; position: absolute; width: 16px; height: 16px; border: 2px solid var(--brand);
+  .hero {
+    position: relative; flex: 1; display: flex; align-items: center; gap: 54px; padding: 0 56px 30px;
+    background: linear-gradient(90deg, rgba(3,5,10,0.8), rgba(3,5,10,0.45) 48%, rgba(3,5,10,0.1));
   }
-  .mark-box::before { top: -10px; left: -10px; border-width: 2px 0 0 2px; }
-  .mark-box::after { top: -10px; right: -10px; border-width: 2px 2px 0 0; }
-  .mark-box i::before { bottom: -10px; left: -10px; border-width: 0 0 2px 2px; }
-  .mark-box i::after { bottom: -10px; right: -10px; border-width: 0 2px 2px 0; }
-  .mark-box svg { display: block; }
+  .bezel {
+    flex: none; position: relative; padding: 14px; border-radius: 12px;
+    border: 1.5px solid var(--line-strong);
+    background: linear-gradient(180deg, var(--steel), var(--panel));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 40px 80px -30px rgba(0,0,0,0.9);
+  }
+  .bezel i, .bezel i::before, .bezel b, .bezel b::before {
+    position: absolute; width: 8px; height: 8px; border-radius: 50%; content: '';
+    background: radial-gradient(circle at 35% 35%, #6b788f, #222b3d 70%);
+  }
+  .bezel i { top: 7px; left: 7px; } .bezel i::before { left: 152px; }
+  .bezel b { bottom: 7px; left: 7px; } .bezel b::before { left: 152px; }
+  .bezel svg { display: block; }
+  .plate {
+    position: absolute; left: 50%; bottom: -13px; transform: translateX(-50%);
+    font: 500 12px var(--mono); letter-spacing: 0.2em; color: var(--muted); white-space: nowrap;
+    background: var(--raised); border: 1px solid var(--line-strong); border-radius: 3px; padding: 3px 12px;
+  }
+  .plate em { color: var(--brand); font-style: normal; }
 
   .eyebrow {
     display: flex; align-items: center; gap: 14px;
@@ -90,30 +123,36 @@
     letter-spacing: -0.02em;
     color: #fff;
     text-wrap: balance;
+    text-shadow: 0 0 50px rgba(185, 167, 255, 0.3);
   }
   h1 .accent { color: var(--brand); }
   .sub { margin-top: 22px; font: 400 21px/1.5 var(--sans); color: var(--text-2); }
 
   .foot {
+    position: relative;
     display: flex; justify-content: space-between; align-items: center;
-    padding: 22px 56px; border-top: 1px solid var(--line-strong); background: var(--panel);
+    padding: 22px 56px; border-top: 1px solid var(--line-strong); background: var(--hull);
   }
   .cmd { font: 400 18px var(--mono); color: var(--text); }
   .cmd .prompt { color: var(--brand); margin-right: 14px; }
   .plat { font: 500 14px var(--mono); color: var(--muted); letter-spacing: 0.14em; }
 </style>
 
+<canvas id="space" width="2400" height="1260"></canvas>
+
 <div class="sheet">
+  <div class="planet"></div>
+  <div class="orbit"></div>
   <div class="nav">
-    <span class="brand"><span class="mark"></span>conn<span class="ident">TERMINAL CONSOLE</span></span>
-    <span class="site">conn.w0zro.com</span>
+    <span class="brand"><span class="mark"></span>conn<span class="ident">BRIDGE</span></span>
+    <span class="tele"><span>conn.w0zro.com</span><span class="sys">NOMINAL</span></span>
   </div>
 
   <div class="hero">
-    <!-- the app itself: navigator strip, selected row, pane, cursor, a running dot — in a bezel -->
-    <div class="mark-box"><i></i>
+    <!-- the app itself: navigator strip, selected row, pane, cursor, a running dot — set in a bezel -->
+    <div class="bezel"><i></i><b></b>
       <svg width="172" height="172" viewBox="0 0 96 96" aria-label="conn">
-        <rect x="0.5" y="0.5" width="95" height="95" rx="6" fill="#0a0e15" stroke="#2b3441"/>
+        <rect x="0.5" y="0.5" width="95" height="95" rx="4" fill="#0a0e15" stroke="#2b3441"/>
         <line x1="34" y1="9" x2="34" y2="87" stroke="#30363D" stroke-width="2"/>
         <rect x="14" y="22" width="12" height="5" rx="2.5" fill="#5c6570"/>
         <path d="M 13 40 L 21 45.5 L 13 51 Z" fill="#B9A7FF"/>
@@ -124,6 +163,7 @@
         <rect x="44" y="64" width="11" height="12" fill="#B9A7FF"/>
         <circle cx="76" cy="70" r="4.5" fill="#3fb950"/>
       </svg>
+      <span class="plate"><em>FWD</em> VIEWPORT</span>
     </div>
 
     <div>
@@ -138,3 +178,22 @@
     <span class="plat">MACOS · LINUX</span>
   </div>
 </div>
+
+<script>
+// The same field the site draws, still, seeded so every render is the same.
+(() => {
+  const c = document.getElementById('space'), ctx = c.getContext('2d');
+  ctx.scale(2, 2);
+  let s = 7;
+  const rnd = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+  const TINTS = ['#dfe5f0', '#dfe5f0', '#dfe5f0', '#b2daff', '#ffe2b0', '#b9a7ff'];
+  for (let i = 0; i < 420; i++) {
+    const depth = rnd(), near = depth > 0.9, mid = depth > 0.6;
+    ctx.globalAlpha = near ? 0.9 : mid ? 0.55 : 0.3;
+    ctx.fillStyle = near ? TINTS[Math.floor(rnd() * TINTS.length)] : '#dfe5f0';
+    ctx.beginPath();
+    ctx.arc(rnd() * 1200, rnd() * 630, near ? 1.4 + rnd() * 1 : mid ? 0.8 + rnd() * 0.5 : 0.4 + rnd() * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+})();
+</script>

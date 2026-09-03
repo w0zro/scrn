@@ -25,18 +25,25 @@
 </head>
 <body>
 
+<canvas id="space" aria-hidden="true"></canvas>
+
 <div class="sheet">
 
 <header class="nav">
-  <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>conn<span class="ident">TERMINAL CONSOLE</span></a>
-  <nav class="nav-links">
-    <a href="guide">guide</a>
-    <a href="#keys">keys</a>
-    <a class="accent" href="https://github.com/w0zro/conn">github ↗</a>
-  </nav>
+  <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>conn<span class="ident">BRIDGE</span></a>
+  <div class="nav-right">
+    <nav class="nav-links">
+      <a href="guide">flight manual</a>
+      <a href="#keys">helm</a>
+      <a class="accent" href="https://github.com/w0zro/conn">github ↗</a>
+    </nav>
+    <div class="telemetry" aria-hidden="true"><span class="clock" data-clock>UTC --:--:--</span><span class="sys">NOMINAL</span></div>
+  </div>
 </header>
 
 <section class="hero">
+  <div class="planet" aria-hidden="true"></div>
+  <div class="orbit" aria-hidden="true"></div>
   <div class="hero-grid">
     <div class="hero-copy">
       <p class="eyebrow">You have the conn</p>
@@ -45,13 +52,14 @@
     </div>
     <div class="hero-demo">
       <div class="bezel">
-      <div class="scr" id="demo" role="img" aria-label="conn running: a navigator listing the repositories acme/web, acme/api and conn with the processes under each, beside a pane showing the shell the cursor is on. The keys move the cursor, step into a shell, and jump to the Claude session waiting for an answer.">
+      <div class="scr glass" id="demo" role="img" aria-label="conn running: a navigator listing the repositories acme/web, acme/api and conn with the processes under each, beside a pane showing the shell the cursor is on. The keys move the cursor, step into a shell, and jump to the Claude session waiting for an answer.">
         <pre class="scr-nav"></pre>
         <div class="scr-div"></div>
         <pre class="scr-pane"></pre>
         <pre class="scr-status"></pre>
       </div>
       <span class="tick" aria-hidden="true"></span>
+      <span class="plate" aria-hidden="true"><b>FWD</b> viewport · 01</span>
       </div>
       <div class="demo-foot">
         <p class="demo-cap"></p>
@@ -73,11 +81,11 @@
 </section>
 
 <section class="figure">
-  <div class="rail"><span class="rail-id">01</span><span>The navigator</span><span class="rail-line"></span></div>
+  <div class="rail"><span class="rail-id">01</span><span>Nav station</span><span class="rail-line"></span><span class="rail-tag">THE NAVIGATOR, ANNOTATED</span></div>
   <div class="figure-grid">
   <div class="figure-left">
     <div class="bezel">
-    <div class="tui" aria-label="the conn navigator: repositories with their processes nested under them">
+    <div class="tui glass" aria-label="the conn navigator: repositories with their processes nested under them">
 <pre>  <span class="c-place">acme</span>                    <span class="t-num">①</span>
     <span class="c-place">web</span>
      <span class="t-sel">▸ npm run dev</span>         <span class="t-num">③</span>
@@ -90,8 +98,9 @@
 <span class="chip-brand"> CONN </span><span class="chip-navigate"> NAV </span><span class="wash-navigate">                                   </span><span class="t-num">④</span></pre>
     </div>
     <span class="tick" aria-hidden="true"></span>
+    <span class="plate" aria-hidden="true"><b>NAV</b> display · 02</span>
     </div>
-    <div class="fig-cap">Fig 01 — the navigator, annotated</div>
+    <div class="fig-cap">Fig 01 — the navigator</div>
   </div>
   <div class="figure-notes">
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
@@ -103,10 +112,10 @@
 </section>
 
 <section id="keys" class="keys">
-  <div class="rail"><span class="rail-id">02</span><span>Controls</span><span class="rail-line"></span><span class="rail-tag">ALL KEYS: ?</span></div>
+  <div class="rail"><span class="rail-id">02</span><span>Helm</span><span class="rail-line"></span><span class="rail-tag">EVERY KEY: ?</span></div>
   <div class="key-grid">
   <div class="cluster">
-    <div class="keyhead">MOVE</div>
+    <div class="keyhead">MOVE<span class="sub">HELM</span></div>
     <div class="keyrow"><span>↑ ↓ j k</span><span>move</span></div>
     <div class="keyrow"><span>/</span><span>find a project · a process</span></div>
     <div class="keyrow"><span>enter</span><span>the keys to the row's shell</span></div>
@@ -114,13 +123,13 @@
     <div class="keyrow"><span>? / q</span><span>all the keys / leave</span></div>
   </div>
   <div class="cluster">
-    <div class="keyhead">ACT</div>
+    <div class="keyhead">ACT<span class="sub">OPS</span></div>
     <div class="keyrow"><span>s / a / A</span><span>shell / agent / continue</span></div>
     <div class="keyrow"><span>r</span><span>run the plan</span></div>
-    <div class="keyrow"><span>x / X</span><span>kill / kill the tree</span></div>
+    <div class="keyrow warn"><span>x / X</span><span>kill / kill the tree</span></div>
   </div>
   <div class="cluster">
-    <div class="keyhead">VIEW</div>
+    <div class="keyhead">VIEW<span class="sub">SCOPE</span></div>
     <div class="keyrow"><span>space</span><span>fold</span></div>
     <div class="keyrow"><span>.</span><span>all ↔ running</span></div>
     <div class="keyrow"><span>^spc -</span><span>back to the list</span></div>
@@ -132,9 +141,9 @@
 </section>
 
 <footer class="footer">
-  <span class="brand"><span class="mark" aria-hidden="true"></span>conn</span>
+  <span class="brand"><span class="mark" aria-hidden="true"></span>conn<span class="ident">END OF TRANSMISSION</span></span>
   <nav class="foot-links">
-    <a href="guide">guide</a>
+    <a href="guide">flight manual</a>
     <a href="https://github.com/w0zro/conn">github</a>
     <a href="https://github.com/w0zro/conn/releases">releases</a>
   </nav>
@@ -335,6 +344,7 @@ for (const b of document.querySelectorAll('.copy')) {
   });
 }
 </script>
+<script src="space.js"></script>
 
 </body>
 </html>
