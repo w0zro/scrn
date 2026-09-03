@@ -1156,31 +1156,37 @@ func (m model) selfRun(r navRow) bool {
 	return false
 }
 
-// heldOrder is every held shell in the order the navigator lists them: by
-// place as the places are listed, then by age. It is the order J and K
-// step through, and it does not depend on what is folded or filtered — a
-// shell is still there when its row is not.
+// heldOrder is every held shell in the order the navigator lists them. It
+// is the order J and K step through, and it does not depend on what is
+// folded or filtered — a shell is still there when its row is not — so it
+// is read off the list as it would be drawn with nothing filtered, folded
+// or collapsed: groups and repositories by name, a place's shells by the
+// name their rows wear. Sorting the shells any other way — by place and
+// pid, say — is a list that reads downward and a J that steps upward. A
+// shell the list has no row for, one the scan has not seen yet, follows,
+// by age.
 func (m model) heldOrder() []int {
-	rank := map[string]int{}
-	for i, p := range m.projects {
-		rank[p.Path] = i
-	}
-	pids := make([]int, 0, len(m.terms))
-	for pid := range m.terms {
-		pids = append(pids, pid)
-	}
-	at := func(pid int) int {
-		if p, ok := m.placeAt(m.terms[pid].dir); ok {
-			if r, ok := rank[p.Path]; ok {
-				return r
-			}
+	whole := m
+	whole.typing, whole.filter, whole.showAll, whole.collapsed = false, "", true, nil
+	seen := map[int]bool{}
+	var pids []int
+	for _, r := range whole.flatten() {
+		if r.kind != rowProc {
+			continue
 		}
-		return len(m.projects)
+		if t := m.owningTerm(r.node.PID); t != nil && !seen[t.pid] {
+			seen[t.pid] = true
+			pids = append(pids, t.pid)
+		}
 	}
-	slices.SortFunc(pids, func(a, b int) int {
-		return cmp.Or(cmp.Compare(at(a), at(b)), cmp.Compare(a, b))
-	})
-	return pids
+	var rest []int
+	for pid := range m.terms {
+		if !seen[pid] {
+			rest = append(rest, pid)
+		}
+	}
+	slices.Sort(rest)
+	return append(pids, rest...)
 }
 
 // openFilter starts typing a filter. The list becomes every project straight

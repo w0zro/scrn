@@ -3395,6 +3395,41 @@ func TestJAndKStepThroughTheHeldShellsInOrder(t *testing.T) {
 	}
 }
 
+func TestJStepsDownTheListWhateverTheShellsPids(t *testing.T) {
+	// A place's rows are ordered by the name each wears, not by pid: three
+	// shells running b, a and c, in pid order, are listed a, b, c. J from
+	// the top of the list is the row below it, not the next pid.
+	m := withProcList(90, 20,
+		[]Project{{Name: "tmp", Path: "/tmp"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: 710, PPID: 700, Command: "b", Dir: "/tmp"},
+			{PID: 701, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: 711, PPID: 701, Command: "a", Dir: "/tmp"},
+			{PID: 702, PPID: 1, Command: "zsh", Dir: "/tmp"},
+			{PID: 712, PPID: 702, Command: "c", Dir: "/tmp"},
+		})
+	m.terms = map[int]*remoteTerm{
+		700: {pid: 700, dir: "/tmp"}, 701: {pid: 701, dir: "/tmp"}, 702: {pid: 702, dir: "/tmp"},
+	}
+	m, asked := pipeServer(t, m)
+
+	if got := m.heldOrder(); !slices.Equal(got, []int{701, 700, 702}) {
+		t.Fatalf("heldOrder = %v, want the list's order a, b, c", got)
+	}
+	m.previewing = 701
+	for i, want := range []int{700, 702, 701} {
+		m = press(m, "J")
+		if got := askedForKind(t, asked, kindFocus); got.PID != want {
+			t.Errorf("J %d took the keys to %d, want %d", i+1, got.PID, want)
+		}
+	}
+	m = press(m, "K")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 702 {
+		t.Errorf("K took the keys to %d, want back up to 702", got.PID)
+	}
+}
+
 func TestJWithNoShellOpenSaysSo(t *testing.T) {
 	m, _ := pipeServer(t, repoModel())
 	m = press(m, "J")
