@@ -382,6 +382,9 @@ func (m model) rowStyle(r navRow, selected bool) lipgloss.Style {
 		// the keys is the status line's to say.
 		return selStyle
 	}
+	if r.kind != rowProc {
+		return placeStyle
+	}
 	return itemStyle
 }
 

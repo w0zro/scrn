@@ -302,7 +302,7 @@ func TestNavDrawsSiblingsWithContinuationRules(t *testing.T) {
 		},
 	)
 	wantRows(t, navColumn(m), []string{
-		" ▸ scrn", "      zsh", "        vim", "   │      fmt", "   │      lint", "        zig",
+		" ▸ scrn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
 	})
 }
 
@@ -659,7 +659,7 @@ func nestedTree(h int) model {
 func TestSpaceCollapsesAProcessNode(t *testing.T) {
 	m := nestedTree(12)
 	wantRows(t, navColumn(m), []string{
-		" ▸ scrn", "      zsh", "        vim", "   │      fmt", "   │      lint", "        zig",
+		" ▸ scrn", "      zsh", "        vim", "          fmt", "          lint", "        zig",
 	})
 
 	// Move onto vim and fold it.
@@ -3138,7 +3138,7 @@ func TestProcessesFileUnderTheirSubProject(t *testing.T) {
 		" ▸ mono",
 		"      make",
 		"      services/api",
-		" │      node",
+		"        node",
 		"      web",
 	})
 }

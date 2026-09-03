@@ -313,6 +313,7 @@ a:hover { color: var(--accent); }
 .c-attn   { color: #D29922; }
 .c-urgent { color: #F778BA; font-weight: 600; }
 .c-note   { color: #5C6570; font-style: italic; }
+.c-place  { color: #B2DAFB; }
 /* The status line: a mode chip on a dark ground of its color, the rest of
    the line washed with the faintest of it — the same shades tmux draws. */
 .chip-navigate { color: #D29922; background: #4D3E1B; font-weight: 600; }

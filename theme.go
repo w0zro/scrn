@@ -23,13 +23,14 @@ import (
 // The slots, by the job each does here. The terminal's theme says what
 // color a slot is; scrn says what it means.
 const (
-	slotRed    = "1" // blocked on an ask, dying, failed, destructive
-	slotGreen  = "2" // alive and well; finished and waiting on you
-	slotSelf   = "4" // scrn itself, where it shows up as a process
-	slotCursor = "5" // here: the cursor, and scrn's own name — the terminal's cursor color
-	slotCyan   = "6" // found: the letters a query matched
-	slotGray   = "8" // quiet: idle rows, labels, scrn's own asides
-	slotAmber  = "9" // working, and an answer owed
+	slotRed    = "1"  // blocked on an ask, dying, failed, destructive
+	slotGreen  = "2"  // alive and well; finished and waiting on you
+	slotSelf   = "4"  // scrn itself, where it shows up as a process
+	slotCursor = "5"  // here: the cursor, and scrn's own name — the terminal's cursor color
+	slotCyan   = "6"  // found: the letters a query matched
+	slotGray   = "8"  // quiet: idle rows, labels, scrn's own asides
+	slotAmber  = "9"  // working, and an answer owed
+	slotPlace  = "12" // a place — a group, a repository, a sub-project: the frequent names, in a pastel
 )
 
 // The styles are package-wide because everything drawing reads them.
@@ -38,6 +39,7 @@ var (
 	faintStyle, labelStyle, warnStyle, errStyle, busyStyle lipgloss.Style
 	attnStyle, blockedStyle, headingStyle                  lipgloss.Style
 	offSelStyle, noteStyle, matchStyle, selfStyle          lipgloss.Style
+	placeStyle                                             lipgloss.Style
 )
 
 func init() { applyStyles() }
@@ -54,6 +56,12 @@ func applyStyles() {
 	// selfStyle tags a process that is scrn itself, in a color nothing
 	// else wears: not the cursor's, not a state's.
 	selfStyle = slot(slotSelf)
+
+	// placeStyle names the places — the groups, repositories and
+	// sub-projects the processes sit under — in the pastel datum keeps for
+	// the names that are everywhere: they structure the list without
+	// competing with the states.
+	placeStyle = slot(slotPlace)
 	itemStyle = ink
 	headingStyle = ink.Bold(true)
 
@@ -179,7 +187,7 @@ const (
 	glyphSelected = "▸"  // the cursor, in the navigator's gutter
 	glyphBranch   = "  " // a child sits on indent alone: the rules were the loudest thing on screen
 	glyphLast     = "  "
-	glyphRail     = "│" // the tree's vertical past a child that has siblings after it: a guide, drawn faint
+	glyphRail     = " " // the tree is indentation alone: a rail past a child read as a stray stroke
 	glyphDivider  = "│" // between the navigator and its own pane; tmux's border stands where a shell's is
 	glyphOn       = "●"
 	glyphOff      = "○"

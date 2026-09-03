@@ -66,14 +66,14 @@
     <div class="tui" aria-label="the scrn navigator: repositories with their processes nested under them">
 <pre><span class="t-ttl">scrn</span>                      <span class="t-num">①</span>
 
-  acme
-    web
+  <span class="c-place">acme</span>
+    <span class="c-place">web</span>
      <span class="t-sel">▸ npm run dev</span>         <span class="t-num">③</span>
        claude <span class="t-run">⠧</span>            <span class="t-num">②</span>
-    api
+    <span class="c-place">api</span>
        claude <span class="c-urgent">◆</span>
 
-  scrn
+  <span class="c-place">scrn</span>
      go test ./...
 <span class="chip-navigate"> NAV </span><span class="wash-navigate">                                         </span><span class="t-num">④</span></pre>
     </div>
@@ -168,7 +168,8 @@
     if (r.gap) return '';
     // A blocked agent lights its whole row until the cursor is on it; the
     // cursor row is bold, and no color is spent on where you are.
-    const cls = sel ? 'c-sel' : (r.mark === 'ask' ? 'c-urgent' : 'c-fg');
+    const place = !r.pre || r.pre.length === 2;
+    const cls = sel ? 'c-sel' : (r.mark === 'ask' ? 'c-urgent' : (place ? 'c-place' : 'c-fg'));
     let mark = '';
     if (r.mark === 'spin') mark = ' ' + span('c-attn spin', '⠧');
     if (r.mark === 'ask') mark = ' ' + span('c-urgent', '◆');
