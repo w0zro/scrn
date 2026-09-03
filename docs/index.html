@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
-<meta name="theme-color" content="#e7e3d8">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070c">
 <title>conn — a terminal UI for working on projects</title>
 <meta name="description" content="A terminal UI for the projects you have open: their shells, dev servers and agents in one list, and which of them is waiting on you. macOS and Linux.">
 <meta property="og:title" content="conn">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@500;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,9 +28,10 @@
 <div class="sheet">
 
 <header class="nav">
-  <a class="brand" href="/">conn</a>
+  <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>conn<span class="ident">TERMINAL CONSOLE</span></a>
   <nav class="nav-links">
     <a href="guide">guide</a>
+    <a href="#keys">keys</a>
     <a class="accent" href="https://github.com/w0zro/conn">github ↗</a>
   </nav>
 </header>
@@ -38,15 +39,19 @@
 <section class="hero">
   <div class="hero-grid">
     <div class="hero-copy">
+      <p class="eyebrow">You have the conn</p>
       <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
       <p class="sub">A terminal UI for the projects you have open: their shells, dev servers and agents in one list, and which of them is waiting on you. macOS and Linux. Close the window; nothing stops.</p>
     </div>
     <div class="hero-demo">
+      <div class="bezel">
       <div class="scr" id="demo" role="img" aria-label="conn running: a navigator listing the repositories acme/web, acme/api and conn with the processes under each, beside a pane showing the shell the cursor is on. The keys move the cursor, step into a shell, and jump to the Claude session waiting for an answer.">
         <pre class="scr-nav"></pre>
         <div class="scr-div"></div>
         <pre class="scr-pane"></pre>
         <pre class="scr-status"></pre>
+      </div>
+      <span class="tick" aria-hidden="true"></span>
       </div>
       <div class="demo-foot">
         <p class="demo-cap"></p>
@@ -59,10 +64,19 @@
     <code>curl -fsSL https://conn.w0zro.com/install.sh | sh</code>
     <button class="copy" data-copy="curl -fsSL https://conn.w0zro.com/install.sh | sh">[copy]</button>
   </div>
+  <dl class="spec">
+    <div><dt class="k">Platform</dt><dd class="v">macOS <span class="dim">·</span> Linux</dd></div>
+    <div><dt class="k">Runs on</dt><dd class="v">tmux <span class="dim">·</span> lsof</dd></div>
+    <div><dt class="k">Built in</dt><dd class="v">Go <span class="dim">·</span> one binary</dd></div>
+    <div><dt class="k">License</dt><dd class="v">MIT</dd></div>
+  </dl>
 </section>
 
 <section class="figure">
+  <div class="rail"><span class="rail-id">01</span><span>The navigator</span><span class="rail-line"></span></div>
+  <div class="figure-grid">
   <div class="figure-left">
+    <div class="bezel">
     <div class="tui" aria-label="the conn navigator: repositories with their processes nested under them">
 <pre>  <span class="c-place">acme</span>                    <span class="t-num">①</span>
     <span class="c-place">web</span>
@@ -75,7 +89,9 @@
      go test ./...
 <span class="chip-brand"> CONN </span><span class="chip-navigate"> NAV </span><span class="wash-navigate">                                   </span><span class="t-num">④</span></pre>
     </div>
-    <div class="fig-cap">Fig. 1 — The navigator.</div>
+    <span class="tick" aria-hidden="true"></span>
+    </div>
+    <div class="fig-cap">Fig 01 — the navigator, annotated</div>
   </div>
   <div class="figure-notes">
     <div class="note"><span class="marker">①</span><p>One row per repository under your project roots, with its processes nested under it.</p></div>
@@ -83,10 +99,13 @@
     <div class="note"><span class="marker">③</span><p>Keys act on the selected row: s opens a shell, r runs the project's plan (the processes named in .conn, a Procfile, or package.json), x kills — on a repository, everything in it — and always asks first.</p></div>
     <div class="note"><span class="marker">④</span><p>The status line is tmux's: conn's name, in purple, then the mode the keys are in, in that mode's color, and anything the navigator has to say. The list on the left is the list of shells; there is no second one.</p></div>
   </div>
+  </div>
 </section>
 
 <section id="keys" class="keys">
-  <div>
+  <div class="rail"><span class="rail-id">02</span><span>Controls</span><span class="rail-line"></span><span class="rail-tag">ALL KEYS: ?</span></div>
+  <div class="key-grid">
+  <div class="cluster">
     <div class="keyhead">MOVE</div>
     <div class="keyrow"><span>↑ ↓ j k</span><span>move</span></div>
     <div class="keyrow"><span>/</span><span>find a project · a process</span></div>
@@ -94,13 +113,13 @@
     <div class="keyrow"><span>tab · ^spc enter</span><span>waiting agent</span></div>
     <div class="keyrow"><span>? / q</span><span>all the keys / leave</span></div>
   </div>
-  <div>
+  <div class="cluster">
     <div class="keyhead">ACT</div>
     <div class="keyrow"><span>s / a / A</span><span>shell / agent / continue</span></div>
     <div class="keyrow"><span>r</span><span>run the plan</span></div>
     <div class="keyrow"><span>x / X</span><span>kill / kill the tree</span></div>
   </div>
-  <div>
+  <div class="cluster">
     <div class="keyhead">VIEW</div>
     <div class="keyrow"><span>space</span><span>fold</span></div>
     <div class="keyrow"><span>.</span><span>all ↔ running</span></div>
@@ -109,10 +128,11 @@
     <div class="keyrow"><span>^spc v</span><span>read back (copy mode)</span></div>
     <div class="keyrow"><span>^spc ^spc</span><span>list ↔ shell</span></div>
   </div>
+  </div>
 </section>
 
 <footer class="footer">
-  <span>conn</span>
+  <span class="brand"><span class="mark" aria-hidden="true"></span>conn</span>
   <nav class="foot-links">
     <a href="guide">guide</a>
     <a href="https://github.com/w0zro/conn">github</a>

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
-<meta name="theme-color" content="#e7e3d8">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070c">
 <title>Guide — conn</title>
 <meta name="description" content="Installing and using conn: the navigator, shells, agents, plans, killing, configuration, and the tmux server.">
 <meta property="og:title" content="Guide — conn">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@500;700&display=swap">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -28,9 +28,9 @@
 <div class="sheet">
 
 <header class="nav sticky">
-  <a class="brand" href="/">conn</a>
+  <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>conn<span class="ident">TERMINAL CONSOLE</span></a>
   <nav class="nav-links">
-    <span class="accent" aria-current="page">guide</span>
+    <span aria-current="page">guide</span>
     <a href="/#keys">keys</a>
     <a href="#install">install</a>
     <a class="accent" href="https://github.com/w0zro/conn">github ↗</a>
@@ -40,27 +40,28 @@
 <div class="guide">
 
 <aside class="toc">
-  <div class="toc-head">GUIDE</div>
+  <div class="toc-head">CONTENTS</div>
   <nav class="toc-list">
-    <a href="#install"><span class="sec">§ 1</span>&nbsp;&nbsp;Install</a>
-    <a href="#first-run"><span class="sec">§ 2</span>&nbsp;&nbsp;First run</a>
-    <a href="#navigator"><span class="sec">§ 3</span>&nbsp;&nbsp;The navigator</a>
-    <a href="#shells"><span class="sec">§ 4</span>&nbsp;&nbsp;Shells</a>
-    <a href="#agents"><span class="sec">§ 5</span>&nbsp;&nbsp;Agents</a>
-    <a href="#plans"><span class="sec">§ 6</span>&nbsp;&nbsp;Plans</a>
-    <a href="#kills"><span class="sec">§ 7</span>&nbsp;&nbsp;Killing</a>
-    <a href="#configuration"><span class="sec">§ 8</span>&nbsp;&nbsp;Configuration</a>
-    <a href="#server"><span class="sec">§ 9</span>&nbsp;&nbsp;The server</a>
+    <a href="#install"><span class="sec">01</span>Install</a>
+    <a href="#first-run"><span class="sec">02</span>First run</a>
+    <a href="#navigator"><span class="sec">03</span>The navigator</a>
+    <a href="#shells"><span class="sec">04</span>Shells</a>
+    <a href="#agents"><span class="sec">05</span>Agents</a>
+    <a href="#plans"><span class="sec">06</span>Plans</a>
+    <a href="#kills"><span class="sec">07</span>Killing</a>
+    <a href="#configuration"><span class="sec">08</span>Configuration</a>
+    <a href="#server"><span class="sec">09</span>The server</a>
   </nav>
 </aside>
 
 <article class="doc">
 
+<p class="eyebrow">Systems manual</p>
 <h1>Guide<span class="accent">.</span></h1>
 <p class="intro">Everything conn does, in the order you'll meet it.</p>
 
 <section id="install">
-  <div class="kicker">§ 1</div>
+  <div class="rail"><span class="rail-id">01</span><span class="rail-line"></span><span class="rail-tag">SEC 01 / 09</span></div>
   <h2>Install</h2>
   <div class="cmd" role="group" aria-label="install command">
     <span class="prompt" aria-hidden="true">$</span>
@@ -80,7 +81,7 @@
 </section>
 
 <section id="first-run">
-  <div class="kicker">§ 2</div>
+  <div class="rail"><span class="rail-id">02</span><span class="rail-line"></span><span class="rail-tag">SEC 02 / 09</span></div>
   <h2>First run</h2>
   <div class="cmd lead"><code>conn</code></div>
   <p>There is nothing to set up. <code class="chip">conn</code> brings up a tmux server of its own, attaches the terminal to it, and opens the navigator down the left of the session's first window; the shell under its cursor is the pane beside it. The status line at the foot is tmux's, with the mode the keys are in. conn looks for repositories under <code class="chip">~/projects</code>; the <a class="accent" href="#configuration">config</a> points it elsewhere.</p>
@@ -92,7 +93,7 @@
 </section>
 
 <section id="navigator">
-  <div class="kicker">§ 3</div>
+  <div class="rail"><span class="rail-id">03</span><span class="rail-line"></span><span class="rail-tag">SEC 03 / 09</span></div>
   <h2>The navigator</h2>
   <p class="mb16">The left column is a tree, at most four levels deep: <b>group</b> → <b>repository</b> → <b>sub-project</b> → <b>process</b>.</p>
   <h3>Repositories</h3>
@@ -114,7 +115,7 @@
 </section>
 
 <section id="shells">
-  <div class="kicker">§ 4</div>
+  <div class="rail"><span class="rail-id">04</span><span class="rail-line"></span><span class="rail-tag">SEC 04 / 09</span></div>
   <h2>Shells</h2>
   <p><b>s</b> opens a shell at the selected place, beside the navigator, and puts the keys in it. <b>enter</b> on a shell's row does the same for that shell. From then on every keystroke is the shell's: the pane is tmux's, and it behaves the way a tmux pane behaves, with the navigator still down the left. conn keeps one key: <b>ctrl-space</b>, the prefix — tmux's own, bound by conn's configuration — which reaches conn from any shell. <b>ctrl-space -</b> is back to the navigator; <b>ctrl-space j</b> and <b>k</b> are the next and previous shell, <b>ctrl-space ctrl-space</b> switches between the navigator and the shell, <b>ctrl-space q</b> leaves, and <b>?</b> — in the navigator, or after the prefix from any shell — lists the rest in a popup over the whole window. Every key tmux would otherwise bind is unbound.</p>
   <p>The pane beside the navigator is the shell under its cursor: move the cursor to another shell's row and that shell moves in, the last one out to a tmux window of its own, where it keeps running. <b>J</b> and <b>K</b> step through the shells in the list's order, keys and all. On a row with no shell the navigator has the whole window.</p>
@@ -125,7 +126,7 @@
 </section>
 
 <section id="agents">
-  <div class="kicker">§ 5</div>
+  <div class="rail"><span class="rail-id">05</span><span class="rail-line"></span><span class="rail-tag">SEC 05 / 09</span></div>
   <h2>Agents</h2>
   <p class="mb10"><b>a</b> starts an agent in the selected place, in a shell like any other — Claude Code, unless the config's <code class="chip">agent</code> names another kind. Claude Code reports its state, so the navigator can mark it:</p>
   <div class="def">
@@ -141,7 +142,7 @@
 </section>
 
 <section id="plans">
-  <div class="kicker">§ 6</div>
+  <div class="rail"><span class="rail-id">06</span><span class="rail-line"></span><span class="rail-tag">SEC 06 / 09</span></div>
   <h2>Plans</h2>
   <p>Working on a project usually means the same processes every time: the dev server, the test watcher, an agent. A project writes them down in <code class="chip">.conn</code> — Procfile format, a name and a command per line:</p>
   <div class="code-cap">.conn</div>
@@ -155,7 +156,7 @@
 </section>
 
 <section id="kills">
-  <div class="kicker">§ 7</div>
+  <div class="rail"><span class="rail-id">07</span><span class="rail-line"></span><span class="rail-tag">SEC 07 / 09</span></div>
   <h2>Killing</h2>
   <div class="def">
     <div class="def-row"><span class="term w170">x</span><span class="desc">kill the selected process</span></div>
@@ -166,7 +167,7 @@
 </section>
 
 <section id="configuration">
-  <div class="kicker">§ 8</div>
+  <div class="rail"><span class="rail-id">08</span><span class="rail-line"></span><span class="rail-tag">SEC 08 / 09</span></div>
   <h2>Configuration</h2>
   <p>One JSON file, entirely optional. It lives at <code class="chip">~/.config/conn/config.json</code> (<code>XDG_CONFIG_HOME</code> is honored).</p>
   <div class="code-cap">~/.config/conn/config.json</div>
@@ -192,7 +193,7 @@
 </section>
 
 <section id="server">
-  <div class="kicker">§ 9</div>
+  <div class="rail"><span class="rail-id">09</span><span class="rail-line"></span><span class="rail-tag">SEC 09 / 09</span></div>
   <h2>The server</h2>
   <p>The shells live in a tmux server of conn's own, one per user for all projects, on a socket at <code class="chip">~/.local/state/conn/tmux-&lt;uid&gt;.sock</code> (<code>CONN_SOCKET</code> overrides, and <code>XDG_STATE_HOME</code> moves the directory). Every <code class="chip">conn</code> writes the server's configuration — the prefix and its chords, the status line, the transcript cap — to <code class="chip">~/.local/state/conn/tmux.conf</code>, brings the server up under it or sources it into one already running, and attaches. No .tmux.conf reaches it. The session's first window is the home window: the navigator in the pane down its left, at the config's <code class="chip">navWidth</code> through every resize, and the shell under its cursor beside it; the shells not shown wait in windows of their own. Close the navigator and <b>ctrl-space -</b> makes it again, on the left. A <code class="chip">conn</code> from a newer build than the navigator's restarts the navigator in its pane, the way it re-reads the configuration: the server keeps the shells, and everything else is the build's. Run from a shell inside the window, it does that and no more, the terminal being attached already; inside any other tmux it refuses, since attaching would be nesting.</p>
   <p>The chords run <code>conn</code> itself with a word — home, shell, agent, run, jump, next, prev, keys — each a short command against the server; the navigator's pane runs <code>conn nav</code> and the keys popup <code>conn page</code>. None of them are for typing.</p>
@@ -205,7 +206,7 @@
 </div>
 
 <footer class="footer rule-top">
-  <span>conn</span>
+  <span class="brand"><span class="mark" aria-hidden="true"></span>conn</span>
   <nav class="foot-links">
     <a href="/">home</a>
     <a href="https://github.com/w0zro/conn">github</a>
@@ -216,6 +217,27 @@
 </div>
 
 <script>
+// The table of contents follows the reading: the section that has passed
+// a line a third of the way down the window is the one lit in the list.
+(() => {
+  const links = [...document.querySelectorAll('.toc-list a')];
+  const secs = links.map(a => document.getElementById(a.getAttribute('href').slice(1)));
+  if (!links.length || !secs.every(Boolean)) return;
+  let queued = false;
+  const light = () => {
+    queued = false;
+    const line = scrollY + Math.min(innerHeight * 0.35, 320);
+    const atEnd = scrollY + innerHeight >= document.documentElement.scrollHeight - 2;
+    let at = 0;
+    secs.forEach((s, i) => { if (s.getBoundingClientRect().top + scrollY <= line) at = i; });
+    if (atEnd) at = secs.length - 1;
+    links.forEach((a, i) => a.classList.toggle('on', i === at));
+  };
+  addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(light); } }, { passive: true });
+  addEventListener('resize', light);
+  light();
+})();
+
 for (const b of document.querySelectorAll('.copy')) {
   b.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); } catch { return; }

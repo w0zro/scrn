@@ -12,85 +12,122 @@
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&family=Space+Grotesk:wght@700&display=swap">
 <style>
   :root {
-    --desk: #e7e3d8;
-    --paper: #f2efe8;
-    --ink: #1b1a16;
-    --body: #33301f;
-    --muted: #7a745f;
-    --rule: #cfc8b4;
-    --chip: #e9e4d4;
-    --accent: #5A3FD9;
-    --serif: 'IBM Plex Serif', Georgia, serif;
+    --space: #05070c;
+    --hull: #090d16;
+    --panel: #0d1220;
+    --line: #1c2536;
+    --line-strong: #2a3650;
+    --text: #dfe5f0;
+    --text-2: #a9b3c6;
+    --muted: #6b778e;
+    --brand: #b9a7ff;
+    --good: #3fb950;
+    --display: 'Space Grotesk', system-ui, sans-serif;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
     --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
   }
   * { box-sizing: border-box; margin: 0; }
-  body { width: 1200px; height: 630px; background: var(--desk); overflow: hidden; }
+  body {
+    width: 1200px; height: 630px; overflow: hidden;
+    background: var(--space);
+    background-image:
+      radial-gradient(900px 520px at 18% -10%, rgba(90, 63, 217, 0.26), transparent 60%),
+      radial-gradient(700px 420px at 92% 8%, rgba(121, 192, 255, 0.12), transparent 60%),
+      radial-gradient(1.5px 1.5px at 8% 70%, rgba(255,255,255,0.6) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 94% 84%, rgba(185,167,255,0.7) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 96% 40%, rgba(255,255,255,0.45) 50%, transparent 51%),
+      linear-gradient(rgba(150,170,220,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(150,170,220,0.05) 1px, transparent 1px);
+    background-size: auto, auto, auto, auto, auto, 48px 48px, 48px 48px;
+  }
 
-  /* the site's sheet: paper between two ink rules, running the full height */
+  /* the site's console: a hull between two rails, running the full height */
   .sheet {
     position: absolute; inset: 0 56px;
-    background: var(--paper); color: var(--ink);
-    border-left: 1px solid var(--ink); border-right: 1px solid var(--ink);
+    background: var(--hull); color: var(--text);
+    border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong);
     display: flex; flex-direction: column;
   }
 
   .nav {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 22px 56px; border-bottom: 1px solid var(--ink);
+    padding: 0 56px; height: 76px; border-bottom: 1px solid var(--line-strong);
+    background: linear-gradient(180deg, rgba(255,255,255,0.025), transparent);
   }
-  .brand { font: 600 24px var(--mono); }
-  .site { font: 500 17px var(--mono); color: var(--muted); }
+  .brand { display: flex; align-items: center; gap: 14px; font: 600 24px var(--mono); }
+  .brand .mark { width: 13px; height: 13px; background: var(--brand); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .brand .ident {
+    font: 500 15px var(--mono); letter-spacing: 0.18em; color: var(--muted);
+    padding-left: 18px; border-left: 1px solid var(--line-strong);
+  }
+  .site { font: 500 17px var(--mono); color: var(--muted); letter-spacing: 0.06em; }
 
-  .hero {
-    flex: 1; display: flex; align-items: center; gap: 50px; padding: 0 56px 26px;
+  .hero { flex: 1; display: flex; align-items: center; gap: 54px; padding: 0 56px 30px; }
+  .mark-box { flex: none; position: relative; }
+  .mark-box::before, .mark-box::after, .mark-box i::before, .mark-box i::after {
+    content: ''; position: absolute; width: 16px; height: 16px; border: 2px solid var(--brand);
   }
-  .mark { flex: none; }
+  .mark-box::before { top: -10px; left: -10px; border-width: 2px 0 0 2px; }
+  .mark-box::after { top: -10px; right: -10px; border-width: 2px 2px 0 0; }
+  .mark-box i::before { bottom: -10px; left: -10px; border-width: 0 0 2px 2px; }
+  .mark-box i::after { bottom: -10px; right: -10px; border-width: 0 2px 2px 0; }
+  .mark-box svg { display: block; }
+
+  .eyebrow {
+    display: flex; align-items: center; gap: 14px;
+    font: 500 16px var(--mono); letter-spacing: 0.22em; color: var(--brand);
+    margin-bottom: 22px;
+  }
+  .eyebrow::before {
+    content: ''; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--good); box-shadow: 0 0 12px var(--good);
+  }
   h1 {
-    font: 400 58px/1.13 var(--serif);
-    letter-spacing: -0.011em;
+    font: 700 58px/1.1 var(--display);
+    letter-spacing: -0.02em;
+    color: #fff;
     text-wrap: balance;
   }
-  h1 .accent { color: var(--accent); }
-  .sub {
-    margin-top: 18px;
-    font: 400 20px/1.5 var(--serif);
-    color: var(--body);
-  }
+  h1 .accent { color: var(--brand); }
+  .sub { margin-top: 22px; font: 400 21px/1.5 var(--sans); color: var(--text-2); }
 
   .foot {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 20px 56px; border-top: 1px solid var(--ink); background: var(--chip);
+    padding: 22px 56px; border-top: 1px solid var(--line-strong); background: var(--panel);
   }
-  .cmd { font: 400 18px var(--mono); color: var(--body); }
-  .cmd .prompt { color: var(--accent); margin-right: 12px; }
-  .plat { font: 500 15px var(--mono); color: var(--muted); }
+  .cmd { font: 400 18px var(--mono); color: var(--text); }
+  .cmd .prompt { color: var(--brand); margin-right: 14px; }
+  .plat { font: 500 14px var(--mono); color: var(--muted); letter-spacing: 0.14em; }
 </style>
 
 <div class="sheet">
   <div class="nav">
-    <span class="brand">conn</span>
+    <span class="brand"><span class="mark"></span>conn<span class="ident">TERMINAL CONSOLE</span></span>
     <span class="site">conn.w0zro.com</span>
   </div>
 
   <div class="hero">
-    <!-- B · the app itself: navigator strip, selected row, pane, cursor, a running dot -->
-    <svg class="mark" width="172" height="172" viewBox="0 0 96 96" aria-label="conn">
-      <rect x="0.5" y="0.5" width="95" height="95" rx="20" fill="#141310" stroke="#2a2620"/>
-      <line x1="34" y1="9" x2="34" y2="87" stroke="#2f2a22" stroke-width="2"/>
-      <rect x="14" y="22" width="12" height="5" rx="2.5" fill="#5a5448"/>
-      <path d="M 13 40 L 21 45.5 L 13 51 Z" fill="#B9A7FF"/>
-      <rect x="14" y="62" width="12" height="5" rx="2.5" fill="#5a5448"/>
-      <rect x="44" y="22" width="34" height="5" rx="2.5" fill="#3a352c"/>
-      <rect x="44" y="36" width="26" height="5" rx="2.5" fill="#3a352c"/>
-      <rect x="44" y="50" width="30" height="5" rx="2.5" fill="#3a352c"/>
-      <rect x="44" y="64" width="11" height="12" fill="#B9A7FF"/>
-      <circle cx="76" cy="70" r="4.5" fill="#6fdd8b"/>
-    </svg>
+    <!-- the app itself: navigator strip, selected row, pane, cursor, a running dot — in a bezel -->
+    <div class="mark-box"><i></i>
+      <svg width="172" height="172" viewBox="0 0 96 96" aria-label="conn">
+        <rect x="0.5" y="0.5" width="95" height="95" rx="6" fill="#0a0e15" stroke="#2b3441"/>
+        <line x1="34" y1="9" x2="34" y2="87" stroke="#30363D" stroke-width="2"/>
+        <rect x="14" y="22" width="12" height="5" rx="2.5" fill="#5c6570"/>
+        <path d="M 13 40 L 21 45.5 L 13 51 Z" fill="#B9A7FF"/>
+        <rect x="14" y="62" width="12" height="5" rx="2.5" fill="#5c6570"/>
+        <rect x="44" y="22" width="34" height="5" rx="2.5" fill="#3a4250"/>
+        <rect x="44" y="36" width="26" height="5" rx="2.5" fill="#3a4250"/>
+        <rect x="44" y="50" width="30" height="5" rx="2.5" fill="#3a4250"/>
+        <rect x="44" y="64" width="11" height="12" fill="#B9A7FF"/>
+        <circle cx="76" cy="70" r="4.5" fill="#3fb950"/>
+      </svg>
+    </div>
 
     <div>
+      <p class="eyebrow">YOU HAVE THE CONN</p>
       <h1>Every project, and everything running in it, in one window<span class="accent">.</span></h1>
       <p class="sub">Shells, dev servers and agents in one list — and which is waiting on you.</p>
     </div>
@@ -98,6 +135,6 @@
 
   <div class="foot">
     <span class="cmd"><span class="prompt">$</span>curl -fsSL https://conn.w0zro.com/install.sh | sh</span>
-    <span class="plat">macOS · Linux</span>
+    <span class="plat">MACOS · LINUX</span>
   </div>
 </div>
