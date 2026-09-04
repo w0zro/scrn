@@ -748,12 +748,19 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	case "a":
 		// An agent conn owns, so it survives the window and can be
 		// stepped back into, unlike the ones it can only watch. Which
-		// kind is the config's call; claude is the default.
-		return m, m.start(startAgent())
+		// kind is the window's call, then the config's; claude is the
+		// default.
+		return m, m.start(m.agentCommand())
 	case "A":
 		// The same verb, reaching back: a starts a fresh conversation,
 		// A picks a suspended one back up.
 		return m, m.openResume()
+	case ",":
+		// The next kind for a to start — claude, ollama, claude — for
+		// the whole server: the chords start the same kind, and the
+		// status line's corner names it.
+		m.cycleKind()
+		return m, nil
 	case "x":
 		return m, m.askKill(false)
 	case "X":
@@ -869,7 +876,7 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		// outlives the filter and quietly takes the keys back the moment
 		// the shell it opened is gone.
 		m.typing = false
-		return m.start(startAgent())
+		return m.start(m.agentCommand())
 	case "ctrl+x":
 		// Killing what you found is also the end of looking for it. The
 		// typing stops so the confirmation's key is a confirmation, and the
@@ -1335,6 +1342,33 @@ func (m *model) start(command string) tea.Cmd {
 	}
 	m.server.open(m.shellDir(r), command, "")
 	return nil
+}
+
+// agentCommand is what a starts: the current kind's command, asked of the
+// server through this navigator's connection. With no server there is no
+// choice on record, and the config's kind is the answer — which start will
+// then refuse to hold anyway, and say why.
+func (m model) agentCommand() string {
+	if m.server == nil {
+		return startAgent(nil)
+	}
+	return startAgent(m.server.run)
+}
+
+// cycleKind moves a on to the next kind of agent, and says which. The
+// choice is the server's, not this navigator's: a chord from any shell
+// starts the same kind, and it holds until the server goes.
+func (m *model) cycleKind() {
+	if m.server == nil {
+		m.status, m.statusErr = "no server to tell: "+m.serverErr, true
+		return
+	}
+	k := nextKind(currentKind(m.server.run))
+	if err := chooseKind(m.server.run, k); err != nil {
+		m.status, m.statusErr = err.Error(), true
+		return
+	}
+	m.status, m.statusErr = "a starts "+k.name, false
 }
 
 // shellDir is where a new shell on this row should start: the repository, or

@@ -17,11 +17,12 @@ import (
 // The launcher and the chords. `conn` brings the server up under conn's
 // configuration, makes sure the home window exists with the navigator down
 // its left, and hands the terminal to tmux. The chords the configuration
-// binds run this same binary with a word — home, shell, agent, run, jump,
-// next, prev, keys — each a short command against the server that says
-// nothing on stdout: run-shell would put anything printed in front of the
-// user as a page. What a chord has to say — a failure — goes on the status
-// line, in the navigator's message slot, for a few seconds (announce).
+// binds run this same binary with a word — home, shell, agent, kind, run,
+// jump, next, prev, keys — each a short command against the server that
+// says nothing on stdout: run-shell would put anything printed in front of
+// the user as a page. What a chord has to say — a failure, or the one word
+// kind has — goes on the status line, in the navigator's message slot, for
+// a few seconds (announce).
 
 // homeName is what the home window is called.
 const homeName = "conn"
@@ -278,6 +279,18 @@ func runShellAt(dir, command string) error {
 	}
 	_, err := ensureHome()
 	return err
+}
+
+// runKind is `conn kind`: the next kind of agent, for the a key and the
+// agent chord alike, said on the status line the way the navigator's ,
+// says it — the corner names the kind from here on, but the change
+// deserves a word where the keys are.
+func runKind() error {
+	k := nextKind(currentKind(tmuxCommand))
+	if err := chooseKind(tmuxCommand, k); err != nil {
+		return err
+	}
+	return announce(tmuxCommand, time.Now(), "a starts "+k.name, false)
 }
 
 // announce puts what a chord has to say on the status line, in the slot the

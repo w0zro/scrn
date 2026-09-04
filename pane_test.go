@@ -539,6 +539,82 @@ func TestStartingAnAgentFromTheFilterEndsTheTyping(t *testing.T) {
 	}
 }
 
+// twoKinds pins the registry to a claude and an ollama whose commands are
+// known, so a test can tell which one a started without either kind
+// looking around the machine.
+func twoKinds(t *testing.T) {
+	t.Helper()
+	withKinds(t, []agentKind{
+		{name: "claude", run: func() string { return "claude" }},
+		{name: "ollama", run: func() string { return "ollama run something" }},
+	}, "", nil)
+}
+
+// nextOpen reads asks until an open comes, which is the one the test is
+// about: the status line's own asks land on the same channel ahead of it.
+func nextOpen(t *testing.T, asked chan message) message {
+	t.Helper()
+	for {
+		got := askedFor(t, asked)
+		if got.Kind == kindOpen {
+			return got
+		}
+	}
+}
+
+func TestCommaMovesAOnToTheNextKindForTheWholeServer(t *testing.T) {
+	// The choice is written to the server, not kept here: the chord from
+	// any shell reads the same option, and so does the a key.
+	twoKinds(t)
+	dir := t.TempDir()
+	m := withProcList(90, 20, []Project{{Name: "alpha", Path: dir}}, nil)
+	m, asked := pipeServer(t, m)
+
+	m = press(m, ",")
+	if got := askedFor(t, asked); got.Kind != kindAgent || got.Name != "ollama" {
+		t.Fatalf("asked %+v, want the server told a starts ollama", got)
+	}
+	if m.status != "a starts ollama" || m.statusErr {
+		t.Errorf("status = %q (err %v), want the change said", m.status, m.statusErr)
+	}
+
+	// a starts what the server was told.
+	m = press(m, "a")
+	if got := nextOpen(t, asked); got.Run != "ollama run something" || got.Dir != dir {
+		t.Fatalf("asked %+v, want ollama started at the place", got)
+	}
+
+	// Once more is around the end, back to claude.
+	m = press(m, ",")
+	if got := askedFor(t, asked); got.Kind != kindAgent || got.Name != "claude" {
+		t.Fatalf("asked %+v, want the server told a starts claude again", got)
+	}
+	press(m, "a")
+	if got := nextOpen(t, asked); got.Run != "claude" {
+		t.Fatalf("asked %+v, want claude started", got)
+	}
+}
+
+func TestCommaWithNoServerSaysSo(t *testing.T) {
+	twoKinds(t)
+	m := withProcList(90, 20, []Project{{Name: "alpha", Path: t.TempDir()}}, nil)
+	m.serverErr = "tmux is not installed"
+
+	m = press(m, ",")
+	if !m.statusErr || !strings.Contains(m.status, "no server") {
+		t.Errorf("status = %q (err %v), want the missing server reported", m.status, m.statusErr)
+	}
+}
+
+func TestTheKeysListTheKindKey(t *testing.T) {
+	f := keysOf()
+	for _, want := range []string{", the next kind of agent", "^spc , the next kind of agent"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("keys = %q, want %q listed", f, want)
+		}
+	}
+}
+
 func TestAHeldShellsRowDrawsItsFactsNotItsScreen(t *testing.T) {
 	// The shell itself is tmux's pane beside the navigator, drawn live. When
 	// the navigator has the window — before the shell has joined it, or in

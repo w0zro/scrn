@@ -1647,6 +1647,7 @@ const (
 	kindHelp  = "help"  // the keys popup asked for
 	kindMode  = "mode"  // the status line's mode chip said
 	kindMsg   = "msg"   // the status line's message said
+	kindAgent = "agent" // the kind of agent a starts, told to the server
 )
 
 // pipeServer gives a model a session whose asks land on the returned
@@ -1671,6 +1672,7 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 	var listing []string
 	shown := 0 // the pid beside the navigator, if any
 	nextPID := 900
+	agent := "" // the kind a starts, as the server holds it; empty until told
 
 	for pid, rt := range terms {
 		id := "%" + strconv.Itoa(pid)
@@ -1753,6 +1755,9 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 				asked <- message{Kind: kindMode, Name: args[len(args)-1]}
 			case has(args, "@conn_msg"):
 				asked <- message{Kind: kindMsg, Name: args[len(args)-1]}
+			case has(args, agentOption):
+				agent = args[len(args)-1]
+				asked <- message{Kind: kindAgent, Name: agent}
 			case has(args, "@conn_name") && opening != nil:
 				// A pane's name lands right after its open, making the ask
 				// whole.
@@ -1787,6 +1792,13 @@ func recordingSession(terms map[int]*remoteTerm) (*session, chan message) {
 			return "", nil
 		case "detach-client":
 			asked <- message{Kind: kindLeave}
+			return "", nil
+		case "show":
+			if has(args, agentOption) {
+				return agent, nil
+			}
+			return "", nil
+		case "refresh-client":
 			return "", nil
 		case "list-clients":
 			return "1\tc0", nil

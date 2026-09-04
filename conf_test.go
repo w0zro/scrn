@@ -15,6 +15,7 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"set -g mouse on",
 		`bind - run-shell "'/opt/my tools/it'\''s/conn' home"`,
 		`bind s run-shell "'/opt/my tools/it'\''s/conn' shell '#{pane_current_path}'"`,
+		`bind , run-shell "'/opt/my tools/it'\''s/conn' kind"`,
 		`bind j run-shell "'/opt/my tools/it'\''s/conn' next"`,
 		"bind C-Space last-pane",
 		`bind ? run-shell "'/opt/my tools/it'\''s/conn' keys '#{client_name}'"`,
@@ -42,6 +43,9 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		"#[fg=" + tp.green + "#,bg=" + tp.bg2 + "#,bold] PROC #[fg=default#,bg=" + tp.bg1 + "#,fill=" + tp.bg1 + "]",
 		"#[fg=" + tp.fg + "#,bg=" + tp.bg2 + "#,bold] NAV ",
 		"#[fg=" + tp.amber + "#,bg=" + tp.bg2 + "#,bold] PREFIX ",
+		// The right corner names the kind a starts: the server's choice
+		// when the window made one, else the config's, known at launch.
+		`set -g status-right "#[fg=` + tp.gray + `]#{?@conn_agent,#{@conn_agent},claude} "`,
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("the configuration lacks %q", want)

@@ -47,6 +47,7 @@ the chords run these; they are not for typing:
   conn home [key]  to the navigator, pressing key there
   conn shell [dir] a shell in dir, shown beside the navigator
   conn agent [dir] an agent in dir, shown beside the navigator
+  conn kind        the next kind of agent, for a and the agent chord
   conn run [dir]   the plan of the place holding dir
   conn jump        the next agent waiting on you
   conn next, prev  the next and previous shell
@@ -106,9 +107,10 @@ func main() {
 			if len(os.Args) > 2 {
 				arg = os.Args[2]
 			}
-			// The chord's agent is the config's, the same as the a key's.
-			// A config that cannot be read is the navigator's to report,
-			// where it is in view; here the defaults stand.
+			// The chord's agent is the a key's: the kind the server was
+			// told, else the config's. A config that cannot be read is the
+			// navigator's to report, where it is in view; here the defaults
+			// stand.
 			cfg, _ := loadConfig()
 			cfg.apply()
 			if !report(chord(arg)) {
@@ -153,7 +155,8 @@ func needHome() error {
 var chords = map[string]func(arg string) error{
 	"home":  runHome,
 	"shell": func(dir string) error { return runShellAt(dir, "") },
-	"agent": func(dir string) error { return runShellAt(dir, startAgent()) },
+	"agent": func(dir string) error { return runShellAt(dir, startAgent(tmuxCommand)) },
+	"kind":  func(string) error { return runKind() },
 	"run":   runPlanAt,
 	"jump":  func(string) error { return runJump() },
 	"next":  func(string) error { return runStep(1) },

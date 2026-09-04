@@ -116,9 +116,9 @@ type conversation struct {
 // default the a key starts when the config names none.
 var agentKinds = []agentKind{claudeKind, ollamaKind}
 
-// The config's say over the kinds: which one a starts, and what starting
-// one runs when the kind's own answer is not the wanted one. Applied at
-// startup beside the navigator's width.
+// The config's say over the kinds: which one a starts until the window
+// says otherwise, and what starting one runs when the kind's own answer is
+// not the wanted one. Applied at startup beside the navigator's width.
 var (
 	defaultAgent = ""
 	agentRuns    map[string]string
@@ -129,9 +129,10 @@ func applyAgentConfig(agent string, runs map[string]string) {
 	defaultAgent, agentRuns = agent, runs
 }
 
-// defaultKind is the kind the a key starts: the config's, or the first one.
-// A name the registry does not know falls back rather than failing — the
-// keystroke should start something, and the status will say what it started.
+// defaultKind is the kind the a key starts until the window says otherwise:
+// the config's, or the first one. A name the registry does not know falls
+// back rather than failing — the keystroke should start something, and the
+// status will say what it started.
 func defaultKind() agentKind {
 	if k, ok := kindNamed(defaultAgent); ok {
 		return k
@@ -149,10 +150,52 @@ func kindNamed(name string) (agentKind, bool) {
 	return agentKind{}, false
 }
 
+// agentOption is the server option that says which kind a starts, when the
+// window has been told to start something other than the config's. The
+// navigator's , and the chord ctrl-space , both write it, and the a key,
+// ctrl-a and the agent chord all read it: they are different processes,
+// and the server is the one thing all of them can see. It lives as long as
+// the server does, so a fresh one starts the config's kind again.
+const agentOption = "@conn_agent"
+
+// currentKind is the kind the a key starts now: the one the server was
+// told, when it names a kind conn knows, else the config's. run is how the
+// server is asked; nil — no server — is the config's answer.
+func currentKind(run runner) agentKind {
+	if run != nil {
+		if out, err := run("show", "-gqv", agentOption); err == nil {
+			if k, ok := kindNamed(strings.TrimSpace(out)); ok {
+				return k
+			}
+		}
+	}
+	return defaultKind()
+}
+
+// nextKind is the kind after k in the registry, around the end: with two
+// kinds it is the other one.
+func nextKind(k agentKind) agentKind {
+	for i, cur := range agentKinds {
+		if cur.name == k.name {
+			return agentKinds[(i+1)%len(agentKinds)]
+		}
+	}
+	return agentKinds[0]
+}
+
+// chooseKind tells the server which kind a starts, for every window and
+// chord at once, and has the status line's corner say so now rather than
+// at its next tick.
+func chooseKind(run runner, k agentKind) error {
+	_, err := run("set", "-g", agentOption, k.name, ";", "refresh-client", "-S")
+	return err
+}
+
 // startAgent is the command the a key runs: the config's override for the
-// default kind, or the kind's own resolution.
-func startAgent() string {
-	k := defaultKind()
+// current kind, or the kind's own resolution. run asks the server which
+// kind that is; nil means the config's.
+func startAgent(run runner) string {
+	k := currentKind(run)
 	if run := agentRuns[k.name]; run != "" {
 		return run
 	}

@@ -109,7 +109,10 @@ with the picker open, and
 .B CONFIRM
 while a kill waits on its second key. Then anything conn has to say \(em
 a report, an error, a confirmation \(em until the next key; what a chord
-says, from any shell, shows there too, for a few seconds.
+says, from any shell, shows there too, for a few seconds. The right
+corner names the kind of agent
+.B a
+starts.
 .SS In the navigator
 .TP
 .B "j k"
@@ -134,6 +137,12 @@ says otherwise
 .B A
 continue a suspended conversation there: the place's past agent sessions,
 newest first and searchable
+.TP
+.B ,
+the next kind of agent for
+.B a
+to start \(em claude, ollama, claude \(em for the whole server, until it
+goes
 .TP
 .B r
 run the plan's entries that are not already running, each in a window of
@@ -262,6 +271,9 @@ pane's directory
 .B A
 the navigator, with the picker open
 .TP
+.B ,
+the next kind of agent, from any shell
+.TP
 .B v
 read back: tmux's copy mode over the transcript, with vi keys \(em
 .B v
@@ -285,8 +297,21 @@ otherwise.
 .SH AGENTS
 .B a
 starts an agent in a shell like any other. conn knows agents as kinds
-\(em claude and ollama today \(em and each shows only what its tool
-advertises. Claude Code advertises everything; conn reads the session
+\(em claude and ollama today \(em and starts the config's,
+.B claude
+unless it says otherwise;
+.B ,
+at the navigator, or
+.B ctrl\-space ,
+from any shell, moves
+.B a
+on to the next kind, around the end. The choice is the server's rather
+than one window's: every
+.BR a ,
+.B ctrl\-a
+and agent chord starts it, the status line's right corner names it, and
+it holds until the server goes, when the config's kind is back. Each
+kind shows only what its tool advertises. Claude Code advertises everything; conn reads the session
 files it leaves behind, and marks each instance in the navigator: a
 spinner while it works, a diamond (\[u25C6]) when it is blocked mid\-turn on
 a permission prompt or a question, a filled dot (\[u25CF]) when it has
@@ -394,7 +419,9 @@ rather than slots, so the config says which side.
 .B agent
 the kind of agent
 .B a
-starts:
+starts, until
+.B ,
+says otherwise:
 .B claude
 (the default) or
 .BR ollama .
@@ -445,6 +472,7 @@ itself with a word \(em
 .BR home ,
 .BR shell ,
 .BR agent ,
+.BR kind ,
 .BR run ,
 .BR jump ,
 .BR next ,

@@ -27,14 +27,86 @@ func TestTheConfigPicksTheKindTheAKeyStarts(t *testing.T) {
 	}
 
 	withKinds(t, kinds, "ollama", nil)
-	if got := startAgent(); got != "ollama run something" {
+	if got := startAgent(nil); got != "ollama run something" {
 		t.Errorf("startAgent = %q, want the config's kind", got)
 	}
 
 	// A name conn does not know starts something rather than nothing.
 	withKinds(t, kinds, "cursor", nil)
-	if got := startAgent(); got != "claude" {
+	if got := startAgent(nil); got != "claude" {
 		t.Errorf("startAgent = %q, want the fallback to the first kind", got)
+	}
+}
+
+// serverSaying is a runner standing in for a server whose agent option
+// reads as answer: the show that asks for it gets that, and every other
+// command — the set that chooses — is recorded and succeeds.
+func serverSaying(answer string, asked *[][]string) runner {
+	return func(args ...string) (string, error) {
+		if asked != nil {
+			*asked = append(*asked, args)
+		}
+		if len(args) > 0 && args[0] == "show" {
+			return answer + "\n", nil
+		}
+		return "", nil
+	}
+}
+
+func TestTheWindowsChoiceOfKindOutranksTheConfigs(t *testing.T) {
+	kinds := []agentKind{
+		{name: "claude", run: func() string { return "claude" }},
+		{name: "ollama", run: func() string { return "ollama run something" }},
+	}
+	withKinds(t, kinds, "claude", map[string]string{"ollama": "ollama run mistral"})
+
+	// The server says ollama: a starts it, through the config's override
+	// for that kind, the same as if the config had named it.
+	if got := startAgent(serverSaying("ollama", nil)); got != "ollama run mistral" {
+		t.Errorf("startAgent = %q, want the kind the server was told, as the config runs it", got)
+	}
+	// The server says nothing, or something conn does not know: the
+	// config's kind stands.
+	for _, said := range []string{"", "cursor"} {
+		if got := startAgent(serverSaying(said, nil)); got != "claude" {
+			t.Errorf("server saying %q: startAgent = %q, want the config's kind", said, got)
+		}
+	}
+	// No server at all is the config's answer too, not a crash.
+	if got := startAgent(nil); got != "claude" {
+		t.Errorf("startAgent = %q with no server, want the config's kind", got)
+	}
+}
+
+func TestTheNextKindGoesAroundTheRegistry(t *testing.T) {
+	kinds := []agentKind{{name: "claude"}, {name: "ollama"}}
+	withKinds(t, kinds, "", nil)
+
+	if got := nextKind(kinds[0]).name; got != "ollama" {
+		t.Errorf("after claude = %q, want ollama", got)
+	}
+	if got := nextKind(kinds[1]).name; got != "claude" {
+		t.Errorf("after ollama = %q, want claude, around the end", got)
+	}
+	if got := nextKind(agentKind{name: "gone"}).name; got != "claude" {
+		t.Errorf("after an unregistered kind = %q, want the first", got)
+	}
+}
+
+func TestChoosingAKindTellsTheServer(t *testing.T) {
+	var asked [][]string
+	if err := chooseKind(serverSaying("", &asked), agentKind{name: "ollama"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 {
+		t.Fatalf("asked = %v, want one command", asked)
+	}
+	got := strings.Join(asked[0], " ")
+	if !strings.HasPrefix(got, "set -g "+agentOption+" ollama") {
+		t.Errorf("asked %q, want the option set to the kind", got)
+	}
+	if !strings.Contains(got, "refresh-client -S") {
+		t.Errorf("asked %q, want the status line refreshed with it", got)
 	}
 }
 
@@ -43,7 +115,7 @@ func TestTheConfigOverridesWhatStartingAKindRuns(t *testing.T) {
 		{name: "ollama", run: func() string { return "ollama run guessed" }},
 	}, "ollama", map[string]string{"ollama": "ollama run mistral"})
 
-	if got := startAgent(); got != "ollama run mistral" {
+	if got := startAgent(nil); got != "ollama run mistral" {
 		t.Errorf("startAgent = %q, want the override", got)
 	}
 }

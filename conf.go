@@ -44,7 +44,8 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"# The keys. ctrl-space is the prefix, and each chord keeps its letter's",
 		"# meaning: - is the navigator, j and k the next and previous shell, enter",
 		"# the next agent waiting on you, s a r a shell, an agent, the plan where",
-		"# the keys are. Every chord tmux would otherwise bind is unbound first;",
+		"# the keys are, and , the next kind of agent for a to start. Every",
+		"# chord tmux would otherwise bind is unbound first;",
 		"# the root table is left as tmux has it, which is the mouse.",
 		"set -g prefix C-Space",
 		"unbind -a",
@@ -58,6 +59,7 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"bind s "+run("shell '#{pane_current_path}'"),
 		"bind a "+run("agent '#{pane_current_path}'"),
 		"bind A "+run("home A"),
+		"bind , "+run("kind"),
 		"bind r "+run("run '#{pane_current_path}'"),
 		"bind v copy-mode",
 		"bind q detach-client",
@@ -115,8 +117,10 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"# prefix while a chord hangs, copy mode, the navigator's own when it",
 		"# has one to name, else which pane the keys are in — then what the",
 		"# navigator says, or — for a few seconds, over it — what a chord said.",
-		"# The window list tmux would draw is turned off: the windows are where",
-		"# shells wait, and the navigator is the list of them.",
+		"# The right corner names the kind of agent a starts:",
+		"# the one the window chose, else the config's. The window list tmux",
+		"# would draw is turned off: the windows are where shells wait, and",
+		"# the navigator is the list of them.",
 		"set -g status on",
 		"set -g status-position bottom",
 		"set -g status-interval 1",
@@ -124,7 +128,7 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"set -g status-left-length 400",
 		`set -g status-style "bg=`+tp.bg1+`,fg=`+tp.gray+`"`,
 		`set -g status-left "`+statusLeft()+`"`,
-		`set -g status-right ""`,
+		`set -g status-right "`+statusRight()+`"`,
 		`set -g window-status-separator ""`,
 		`set -g window-status-format ""`,
 		`set -g window-status-current-format ""`,
@@ -157,6 +161,14 @@ const noteFor = 4 * time.Second
 // current, else what the navigator said.
 func messageSlot() string {
 	return "#{?#{e|<:#{T:" + nowOption + "}," + untilOption + "},#{" + noteOption + "},#{" + msgOption + "}}"
+}
+
+// statusRight is the status line's corner: the kind of agent a starts,
+// dim. The server's option when the window has chosen one — the format
+// reads it live, so a choice shows the moment it is made — else the
+// config's kind, which the launcher knows when it writes this.
+func statusRight() string {
+	return "#[fg=" + tp.gray + "]#{?" + agentOption + ",#{" + agentOption + "}," + defaultKind().name + "} "
 }
 
 // statusLeft is the status line's format: conn's name, the mode, then the
