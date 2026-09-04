@@ -36,7 +36,7 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		// The message slot: a chord's note while the clock has not reached
 		// its end, else the navigator's message. The clock is an option
 		// holding %s, which T: expands.
-		"#{?#{e|<:#{T:@conn_now},@conn_until},#{@conn_note},#{@conn_msg}}",
+		"#{?#{e|<:#{T:@conn_now},#{@conn_until}},#{@conn_note},#{@conn_msg}}",
 		`set -g @conn_now "%s"`,
 		// Each mode is a chip on a dark ground of its color with the rest of
 		// the line washed in it, the commas escaped for the conditional.

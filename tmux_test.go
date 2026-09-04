@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,45 @@ func TestAFailureTmuxOnlyMentionsIsStillAFailure(t *testing.T) {
 	_, err := tmuxCommand("start-server")
 	if err == nil || !strings.Contains(err.Error(), "error creating") {
 		t.Fatalf("err = %v, want tmux's own complaint about the socket", err)
+	}
+}
+
+// TestTheMessageSlotShowsAFreshNoteOverTheMessage runs the status line's
+// message-slot format against a real server, because its bug was a runtime
+// one a string match could not see: whether a chord's note shows turns on
+// #{e|<:} comparing the clock to @conn_until, and an option named there but
+// not expanded compares as nothing. A fresh note must win the slot; a stale
+// one must yield to the navigator's message.
+func TestTheMessageSlotShowsAFreshNoteOverTheMessage(t *testing.T) {
+	tmuxOnSocket(t)
+	if _, err := tmuxCommand("new-session", "-d", "-s", tmuxSession, "-x", "50", "-y", "8", "cat"); err != nil {
+		t.Fatal(err)
+	}
+	// The clock the format reads, and a note and a message told apart by name.
+	for _, kv := range [][2]string{{nowOption, "%s"}, {noteOption, "THE-NOTE"}, {msgOption, "THE-MSG"}} {
+		if _, err := tmuxCommand("set", "-g", kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	slot := func() string {
+		out, err := tmuxCommand("display-message", "-p", messageSlot())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(out)
+	}
+	// A note whose end is still ahead takes the slot.
+	if _, err := tmuxCommand("set", "-g", untilOption, strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)); err != nil {
+		t.Fatal(err)
+	}
+	if got := slot(); got != "THE-NOTE" {
+		t.Errorf("a fresh note showed %q, want the note", got)
+	}
+	// One whose end has passed yields to the navigator's message.
+	if _, err := tmuxCommand("set", "-g", untilOption, strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)); err != nil {
+		t.Fatal(err)
+	}
+	if got := slot(); got != "THE-MSG" {
+		t.Errorf("a stale note showed %q, want the message under it", got)
 	}
 }

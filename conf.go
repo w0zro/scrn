@@ -161,7 +161,7 @@ const noteFor = 4 * time.Second
 // messageSlot is the status line's message slot: a chord's note while one is
 // current, else what the navigator said.
 func messageSlot() string {
-	return "#{?#{e|<:#{T:" + nowOption + "}," + untilOption + "},#{" + noteOption + "},#{" + msgOption + "}}"
+	return "#{?#{e|<:#{T:" + nowOption + "},#{" + untilOption + "}},#{" + noteOption + "},#{" + msgOption + "}}"
 }
 
 // statusRight is the status line's corner: the kind of agent a starts,
