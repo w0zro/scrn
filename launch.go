@@ -18,7 +18,7 @@ import (
 // configuration, makes sure the home window exists with the navigator down
 // its left, and hands the terminal to tmux. The chords the configuration
 // binds run this same binary with a word — home, shell, agent, kind, run,
-// jump, next, prev, keys — each a short command against the server that
+// jump, back, next, prev, keys — each a short command against the server that
 // says nothing on stdout: run-shell would put anything printed in front of
 // the user as a page. What a chord has to say — a failure, or the one word
 // kind has — goes on the status line, in the navigator's message slot, for
@@ -385,6 +385,16 @@ func report(err error) bool {
 // which is in view from every shell.
 func runJump() error {
 	return tell("Tab")
+}
+
+// runBack is `conn back`: the keys back where they were — the shell before
+// this one, or the navigator — which is the navigator's shift-tab: it is
+// the one that sent them everywhere they have been, so it is the one that
+// knows. tmux's own last-pane cannot: it remembers a pane within a window,
+// and a shell shown beside the navigator is a pane moved into the home
+// window, whose predecessor was moved out — tmux forgets a pane that left.
+func runBack() error {
+	return tell("BTab")
 }
 
 // runStep is `conn next` and `conn prev`: the shell after or before the one

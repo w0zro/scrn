@@ -3793,3 +3793,120 @@ func TestJReachesAShellOutsideEveryPlace(t *testing.T) {
 		t.Errorf("previewing = %d, want the shell J showed to stay shown", m.previewing)
 	}
 }
+
+// --- back -----------------------------------------------------------------
+
+// twoShells is a navigator over two places with a held shell in each, wired
+// to the recording server: alpha's shell is 701, beta's 700.
+func twoShells(t *testing.T) (model, chan message) {
+	t.Helper()
+	m := withProcList(90, 14,
+		[]Project{{Name: "alpha", Path: "/p/alpha"}, {Name: "beta", Path: "/p/beta"}},
+		[]Proc{
+			{PID: 700, PPID: 1, Command: "zsh", Dir: "/p/beta"},
+			{PID: 701, PPID: 1, Command: "zsh", Dir: "/p/alpha"},
+		})
+	m.terms = map[int]*remoteTerm{700: {pid: 700, dir: "/p/beta"}, 701: {pid: 701, dir: "/p/alpha"}}
+	return pipeServer(t, m)
+}
+
+func TestBackReturnsToTheShellBeforeThisOne(t *testing.T) {
+	// The chord ctrl-space ctrl-space presses shift-tab here. From a shell
+	// reached from another shell, back is that other shell, and back again
+	// is this one: the last two, however the pane beside the list has been
+	// rearranged since.
+	m, asked := twoShells(t)
+	m = press(m, "J") // to alpha's shell, 701
+	askedForKind(t, asked, kindFocus)
+	m = press(m, "J") // on to beta's, 700
+	askedForKind(t, asked, kindFocus)
+	if m.focus != 700 || m.was != 701 {
+		t.Fatalf("focus %d, was %d; want the keys in 700 from 701", m.focus, m.was)
+	}
+
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 701 {
+		t.Fatalf("back took the keys to %d, want the shell before, 701", got.PID)
+	}
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 700 {
+		t.Fatalf("back again took the keys to %d, want 700", got.PID)
+	}
+}
+
+func TestBackFromAShellReachedFromTheListIsTheList(t *testing.T) {
+	m, asked := twoShells(t)
+	m = press(m, "J")
+	askedForKind(t, asked, kindFocus)
+
+	// The keys came from the list, so back is the list: its pane, which the
+	// fake numbers zero.
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 0 {
+		t.Fatalf("back took the keys to %d, want the navigator", got.PID)
+	}
+	if m.focus != 0 || m.was != 701 {
+		t.Errorf("focus %d, was %d; want the keys at the list, from 701", m.focus, m.was)
+	}
+	// And from the list, back is the shell again.
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 701 {
+		t.Fatalf("back took the keys to %d, want the shell 701", got.PID)
+	}
+}
+
+func TestTheMouseMovingTheKeysCountsAsAMove(t *testing.T) {
+	// A click on the shell beside the list blurs the navigator; a click
+	// back focuses it. Neither goes through a key, and both are moves
+	// back should know about.
+	m, asked := twoShells(t)
+	m = press(m, "down") // the cursor on alpha, whose shell is shown beside the list
+	askedForKind(t, asked, kindShow)
+	if m.previewing != 701 {
+		t.Fatalf("previewing %d, want alpha's shell shown", m.previewing)
+	}
+	next, _ := m.Update(tea.BlurMsg{})
+	m = next.(model)
+	if m.focus != 701 {
+		t.Fatalf("focus %d after a blur, want the shown shell", m.focus)
+	}
+	next, _ = m.Update(tea.FocusMsg{})
+	m = next.(model)
+	if m.focus != 0 || m.was != 701 {
+		t.Fatalf("focus %d, was %d after focus; want the list, from 701", m.focus, m.was)
+	}
+	// Blurring again, into the same shell, is not a second move: back
+	// would otherwise think the shell came from itself.
+	next, _ = m.Update(tea.BlurMsg{})
+	next, _ = next.(model).Update(tea.FocusMsg{})
+	m = next.(model)
+	if m.was != 701 {
+		t.Errorf("was %d, want 701 still", m.was)
+	}
+}
+
+func TestBackWithNowhereToGoSaysSoOrTakesTheOtherPane(t *testing.T) {
+	m, asked := twoShells(t)
+	// The keys have been nowhere and no shell is shown: nothing to do.
+	m = press(m, "shift+tab")
+	if m.status != "no shell to go back to" {
+		t.Errorf("status = %q, want the lack said", m.status)
+	}
+	// A shell shown beside the list is the other pane, and back goes there
+	// even with no history.
+	m = press(m, "down")
+	askedForKind(t, asked, kindShow)
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 701 {
+		t.Fatalf("back took the keys to %d, want the shown shell", got.PID)
+	}
+	// The shell the keys came from has gone: back from the list falls to
+	// what is shown; back from a shell falls to the list.
+	m = press(m, "J") // 700, from 701
+	askedForKind(t, asked, kindFocus)
+	delete(m.terms, 701)
+	m = press(m, "shift+tab")
+	if got := askedForKind(t, asked, kindFocus); got.PID != 0 {
+		t.Fatalf("back took the keys to %d, want the navigator when the last shell is gone", got.PID)
+	}
+}

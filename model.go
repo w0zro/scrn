@@ -277,6 +277,14 @@ type model struct {
 	// again when this changes.
 	previewing int
 
+	// focus is where the keys are, as far as the navigator knows: zero for
+	// the navigator itself, else the pid of the shell holding them. was is
+	// where they were before that — the other end of ctrl-space ctrl-space.
+	// The navigator sends the keys everywhere they go but by the mouse,
+	// and the mouse can only move them between it and the shell beside
+	// it, which its own focus coming and going says.
+	focus, was int
+
 	// previewKey is the row the pane was last arranged for. The pane
 	// follows the cursor, so it is only rearranged when the cursor is on a
 	// different row than it was — the world changing under a cursor that
@@ -406,6 +414,14 @@ func (m model) update(msg tea.Msg) (model, tea.Cmd) {
 		// the next key, and the next key is not coming: a kill left armed
 		// would fire on the first letter typed back into the list.
 		m.pendingKill, m.pendingReplace, m.pendingG = nil, false, false
+		// To the shell beside the list, when there is one: the navigator
+		// took them to any other itself, and said so then.
+		if m.previewing != 0 {
+			m.keysTo(m.previewing)
+		}
+
+	case tea.FocusMsg:
+		m.keysTo(0)
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -783,6 +799,10 @@ func (m model) keyPress(msg tea.KeyPressMsg) (model, tea.Cmd) {
 		// turn: the summons the chord ctrl-space enter delivers from
 		// any shell, at the list.
 		return m, m.jumpWaiting()
+	case "shift+tab":
+		// Back where the keys were: the chord ctrl-space ctrl-space,
+		// from any shell, at the list.
+		return m, m.back()
 	case "space":
 		m.toggleCollapse()
 		return m, nil
@@ -858,6 +878,10 @@ func (m *model) filterKey(msg tea.KeyPressMsg) tea.Cmd {
 		// The summons reaches through the look: the waiting agent lives in
 		// the whole list, and going to it is the end of looking.
 		return m.jumpWaiting()
+	case "shift+tab":
+		// Going back is too: the chord reaches the list while a look
+		// is still typed, and the key means what it means.
+		return m.back()
 
 	// The chords mean what their letters mean. Starting what a project needs
 	// is the end of looking for it, so the search closes and leaves the cursor
@@ -1074,7 +1098,46 @@ func (m *model) show(t *remoteTerm) {
 	}
 	m.previewing, m.previewKey = t.pid, m.cursorKey()
 	m.keepColumn()
+	m.keysTo(t.pid)
 	m.server.show(t.pid)
+}
+
+// keysTo records that the keys have gone to pid — zero for the navigator
+// — keeping where they were, when that is somewhere else. Where they
+// already are is not a move: the navigator's own blur after it sent the
+// keys somewhere says the same thing twice.
+func (m *model) keysTo(pid int) {
+	if pid != m.focus {
+		m.was, m.focus = m.focus, pid
+	}
+}
+
+// back takes the keys back where they were: the shell they were in before
+// this one, or the navigator, whichever it was — the chord ctrl-space
+// ctrl-space, from anywhere. A shell that has gone since is no place to
+// go; then, and before the keys have been anywhere, back is the other
+// pane of the home window: the shell beside the list, or the list. From
+// the list with no shell shown there is nowhere, which is said.
+func (m *model) back() tea.Cmd {
+	target := m.was
+	if target != 0 && m.terms[target] == nil {
+		target = 0
+	}
+	if target == 0 && m.focus == 0 {
+		target = m.previewing
+	}
+	if target == 0 {
+		if m.focus == 0 {
+			m.status, m.statusErr = "no shell to go back to", false
+			return nil
+		}
+		m.keysTo(0)
+		m.server.home()
+		return nil
+	}
+	m.letGo()
+	m.show(m.terms[target])
+	return nil
 }
 
 // keepColumn holds the navigator to its column while a shell is shown
@@ -1099,6 +1162,7 @@ func (m *model) showPID(pid int) {
 	m.previewing, m.previewKey = pid, m.cursorKey()
 	m.keepColumn()
 	m.wantCursor = pid
+	m.keysTo(pid)
 	m.server.show(pid)
 }
 

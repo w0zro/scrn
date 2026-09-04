@@ -50,6 +50,7 @@ the chords run these; they are not for typing:
   conn kind        the next kind of agent, for a and the agent chord
   conn run [dir]   the plan of the place holding dir
   conn jump        the next agent waiting on you
+  conn back        back where the keys were: the last shell, or the navigator
   conn next, prev  the next and previous shell
 
 files:
@@ -159,6 +160,7 @@ var chords = map[string]func(arg string) error{
 	"kind":  func(string) error { return runKind() },
 	"run":   runPlanAt,
 	"jump":  func(string) error { return runJump() },
+	"back":  func(string) error { return runBack() },
 	"next":  func(string) error { return runStep(1) },
 	"prev":  func(string) error { return runStep(-1) },
 	"keys":  func(client string) error { return showKeys(tmuxCommand, connExe(), client) },

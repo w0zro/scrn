@@ -542,6 +542,25 @@ func (s *session) show(pid int) {
 	s.place(placement{pid: pid, focus: true})
 }
 
+// home takes the keys to the navigator, from wherever they are: its
+// window, and its pane in it.
+func (s *session) home() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	nav := s.nav
+	s.mu.Unlock()
+	if nav == "" {
+		return
+	}
+	go func() {
+		if _, err := s.run("select-window", "-t", nav, ";", "select-pane", "-t", nav); err != nil {
+			s.events <- serverErrorMsg{err: err}
+		}
+	}()
+}
+
 // preview puts a shell in the pane beside the navigator without taking the
 // keys from wherever they are — the cursor has landed on its row. Zero puts
 // the shown shell back in a window of its own and leaves the navigator the

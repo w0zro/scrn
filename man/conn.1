@@ -154,6 +154,10 @@ the keys to the selected shell, beside the list
 .B tab
 go to the next agent waiting on you; again continues around them
 .TP
+.B shift\-tab
+back where the keys were: the shell they were in before this one, or the
+navigator
+.TP
 .B space
 fold or unfold the selected node
 .TP
@@ -256,7 +260,9 @@ to the navigator, from any shell
 the next and previous shell, in the navigator's order
 .TP
 .B ctrl\-space
-again \(em between the navigator and the shell
+again \(em back where the keys were: the shell before this one, or the
+navigator, whichever it was, and again returns. Before the keys have been
+anywhere it is the other pane of the home window
 .TP
 .B enter
 the next agent waiting on you; again continues around them
@@ -475,6 +481,7 @@ itself with a word \(em
 .BR kind ,
 .BR run ,
 .BR jump ,
+.BR back ,
 .BR next ,
 .BR prev ,
 .B keys

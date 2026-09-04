@@ -17,7 +17,7 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		`bind s run-shell "'/opt/my tools/it'\''s/conn' shell '#{pane_current_path}'"`,
 		`bind , run-shell "'/opt/my tools/it'\''s/conn' kind"`,
 		`bind j run-shell "'/opt/my tools/it'\''s/conn' next"`,
-		"bind C-Space last-pane",
+		`bind C-Space run-shell "'/opt/my tools/it'\''s/conn' back"`,
 		`bind ? run-shell "'/opt/my tools/it'\''s/conn' keys '#{client_name}'"`,
 		"bind v copy-mode",
 		"bind q detach-client",
