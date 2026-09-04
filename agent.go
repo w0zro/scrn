@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -94,16 +95,34 @@ func agentKindOf(n *ProcNode) (agentKind, bool) {
 	return agentKind{}, false
 }
 
-// agentLabel names an agent row: the kind, and the model its invocation
-// names when it names one. "claude --resume <id>" is just claude; "ollama
-// run mistral" is "ollama · mistral"; "ollama launch claude --model
-// gemma4-code" is "ollama · gemma4-code". The invocation in full — the
-// resume id, the flags — is the detail pane's to keep, not the row's.
-func agentLabel(k agentKind, argv string) string {
-	if model := agentModel(argv); model != "" {
-		return k.name + " · " + model
+// modeled is an agent that knows the model it is running. Not every kind
+// does through an instance — an ollama REPL names its model on the command
+// line, not in anything it advertises — so a row asks by this optional seam
+// rather than by the agent interface every kind fills.
+type modeled interface{ model() string }
+
+// agentLabel names an agent row: the kind, and the model beside it when one
+// is known. "claude --resume <id>" is just claude; a claude running opus is
+// "claude · opus-4-8"; "ollama run mistral" is "ollama · mistral". The
+// invocation in full — the resume id, the flags — and the model's exact id
+// are the detail pane's to keep, not the row's.
+func agentLabel(k agentKind, model string) string {
+	if model == "" {
+		return k.name
 	}
-	return k.name
+	return k.name + " · " + shortModel(model)
+}
+
+// snapshotDate is the -YYYYMMDD a pinned model id carries at its end.
+var snapshotDate = regexp.MustCompile(`-\d{8}$`)
+
+// shortModel trims a model id to what identifies it at a glance: the claude-
+// every Claude model shares, and the snapshot date a pinned one carries.
+// gemma4-code and mistral are already what you would call them, so they are
+// left as they are.
+func shortModel(id string) string {
+	id = strings.TrimPrefix(id, "claude-")
+	return snapshotDate.ReplaceAllString(id, "")
 }
 
 // agentModel is the model an agent invocation names, or nothing. It reads

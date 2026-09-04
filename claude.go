@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -84,6 +85,8 @@ func asAgents(sessions map[int]claudeSession) map[int]agent {
 func (s claudeSession) command() string { return claudeCommand }
 
 func (s claudeSession) id() string { return s.SessionID }
+
+func (s claudeSession) model() string { return s.Model }
 
 func (s claudeSession) working() bool { return s.Status == busyStatus }
 
@@ -160,6 +163,10 @@ func claudeSessions() map[int]claudeSession {
 		}
 		s, ok := readSessionFile(filepath.Join(claudeDir(), "sessions", name))
 		if ok {
+			// The model the navigator's row names. It is the one thing the
+			// scan takes from the transcript, and only because a session's
+			// model holds steady enough to read once and keep.
+			s.Model = sessionModel(s)
 			out[s.PID] = s
 		}
 	}
@@ -188,6 +195,64 @@ func readSessionFile(path string) (claudeSession, bool) {
 		s.StatusFor = max(time.Since(time.UnixMilli(f.StatusUpdatedAt)), 0)
 	}
 	return s, true
+}
+
+// modelCache keeps each session's model by id. The model a running instance
+// is using is in its transcript, not its small session file, and the
+// transcript is the read the scan is built to skip. A session's model holds
+// steady, so it is read once — the tail, the light read the picker uses —
+// and kept by session id; a switch mid-session is the detail pane's to show
+// live, off its own full read.
+var (
+	modelCacheMu sync.Mutex
+	modelCache   = map[string]string{}
+)
+
+// sessionModel is the model a running session is using, read once from its
+// transcript and cached by session id. It is empty until the transcript has
+// a turn to read the model from, and is not cached until it does, so a
+// session that has not spoken yet is asked again rather than remembered as
+// nothing.
+func sessionModel(s claudeSession) string {
+	if s.SessionID == "" {
+		return ""
+	}
+	modelCacheMu.Lock()
+	m, ok := modelCache[s.SessionID]
+	modelCacheMu.Unlock()
+	if ok {
+		return m
+	}
+	m = readModel(transcriptPath(s))
+	if m != "" {
+		modelCacheMu.Lock()
+		modelCache[s.SessionID] = m
+		modelCacheMu.Unlock()
+	}
+	return m
+}
+
+// readModel reads a transcript's tail for the model of its most recent turn.
+// It is readTranscript's model alone, for the scan rather than the pane:
+// the row names the model, and that one field is all it wants.
+func readModel(path string) string {
+	lines, err := tailLines(path, convoTail)
+	if err != nil {
+		return ""
+	}
+	for _, line := range slices.Backward(lines) {
+		var rec transcriptLine
+		if err := json.Unmarshal(line, &rec); err != nil {
+			continue
+		}
+		if rec.IsSidechain {
+			continue
+		}
+		if rec.Message.Model != "" {
+			return rec.Message.Model
+		}
+	}
+	return ""
 }
 
 // encodePath is how Claude Code names a project's transcript directory: every

@@ -259,7 +259,7 @@ func (m model) rowLabel(r navRow) string {
 	// plan's name — an agent is named for its kind, not the entry that
 	// happened to start it.
 	if k, ok := agentKindOf(r.node); ok {
-		name = agentLabel(k, r.node.Argv)
+		name = agentLabel(k, m.agentModelOf(r.node))
 	} else if planned := m.plannedName(r); planned != "" && !tellsMore(name, planned) {
 		// A shell a project asked for is called what the project calls it,
 		// unless what is running in it says more. "dev" is a fine name for a
@@ -274,6 +274,20 @@ func (m model) rowLabel(r navRow) string {
 		return name + " " + strconv.Itoa(r.node.PID)
 	}
 	return name
+}
+
+// agentModelOf is the model an agent row shows: the one its invocation
+// names, else the one the live instance advertises. ollama names its model
+// on the command line; claude keeps it in the transcript, which the scan
+// reads for the row and folds into the instance.
+func (m model) agentModelOf(n *ProcNode) string {
+	if model := agentModel(n.Argv); model != "" {
+		return model
+	}
+	if a, ok := m.agents[n.PID].(modeled); ok {
+		return a.model()
+	}
+	return ""
 }
 
 // plannedName is what a project called the shell a row stands for.

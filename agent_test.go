@@ -302,9 +302,29 @@ func TestAnAgentRowIsNamedForItsKindAndModel(t *testing.T) {
 		if k.name != c.kind {
 			t.Errorf("%s: kind = %q, want %q", c.name, k.name, c.kind)
 		}
-		if got := agentLabel(k, c.proc.Argv); got != c.want {
+		if got := agentLabel(k, agentModel(c.proc.Argv)); got != c.want {
 			t.Errorf("%s: agentLabel = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+func TestAModelIdReadsAsWhatYouCallIt(t *testing.T) {
+	cases := map[string]string{
+		"claude-opus-4-8":           "opus-4-8",
+		"claude-sonnet-5":           "sonnet-5",
+		"claude-haiku-4-5-20251001": "haiku-4-5", // the pinned snapshot date drops
+		"gemma4-code":               "gemma4-code",
+		"mistral":                   "mistral",
+		"":                          "",
+	}
+	for id, want := range cases {
+		if got := shortModel(id); got != want {
+			t.Errorf("shortModel(%q) = %q, want %q", id, got, want)
+		}
+	}
+	// The whole label: a claude advertising opus reads as claude · opus-4-8.
+	if got := agentLabel(agentKind{name: "claude"}, "claude-opus-4-8"); got != "claude · opus-4-8" {
+		t.Errorf("agentLabel = %q, want the model trimmed", got)
 	}
 }
 

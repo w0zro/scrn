@@ -1452,6 +1452,18 @@ func TestABusyClaudeTurns(t *testing.T) {
 	}
 }
 
+func TestAClaudeRowShowsTheModelItAdvertises(t *testing.T) {
+	// The invocation names no model — a claude picks one up from the
+	// transcript, not the command line — so the row shows what the instance
+	// advertises, trimmed to what you would call it.
+	m := withClaude("claude", map[int]claudeSession{
+		700: {PID: 700, Name: "conn-1f", Status: busyStatus, Model: "claude-opus-4-8"},
+	})
+	if row := navColumn(m)[1]; !strings.Contains(row, "claude · opus-4-8") {
+		t.Errorf("row = %q, want the advertised model beside the kind", row)
+	}
+}
+
 func TestAWorkingInstanceSetsTheMarkersTurning(t *testing.T) {
 	m := withClaude("claude", nil)
 	if m.spinning {
