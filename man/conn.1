@@ -317,7 +317,18 @@ closes the list. A conversation an instance is still carrying is not
 offered.
 .PP
 A kind that advertises nothing \(em an ollama REPL \(em is still an
-agent to start: its rows are plain processes, unmarked.
+agent to start: its rows are plain processes, unmarked. Ollama runs the
+model most recently pulled or run, read from the manifests it keeps
+under
+.I ~/.ollama/models
+(or
+.BR $OLLAMA_MODELS ),
+so the pick needs no daemon; the REPL itself does, and says so in the
+shell when it is not up. With nothing pulled,
+.B a
+runs
+.B ollama list
+there instead, which says the true thing.
 .SH PLANS
 A project writes down its usual processes in
 .IR .conn ,
@@ -392,7 +403,8 @@ A name conn does not know falls back to the default
 what starting a kind runs, by name, when its own answer is not the
 wanted one \(em
 .B {"ollama": "ollama run mistral"}
-picks the model ollama would otherwise guess at (its first listed)
+picks the model ollama would otherwise guess at (the one most recently
+pulled or run)
 .TP
 .B skipDirs
 directory names the repository scan never enters, on top of the built\-in

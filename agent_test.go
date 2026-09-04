@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -105,6 +108,67 @@ func TestTheFirstOllamaModelIsRead(t *testing.T) {
 	}
 	if got := firstOllamaModel(""); got != "" {
 		t.Errorf("model = %q, want nothing from no answer", got)
+	}
+}
+
+func TestOllamasModelsAreReadOffTheDiskNewestFirst(t *testing.T) {
+	// A pulled model is a manifest file under manifests/<registry>/
+	// <namespace>/<model>/<tag>; the names are shortened the way ollama
+	// list shortens them, and the newest manifest comes first, which is
+	// the model most recently pulled or run.
+	dir := t.TempDir()
+	manifests := filepath.Join(dir, "manifests")
+	write := func(rel string, when time.Time) {
+		t.Helper()
+		path := filepath.Join(manifests, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	write("registry.ollama.ai/library/qwen2.5-coder/7b", now.Add(-2*time.Hour))
+	write("registry.ollama.ai/library/llama3.2/latest", now)
+	write("registry.ollama.ai/someone/finetune/v2", now.Add(-time.Hour))
+	write("hub.example.com/library/other/1b", now.Add(-3*time.Hour))
+	write("registry.ollama.ai/library/stray", now) // not a manifest: too shallow
+
+	got := ollamaModelsOnDisk(dir)
+	want := []string{"llama3.2:latest", "someone/finetune:v2", "qwen2.5-coder:7b", "hub.example.com/library/other:1b"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("models = %q, want %q", got, want)
+	}
+
+	// Nothing pulled, or no models directory at all, is nothing — not an
+	// error, and not a crash.
+	if got := ollamaModelsOnDisk(t.TempDir()); len(got) != 0 {
+		t.Errorf("models = %q from an empty directory, want none", got)
+	}
+	if got := ollamaModelsOnDisk(""); len(got) != 0 {
+		t.Errorf("models = %q from no directory, want none", got)
+	}
+}
+
+func TestOllamaStartsTheNewestModelOnDiskWithoutTheDaemon(t *testing.T) {
+	// The daemon is not asked when the disk answers: it is often not up
+	// until something needs it, and asking it would name nothing exactly
+	// when a session is starting fresh.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifests", "registry.ollama.ai", "library", "qwen2.5-coder", "7b")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OLLAMA_MODELS", dir)
+	if got := ollamaRun(); got != "ollama run qwen2.5-coder:7b" {
+		t.Errorf("ollamaRun = %q, want the model on disk", got)
 	}
 }
 

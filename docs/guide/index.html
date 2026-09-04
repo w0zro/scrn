@@ -143,7 +143,7 @@
   <p>The mark tells you, from across the list, which projects need attention — the ◆ most of all, since answering it resumes work already underway. The detail pane for a Claude row names what a blocked instance is waiting on, the last thing asked of it, and what it says it is doing.</p>
   <p><b>ctrl-space enter</b> goes to the next agent waiting on you, from any shell. Pressing it again continues around the waiting ones in turn; <b>tab</b> does the same at the list.</p>
   <p>A conversation doesn't end when its instance exits; it's suspended, and the transcript is enough to pick it back up. <b>A</b> on a place lists what's suspended there — sub-projects included — newest first: when each conversation last moved, its branch, and the last thing you asked of it. Letters narrow the list the way the filter does, <b>enter</b> continues the one under the cursor in a shell opened where the conversation was had, and <b>esc</b> closes the list. A conversation an instance is still carrying isn't offered. Every kind that keeps conversations answers the picker, and each is continued by the kind that had it.</p>
-  <p>Other kinds show as plain processes, unmarked. Ollama runs the first model it lists, unless <code class="chip">agentRuns</code> names one.</p>
+  <p>Other kinds show as plain processes, unmarked. Ollama runs the model most recently pulled or run — read from the manifests under <code class="chip">~/.ollama/models</code>, so the pick needs no daemon, though the REPL does and says so when it isn't up — unless <code class="chip">agentRuns</code> names one.</p>
 </section>
 
 <section id="plans">
