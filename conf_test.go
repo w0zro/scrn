@@ -31,7 +31,12 @@ func TestTheConfigurationBindsTheChordsToThisBuild(t *testing.T) {
 		// Then the mode — tmux's own, then the navigator's — and the
 		// navigator's message.
 		"#{?client_prefix,", "#{?pane_in_mode,", "#{?@conn_nav,",
-		"#{?@conn_mode,#{@conn_mode},", "#{@conn_msg}",
+		"#{?@conn_mode,#{@conn_mode},",
+		// The message slot: a chord's note while the clock has not reached
+		// its end, else the navigator's message. The clock is an option
+		// holding %s, which T: expands.
+		"#{?#{e|<:#{T:@conn_now},@conn_until},#{@conn_note},#{@conn_msg}}",
+		`set -g @conn_now "%s"`,
 		// Each mode is a chip on a dark ground of its color with the rest of
 		// the line washed in it, the commas escaped for the conditional.
 		"#[fg=" + tp.green + "#,bg=" + tp.bg2 + "#,bold] PROC #[fg=default#,bg=" + tp.bg1 + "#,fill=" + tp.bg1 + "]",

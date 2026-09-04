@@ -206,3 +206,40 @@ func TestAChordPressesItsKeyAtTheNavigator(t *testing.T) {
 		}
 	}
 }
+
+func TestAChordsNoteTakesTheNavigatorsSlotForAFewSeconds(t *testing.T) {
+	// A chord is a process that is gone in a moment, so its word goes on
+	// the status line beside the navigator's, timed by the line itself:
+	// the note, and the second it is stale.
+	var asked []string
+	run := func(args ...string) (string, error) {
+		asked = append(asked, strings.Join(args, " "))
+		return "", nil
+	}
+	now := time.Unix(1_000_000, 0)
+	if err := announce(run, now, "a starts ollama", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 {
+		t.Fatalf("asked %q, want one command", asked)
+	}
+	for _, want := range []string{
+		"set -g @conn_note " + tmuxStyled(tp.fg, false, " a starts ollama"),
+		"set -g @conn_until 1000004",
+		"refresh-client -S",
+	} {
+		if !strings.Contains(asked[0], want) {
+			t.Errorf("asked %q, want %q in it", asked[0], want)
+		}
+	}
+	// A failure is the same note in red.
+	asked = nil
+	_ = announce(run, now, "no project holds /x", true)
+	if !strings.Contains(asked[0], tmuxStyled(tp.red, false, " no project holds /x")) {
+		t.Errorf("asked %q, want the failure in red", asked[0])
+	}
+	// The note is not the navigator's message: that stays under it.
+	if strings.Contains(asked[0], "@conn_msg") {
+		t.Error("a note overwrote the navigator's own message")
+	}
+}

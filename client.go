@@ -784,7 +784,7 @@ func (s *session) say(t statusText) {
 	}
 	s.saying.ask(t, func(t statusText) {
 		_, _ = s.run("set", "-g", "@conn_mode", t.mode, ";",
-			"set", "-g", "@conn_msg", t.msg, ";",
+			"set", "-g", msgOption, t.msg, ";",
 			"refresh-client", "-S")
 	})
 }

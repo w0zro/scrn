@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 )
@@ -16,9 +18,10 @@ import (
 // configuration, makes sure the home window exists with the navigator down
 // its left, and hands the terminal to tmux. The chords the configuration
 // binds run this same binary with a word — home, shell, agent, run, jump,
-// next, prev, keys — each a short command against the server that says nothing
-// on success: run-shell would put anything printed in front of the user,
-// so a failure is said through display-message.
+// next, prev, keys — each a short command against the server that says
+// nothing on stdout: run-shell would put anything printed in front of the
+// user as a page. What a chord has to say — a failure — goes on the status
+// line, in the navigator's message slot, for a few seconds (announce).
 
 // homeName is what the home window is called.
 const homeName = "conn"
@@ -277,6 +280,23 @@ func runShellAt(dir, command string) error {
 	return err
 }
 
+// announce puts what a chord has to say on the status line, in the slot the
+// navigator's own messages use — after the mode, in the same face, red
+// when it is a failure — for noteFor from now. The navigator's message is
+// under it, untouched, and back when the note goes; the format does the
+// timing, so nothing here has to stay around to clear it.
+func announce(run runner, now time.Time, text string, failed bool) error {
+	color := tp.fg
+	if failed {
+		color = tp.red
+	}
+	until := strconv.FormatInt(now.Add(noteFor).Unix(), 10)
+	_, err := run("set", "-g", noteOption, tmuxStyled(color, false, " "+text), ";",
+		"set", "-g", untilOption, until, ";",
+		"refresh-client", "-S")
+	return err
+}
+
 // runPlanAt is `conn run [dir]`: the plan of the place holding dir, started
 // where it is not already running, each entry in a window of its own.
 func runPlanAt(dir string) error {
@@ -330,15 +350,16 @@ func runPlanAt(dir string) error {
 }
 
 // report says what a chord's command could not do, where the user is
-// looking: the status line. The command itself stays silent on stdout, which
-// run-shell would otherwise put in front of the user as a page. It reports
-// whether the message reached anyone: a chord typed at a terminal with no
-// server to show it is told on stderr instead, and that is a failure.
+// looking: the status line, in the navigator's message slot. The command
+// itself stays silent on stdout, which run-shell would otherwise put in
+// front of the user as a page. It reports whether the message reached
+// anyone: a chord typed at a terminal with no server to show it is told on
+// stderr instead, and that is a failure.
 func report(err error) bool {
 	if err == nil {
 		return true
 	}
-	if _, told := tmuxCommand("display-message", "conn: "+err.Error()); told != nil {
+	if told := announce(tmuxCommand, time.Now(), err.Error(), true); told != nil {
 		fmt.Fprintf(os.Stderr, "conn: %v\n", err)
 		return false
 	}

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // conn is a tmux client. The terminal attaches to conn's private server the
@@ -94,6 +95,10 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		// program knows there is one to speak to.
 		"set -g allow-passthrough on",
 		"set -g display-time 3000",
+		// The clock the status line reads to know whether a chord's note
+		// is still current: T: expands an option's strftime specifiers,
+		// and this option is the one specifier the format needs.
+		`set -g `+nowOption+` "%s"`,
 		"",
 		"# The home window: the navigator down the left at its width, the shell",
 		"# under its cursor filling the right. The layout is re-applied on every",
@@ -109,8 +114,9 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 		"# The status line: conn's name, then the mode the keys are in — the",
 		"# prefix while a chord hangs, copy mode, the navigator's own when it",
 		"# has one to name, else which pane the keys are in — then what the",
-		"# navigator says. The window list tmux would draw is turned off: the windows",
-		"# are where shells wait, and the navigator is the list of them.",
+		"# navigator says, or — for a few seconds, over it — what a chord said.",
+		"# The window list tmux would draw is turned off: the windows are where",
+		"# shells wait, and the navigator is the list of them.",
 		"set -g status on",
 		"set -g status-position bottom",
 		"set -g status-interval 1",
@@ -129,6 +135,30 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 	return b.String()
 }
 
+// The status line's message slot is shared. The navigator writes msgOption
+// and keeps it until its next key; a chord — a different process, done in
+// a moment — writes noteOption with untilOption beside it, the second the
+// note is stale, and the format shows the note over the message while the
+// clock has not reached it. Nothing has to clear the note, and the
+// navigator's message is back under it when it goes.
+const (
+	msgOption   = "@conn_msg"
+	noteOption  = "@conn_note"
+	untilOption = "@conn_until"
+	nowOption   = "@conn_now" // holds %s, so #{T:@conn_now} is the time
+)
+
+// noteFor is how long a chord's note stands: display-time's three seconds
+// and one more, since the line ticks once a second and a note set late in
+// one loses most of it.
+const noteFor = 4 * time.Second
+
+// messageSlot is the status line's message slot: a chord's note while one is
+// current, else what the navigator said.
+func messageSlot() string {
+	return "#{?#{e|<:#{T:" + nowOption + "}," + untilOption + "},#{" + noteOption + "},#{" + msgOption + "}}"
+}
+
 // statusLeft is the status line's format: conn's name, the mode, then the
 // message. The name is first and always there — the line is where conn
 // says its own, now that the column is the list alone. tmux knows most of the modes itself — the prefix, copy mode, which pane
@@ -137,7 +167,8 @@ func tmuxConf(conn string, scrollback, navWidth int) string {
 // mode of a shell. What the navigator has to say is in @conn_msg. Each
 // mode is a chip in its color with the line washed one tone after it:
 // amber for the prefix, green for a process, cyan for copy mode, and the
-// navigator in ink — home is not a state.
+// navigator in ink — home is not a state. The message after the mode is
+// the navigator's, or a chord's note over it while the note is fresh.
 func statusLeft() string {
 	// A chip stands inside a conditional, where a comma would split the
 	// alternatives, so the styles' commas are escaped.
@@ -148,5 +179,5 @@ func statusLeft() string {
 		",#{?pane_in_mode," + chip(tp.cyan, "COPY") +
 		",#{?@conn_nav,#{?@conn_mode,#{@conn_mode}," + chip(tp.fg, "NAV") + "}," +
 		chip(tp.green, "PROC") + "}}}"
-	return brandChip() + mode + "#{@conn_msg}"
+	return brandChip() + mode + messageSlot()
 }
