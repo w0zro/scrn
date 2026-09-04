@@ -57,7 +57,14 @@ type agent interface {
 // row that says node is still a claude — what the session file advertises
 // is believed when the process table can agree with it either way.
 func runs(a agent, n *ProcNode) bool {
-	name := a.command()
+	return commandRuns(a.command(), n)
+}
+
+// commandRuns is the process-table half of runs, by the command name alone:
+// the process is that command, or an interpreter running a script named for
+// it. It is what a kind is spotted by too, where no live instance is in hand
+// — the row's name — so it stands on its own.
+func commandRuns(name string, n *ProcNode) bool {
 	if n.Command == name {
 		return true
 	}
@@ -71,6 +78,56 @@ func runs(a agent, n *ProcNode) bool {
 		}
 	}
 	return false
+}
+
+// agentKindOf is the kind of agent a process is an instance of, if any: the
+// registry's first kind whose command the process runs. It is how a row
+// knows to name itself for the kind rather than the invocation, and it
+// answers for a kind that advertises nothing — an ollama REPL — the same as
+// for one that does.
+func agentKindOf(n *ProcNode) (agentKind, bool) {
+	for _, k := range agentKinds {
+		if commandRuns(k.command, n) {
+			return k, true
+		}
+	}
+	return agentKind{}, false
+}
+
+// agentLabel names an agent row: the kind, and the model its invocation
+// names when it names one. "claude --resume <id>" is just claude; "ollama
+// run mistral" is "ollama · mistral"; "ollama launch claude --model
+// gemma4-code" is "ollama · gemma4-code". The invocation in full — the
+// resume id, the flags — is the detail pane's to keep, not the row's.
+func agentLabel(k agentKind, argv string) string {
+	if model := agentModel(argv); model != "" {
+		return k.name + " · " + model
+	}
+	return k.name
+}
+
+// agentModel is the model an agent invocation names, or nothing. It reads
+// the two ways the kinds conn knows say it: a --model (or -m) flag, and
+// ollama's bare `run <model>`. A flag's value can be joined with = or stand
+// beside it; the run form's model is the next word, when that word is not
+// itself a flag.
+func agentModel(argv string) string {
+	fields := strings.Fields(argv)
+	for i, f := range fields {
+		switch {
+		case strings.HasPrefix(f, "--model="):
+			return strings.TrimPrefix(f, "--model=")
+		case f == "--model" || f == "-m":
+			if i+1 < len(fields) {
+				return fields[i+1]
+			}
+		case f == "run":
+			if i+1 < len(fields) && !strings.HasPrefix(fields[i+1], "-") {
+				return fields[i+1]
+			}
+		}
+	}
+	return ""
 }
 
 // agentKind is one kind of agent conn knows: how to spot its processes, what

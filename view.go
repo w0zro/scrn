@@ -253,12 +253,20 @@ func (m model) renderRow(r navRow, selected bool) string {
 func (m model) rowLabel(r navRow) string {
 	name := commandOf(r.node)
 
-	// A shell a project asked for is called what the project calls it, unless
-	// what is running in it says more. "dev" is a fine name for a plan entry
-	// and a poor one for a row: "npm run dev" is the same thing said usefully,
-	// and it is what a shell started by hand would show. A shell sitting at a
-	// prompt has nothing better to offer, so there the name stands.
-	if planned := m.plannedName(r); planned != "" && !tellsMore(name, planned) {
+	// An agent reads as what it is, not how it was invoked: the kind, and
+	// the model when the invocation names one. The resume id, the launcher,
+	// the flags are the detail pane's to keep. This stands ahead of the
+	// plan's name — an agent is named for its kind, not the entry that
+	// happened to start it.
+	if k, ok := agentKindOf(r.node); ok {
+		name = agentLabel(k, r.node.Argv)
+	} else if planned := m.plannedName(r); planned != "" && !tellsMore(name, planned) {
+		// A shell a project asked for is called what the project calls it,
+		// unless what is running in it says more. "dev" is a fine name for a
+		// plan entry and a poor one for a row: "npm run dev" is the same thing
+		// said usefully, and it is what a shell started by hand would show. A
+		// shell sitting at a prompt has nothing better to offer, so there the
+		// name stands.
 		name = planned
 	}
 

@@ -267,3 +267,61 @@ func TestAnInterpreterRunningTheAgentIsTheAgent(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAgentRowIsNamedForItsKindAndModel(t *testing.T) {
+	// The registry conn ships: claude, and an ollama that advertises nothing.
+	withKinds(t, []agentKind{
+		{name: "claude", command: "claude"},
+		{name: "ollama", command: "ollama"},
+	}, "", nil)
+
+	cases := []struct {
+		name string
+		proc Proc
+		kind string // "" when the process is no agent
+		want string // agentLabel, when it is one
+	}{
+		{"a resume is just the kind", Proc{Command: "claude", Argv: "claude --resume f35e994b-04fe"}, "claude", "claude"},
+		{"claude with a model", Proc{Command: "claude", Argv: "claude --model gemma4-code"}, "claude", "claude · gemma4-code"},
+		{"ollama launching claude", Proc{Command: "ollama", Argv: "ollama launch claude --yes --model gemma4-code"}, "ollama", "ollama · gemma4-code"},
+		{"ollama run names the model", Proc{Command: "ollama", Argv: "ollama run mistral"}, "ollama", "ollama · mistral"},
+		{"a bare repl is just the kind", Proc{Command: "ollama", Argv: "ollama"}, "ollama", "ollama"},
+		{"npm's node claude", Proc{Command: "node", Argv: "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js"}, "claude", "claude"},
+		{"a plain process is no agent", Proc{Command: "node", Argv: "node server.js"}, "", ""},
+	}
+	for _, c := range cases {
+		n := &ProcNode{Proc: c.proc}
+		k, ok := agentKindOf(n)
+		if (c.kind != "") != ok {
+			t.Errorf("%s: agentKindOf ok = %v, want %v", c.name, ok, c.kind != "")
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if k.name != c.kind {
+			t.Errorf("%s: kind = %q, want %q", c.name, k.name, c.kind)
+		}
+		if got := agentLabel(k, c.proc.Argv); got != c.want {
+			t.Errorf("%s: agentLabel = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestTheModelIsReadFromEitherFormOrNeither(t *testing.T) {
+	cases := map[string]string{
+		"ollama run mistral":               "mistral",
+		"claude --model gemma4-code":       "gemma4-code",
+		"conn --model=gpt-oss":             "gpt-oss",
+		"x -m tiny":                        "tiny",
+		"ollama launch claude --model big": "big",
+		"claude --resume f35e994b-04fe":    "",
+		"ollama run":                       "", // nothing named
+		"ollama run --verbose":             "", // the next word is a flag, not a model
+	}
+	for argv, want := range cases {
+		if got := agentModel(argv); got != want {
+			t.Errorf("agentModel(%q) = %q, want %q", argv, got, want)
+		}
+	}
+}
